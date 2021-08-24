@@ -80,6 +80,8 @@ the default Visual Studio style. See [clang-format style options](
 http://releases.llvm.org/3.6.0/tools/clang/docs/ClangFormatStyleOptions.html)
 for details.
 
+Note: For consistent formattting please use this version of [Clang/LLVM for Windows 64-bit](https://github.com/llvm/llvm-project/releases/download/llvmorg-8.0.1/LLVM-8.0.1-win64.exe).
+
 ### License Header
 
 The following license header **must** be included at the top of every code file:
