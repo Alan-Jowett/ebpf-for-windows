@@ -37,7 +37,7 @@ ebpf_platform_terminate()
 __drv_allocatesMem(Mem) _Must_inspect_result_ _Ret_maybenull_
     _Post_writable_byte_size_(size) void* ebpf_allocate(size_t size)
 {
-    void* p = ExAllocatePool(NonPagedPoolNx, size, EBPF_POOL_TAG);
+    void* p = ExAllocatePoolZero(NonPagedPoolNx, size, EBPF_POOL_TAG);
     if (p)
         memset(p, 0, size);
     return p;
@@ -53,7 +53,7 @@ ebpf_free(_Frees_ptr_opt_ void* memory)
 __drv_allocatesMem(Mem) _Must_inspect_result_ _Ret_maybenull_
     _Post_writable_byte_size_(size) void* ebpf_allocate_cache_aligned(size_t size)
 {
-    void* p = ExAllocatePool(NonPagedPoolNxCacheAligned, size, EBPF_POOL_TAG);
+    void* p = ExAllocatePoolZero(NonPagedPoolNxCacheAligned, size, EBPF_POOL_TAG);
     if (p)
         memset(p, 0, size);
     return p;
