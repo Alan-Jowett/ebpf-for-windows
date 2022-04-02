@@ -16,7 +16,49 @@ The following must be installed in order to build this project:
    
 You should add the paths to `git.exe`, `cmake.exe` and `nuget.exe` to the Windows PATH environment variable after the software packages above have been installed.
 
-## How to clone and build the project
+## How to clone and build the project using CMake
+
+### Cloning the project
+```bash
+git clone --recurse-submodules https://github.com/microsoft/ebpf-for-windows.git
+```
+
+### Configuring the project
+
+```bash
+cmake -S ebpf-for-windows -B build
+```
+
+### Building the project
+
+Configuration: It is advised to use the Debug configuration for now.
+
+```bash
+cmake --build build --config <Configuration>
+```
+
+### Running the tests
+
+Configure with the `EBPFFORWINDOWS_ENABLE_TESTS` option (enabled by default)
+
+```bash
+cmake -S ebpf-for-windows -B build -DEBPFFORWINDOWS_ENABLE_TESTS=true
+```
+
+Then build the tests
+
+```bash
+cmake -S ebpf-for-windows -B build
+```
+
+Finally, invoke CTest:
+
+```
+cd build
+ctest -V -C Debug
+```
+
+## How to clone and build the project using Visual Studio
 This section outlines the steps to build, prepare and build the eBPF-For-Windows project.
 
 ### Cloning the project

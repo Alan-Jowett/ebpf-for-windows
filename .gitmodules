@@ -20,3 +20,6 @@
 [submodule "external/parcon"]
 	path = external/parcon
 	url = https://github.com/javawizard/parcon.git
+[submodule "external/FindWDK"]
+	path = external/FindWDK
+	url = https://github.com/SergiusTheBest/FindWDK

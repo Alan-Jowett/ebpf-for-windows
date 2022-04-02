@@ -1,0 +1,40 @@
+# Copyright (c) Microsoft Corporation
+# SPDX-License-Identifier: MIT
+
+add_library("test_util" STATIC
+  capture_helper.cpp
+
+  dll_metadata_table.h
+  dll_metadata_table.cpp
+
+  netsh_helper.cpp
+
+  program_helper.h
+  program_helper.cpp
+
+  service_helper.h
+  service_helper.cpp
+)
+
+target_include_directories("test_util" PRIVATE
+  "${CMAKE_SOURCE_DIR}/libs/api_common"
+  "${CMAKE_SOURCE_DIR}/libs/ebpfnetsh"
+  "${CMAKE_SOURCE_DIR}/libs/execution_context"
+  "${CMAKE_SOURCE_DIR}/include"
+  "${CMAKE_SOURCE_DIR}/libs/platform"
+  "${CMAKE_SOURCE_DIR}/libs/platform/user"
+  "${CMAKE_SOURCE_DIR}/tests/end_to_end"
+  "${CMAKE_SOURCE_DIR}/tests/sample/ext/inc"
+  "${CMAKE_SOURCE_DIR}//netebpfext"
+  "${CMAKE_SOURCE_DIR}/libs/thunk"
+)
+
+target_link_libraries("test_util" PRIVATE
+  "ebpf_for_windows_cxx_settings"
+  "Catch2::Catch2"
+)
+
+target_compile_definitions("test_util" PRIVATE
+  _UNICODE
+  _LIB
+)
