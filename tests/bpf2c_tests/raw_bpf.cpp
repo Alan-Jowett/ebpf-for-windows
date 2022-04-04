@@ -7,11 +7,11 @@
 #define NUGET_CATCH
 #include "catch_wrapper.hpp"
 
-#define SEPERATOR "/"
-#define CC "g++"
+#define SEPERATOR "\\"
+#define CC "clang"
 #define CXXFLAG "-g -O2"
-#define EXT ".out"
-#define PYTHON "python3"
+#define EXT ".exe"
+#define PYTHON ".\\python.exe -u "
 
 void
 run_test(const std::string& data_file)
