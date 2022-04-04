@@ -113,6 +113,8 @@ run_test(const std::string& data_file)
                                                 "bin" SEPERATOR "ubpf-assembler <") +
                                     std::string(temp_asm_name) + std::string(" >") + std::string(prefix) +
                                     std::string(".bc");
+
+    std::cout << "Running: " << assembler_command << std::endl;
     REQUIRE(system(assembler_command.c_str()) == 0);
 
     std::ifstream bytcode_in(std::string(prefix) + std::string(".bc"), std::ios_base::in | std::ios_base::binary);
@@ -139,9 +141,11 @@ run_test(const std::string& data_file)
                                   std::string(" -I .." SEPERATOR ".." SEPERATOR "include ") + std::string(prefix) +
                                   std::string(".c ") + std::string(" bpf_test.cpp >") + std::string(prefix) +
                                   std::string(".log");
+    std::cout << "Running: " << compile_command << std::endl;
     REQUIRE(system(compile_command.c_str()) == 0);
     std::string test_command = std::string("." SEPERATOR) + std::string(prefix) + std::string(" ") +
                                std::string(result) + std::string(" \"") + std::string(mem) + std::string("\"");
+    std::cout << "Running: " << test_command << std::endl;
     REQUIRE(system(test_command.c_str()) == 0);
 }
 
