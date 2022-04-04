@@ -38,6 +38,8 @@ target_compile_definitions("EbpfCore" PRIVATE
   POOL_NX_OPTIN_AUTO
 )
 
+codeSign("EbpfCore")
+
 if(EBPFFORWINDOWS_ENABLE_INSTALL)
   install(
     TARGETS "EbpfCore"

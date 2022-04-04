@@ -44,6 +44,8 @@ target_compile_definitions("EbpfApi" PRIVATE
   _USRDLL
 )
 
+codeSign("EbpfApi")
+
 if(EBPFFORWINDOWS_ENABLE_INSTALL)
   # Only install the .dll file, without the .lib
   install(

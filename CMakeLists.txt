@@ -7,6 +7,7 @@ project("ebpf-for-windows")
 include("cmake/options.cmake")
 include("cmake/settings.cmake")
 include("cmake/git_commit.cmake")
+include("cmake/codesign.cmake")
 
 list(APPEND CMAKE_MODULE_PATH
   "${CMAKE_SOURCE_DIR}/external/FindWDK/cmake"

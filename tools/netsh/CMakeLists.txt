@@ -37,6 +37,8 @@ target_compile_definitions("ebpfnetsh" PRIVATE
   _USRDLL
 )
 
+codeSign("ebpfnetsh")
+
 if(EBPFFORWINDOWS_ENABLE_INSTALL)
   # Only install the .dll file, without the .lib
   install(

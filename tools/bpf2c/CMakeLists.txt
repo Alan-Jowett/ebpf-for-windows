@@ -29,6 +29,8 @@ target_compile_definitions("bpf2c" PRIVATE
   _CONSOLE
 )
 
+codeSign("bpf2c")
+
 function(generateTemplate source_file_name)
   find_program(powershell_path "powershell" REQUIRED)
 

@@ -48,6 +48,8 @@ target_compile_definitions("ebpfsvc" PRIVATE
   _USRDLL
 )
 
+codeSign("ebpfsvc")
+
 if(EBPFFORWINDOWS_ENABLE_INSTALL)
   install(
     TARGETS "ebpfsvc"

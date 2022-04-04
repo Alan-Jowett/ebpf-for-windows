@@ -50,6 +50,8 @@ target_compile_definitions("NetEbpfExt" PRIVATE
   POOL_NX_OPTIN_AUTO
 )
 
+codeSign("NetEbpfExt")
+
 if(EBPFFORWINDOWS_ENABLE_INSTALL)
   install(
     TARGETS "NetEbpfExt"

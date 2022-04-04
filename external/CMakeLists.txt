@@ -91,6 +91,8 @@ target_link_libraries("bpftool" PRIVATE
 
 add_executable("external::bpftool" ALIAS "bpftool")
 
+codeSign("bpftool")
+
 if(EBPFFORWINDOWS_ENABLE_INSTALL)
   install(
     TARGETS "bpftool"
