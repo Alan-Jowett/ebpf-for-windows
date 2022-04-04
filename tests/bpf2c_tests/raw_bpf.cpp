@@ -8,8 +8,8 @@
 #include "catch_wrapper.hpp"
 
 #define SEPERATOR "\\"
-#define CC "clang"
-#define CXXFLAG "-g -O2"
+#define CC "cl"
+#define CXXFLAG "/EHsc"
 #define EXT ".exe"
 #define PYTHON ".\\python.exe -u "
 
@@ -117,10 +117,9 @@ run_test(const std::string& data_file)
     c_file.flush();
     c_file.close();
 
-    std::string compile_command = std::string(CC " " CXXFLAG " -I.." SEPERATOR ".." SEPERATOR "include ") +
+    std::string compile_command = std::string(CC " " CXXFLAG " -I .." SEPERATOR ".." SEPERATOR "include ") +
                                   std::string(prefix) + std::string(".c ") + std::string(" bpf_test.cpp >") +
-                                  std::string(prefix) + std::string(".log -o ") + std::string(prefix) +
-                                  std::string(EXT);
+                                  std::string(prefix) + std::string(".log");
     REQUIRE(system(compile_command.c_str()) == 0);
     std::string test_command = std::string("." SEPERATOR) + std::string(prefix) + std::string(EXT) + std::string(" ") +
                                std::string(result) + std::string(" \"") + std::string(mem) + std::string("\"");
