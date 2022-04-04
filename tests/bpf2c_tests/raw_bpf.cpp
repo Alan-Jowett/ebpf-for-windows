@@ -10,7 +10,7 @@
 #define CC "cl"
 #define CXXFLAG "/EHsc"
 #define EXT ".exe"
-#define PYTHON ".\\python.exe -u "
+#define PYTHON "python.exe -u "
 
 void
 run_test(const std::string& data_file)
