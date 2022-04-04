@@ -47,7 +47,7 @@ jobs:
         echo "C:\Python27\python.exe" >> $env:GITHUB_PATH
         echo "C:\ProgramData\chocolatey\bin\procdump.exe" >> $env:GITHUB_PATH
         echo "C:\Program Files\OpenCppCoverage" >> $env:GITHUB_PATH
-        mklink ${{env.BUILD_PLATFORM}}\${{env.BUILD_CONFIGURATION}}\python.exe C:\Python27\python.exe
+        New-Item -ItemType SymbolicLink -Path python.exe -Target C:\Python27\python.exe
 
     - name: Set AeDebug registry key
       working-directory: c:/dumps/${{env.BUILD_PLATFORM}}/${{env.BUILD_CONFIGURATION}}
