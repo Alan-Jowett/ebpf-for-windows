@@ -52,6 +52,7 @@ jobs:
     - name: Set AeDebug registry key
       working-directory: c:/dumps/${{env.BUILD_PLATFORM}}/${{env.BUILD_CONFIGURATION}}
       run: |
+        mkdir c:/dumps/${{env.BUILD_PLATFORM}}/${{env.BUILD_CONFIGURATION}}
         procdump64.exe -accepteula -i -r -ma c:/dumps/${{env.BUILD_PLATFORM}}/${{env.BUILD_CONFIGURATION}}
 
     - name: Restore NuGet packages
