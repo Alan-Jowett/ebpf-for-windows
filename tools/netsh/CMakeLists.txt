@@ -22,7 +22,7 @@ target_include_directories("ebpfnetsh" PRIVATE
 )
 
 target_link_libraries("ebpfnetsh" PRIVATE
-  "ebpf_for_windows_cxx_settings"
+  "ebpf_for_windows_common_settings"
   "netsh_static"
   "EbpfApi"
   "git_commit_id"
@@ -36,3 +36,14 @@ target_compile_definitions("ebpfnetsh" PRIVATE
   _WINDOWS
   _USRDLL
 )
+
+if(EBPFFORWINDOWS_ENABLE_INSTALL)
+  # Only install the .dll file, without the .lib
+  install(
+    TARGETS "ebpfnetsh"
+
+    RUNTIME
+      DESTINATION "."
+      COMPONENT Runtime
+  )
+endif()

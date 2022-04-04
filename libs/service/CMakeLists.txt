@@ -26,7 +26,7 @@ target_include_directories("service" PRIVATE
 )
 
 target_link_libraries("service" PRIVATE
-  "ebpf_for_windows_cxx_settings"
+  "ebpf_for_windows_common_settings"
   "rpc_interface"
   "ebpf_bind_program_data"
   "external::boost"

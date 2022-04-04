@@ -33,7 +33,7 @@ target_include_directories("ebpf_performance" PRIVATE
 )
 
 target_link_libraries("ebpf_performance" PRIVATE
-  "ebpf_for_windows_cxx_settings"
+  "ebpf_for_windows_common_settings"
   "execution_context_user"
   "platform_user"
   "ubpf_user"

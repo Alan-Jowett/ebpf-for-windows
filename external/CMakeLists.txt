@@ -85,8 +85,15 @@ target_compile_definitions("bpftool" PRIVATE
 
 target_link_libraries("bpftool" PRIVATE
   "ebpf_for_windows_external_settings"
-  "ebpf_for_windows_c_settings"
+  "ebpf_for_windows_common_settings"
   "EbpfApi"
 )
 
 add_executable("external::bpftool" ALIAS "bpftool")
+
+if(EBPFFORWINDOWS_ENABLE_INSTALL)
+  install(
+    TARGETS "bpftool"
+    DESTINATION "."
+  )
+endif()

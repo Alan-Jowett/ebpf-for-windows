@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation
 # SPDX-License-Identifier: MIT
 
-add_library("api"
+add_library("api" STATIC
   ../thunk/platform.h
 
   api_internal.h
@@ -39,7 +39,7 @@ target_include_directories("api" PRIVATE
 )
 
 target_link_libraries("api" PRIVATE
-  "ebpf_for_windows_cxx_settings"
+  "ebpf_for_windows_common_settings"
   "rpc_interface"
   "ebpf_bind_program_data"
   "external::ebpfverifier"

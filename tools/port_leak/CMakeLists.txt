@@ -6,7 +6,7 @@ add_executable("port_leak"
 )
 
 target_link_libraries("port_leak" PRIVATE
-  "ebpf_for_windows_cxx_settings"
+  "ebpf_for_windows_common_settings"
   "ws2_32.lib"
 )
 

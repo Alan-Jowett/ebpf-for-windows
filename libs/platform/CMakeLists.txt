@@ -121,7 +121,7 @@ target_include_directories("platform_user" PRIVATE
 )
 
 target_link_libraries("platform_user" PRIVATE
-  "ebpf_for_windows_c_settings"
+  "ebpf_for_windows_common_settings"
   "ebpf_program_types_interface"
 )
 
@@ -149,6 +149,7 @@ target_include_directories("platform_kernel" PRIVATE
 )
 
 target_link_libraries("platform_kernel" PRIVATE
+  "ebpf_for_windows_common_settings"
   "ebpf_program_types_interface"
 )
 

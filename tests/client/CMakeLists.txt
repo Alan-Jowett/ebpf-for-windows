@@ -22,7 +22,7 @@ target_include_directories("ebpf_client" PRIVATE
 )
 
 target_link_libraries("ebpf_client" PRIVATE
-  "ebpf_for_windows_cxx_settings"
+  "ebpf_for_windows_common_settings"
   "external::ebpfverifier"
   "api"
   "api_common"

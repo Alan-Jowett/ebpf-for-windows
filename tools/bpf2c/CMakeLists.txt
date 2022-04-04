@@ -20,7 +20,7 @@ target_include_directories("bpf2c" PRIVATE
 )
 
 target_link_libraries("bpf2c" PRIVATE
-  "ebpf_for_windows_cxx_settings"
+  "ebpf_for_windows_common_settings"
   "EbpfApi"
   "external::ebpfverifier"
 )
@@ -74,3 +74,10 @@ generateTemplate("bpf2c_dll")
 target_link_libraries("bpf2c" PRIVATE
   "bpf2c_dll"
 )
+
+if(EBPFFORWINDOWS_ENABLE_INSTALL)
+  install(
+    TARGETS "bpf2c"
+    DESTINATION "."
+  )
+endif()

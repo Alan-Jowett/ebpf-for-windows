@@ -6,7 +6,7 @@ add_executable("dnsflood"
 )
 
 target_link_libraries("dnsflood" PRIVATE
-  "ebpf_for_windows_cxx_settings"
+  "ebpf_for_windows_common_settings"
 )
 
 target_compile_definitions("dnsflood" PRIVATE

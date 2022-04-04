@@ -7,12 +7,8 @@ target_compile_definitions("ebpf_for_windows_common_settings" INTERFACE
   $<$<CONFIG:Debug>:NDEBUG>
 )
 
-add_library("ebpf_for_windows_cxx_settings" INTERFACE)
-target_link_libraries("ebpf_for_windows_cxx_settings" INTERFACE
-  "ebpf_for_windows_common_settings"
-)
-
-add_library("ebpf_for_windows_c_settings" INTERFACE)
-target_link_libraries("ebpf_for_windows_c_settings" INTERFACE
-  "ebpf_for_windows_common_settings"
-)
+if(EBPFFORWINDOWS_ENABLE_DISABLE_EBPF_INTERPRETER)
+  target_compile_definitions("ebpf_for_windows_common_settings" INTERFACE
+    CONFIG_BPF_JIT_ALWAYS_ON=1
+  )
+endif()

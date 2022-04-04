@@ -20,7 +20,7 @@ target_include_directories("api_test" PRIVATE
 )
 
 target_link_libraries("api_test" PRIVATE
-  "ebpf_for_windows_cxx_settings"
+  "ebpf_for_windows_common_settings"
   "common_tests"
   "EbpfApi"
   "rpc_interface"

@@ -23,7 +23,7 @@ target_include_directories("bpf2c_tests" PRIVATE
 )
 
 target_link_libraries("bpf2c_tests" PRIVATE
-  "ebpf_for_windows_cxx_settings"
+  "ebpf_for_windows_common_settings"
 )
 
 target_compile_definitions("bpf2c_tests" PRIVATE

@@ -6,7 +6,7 @@ add_executable("port_quota"
 )
 
 target_link_libraries("port_quota" PRIVATE
-  "ebpf_for_windows_cxx_settings"
+  "ebpf_for_windows_common_settings"
   "EbpfApi"
 )
 

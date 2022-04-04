@@ -20,7 +20,7 @@ target_include_directories("xdp_tests" PRIVATE
 )
 
 target_link_libraries("xdp_tests" PRIVATE
-  "ebpf_for_windows_cxx_settings"
+  "ebpf_for_windows_common_settings"
   "common_tests"
   "EbpfApi"
   "test_util"

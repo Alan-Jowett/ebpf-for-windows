@@ -30,7 +30,7 @@ target_include_directories("ebpfsvc" PRIVATE
 )
 
 target_link_libraries("ebpfsvc" PRIVATE
-  "ebpf_for_windows_cxx_settings"
+  "ebpf_for_windows_common_settings"
   "api_common"
   "platform_user"
   "rpc_interface"
@@ -47,3 +47,10 @@ target_compile_definitions("ebpfsvc" PRIVATE
   _WINDOWS
   _USRDLL
 )
+
+if(EBPFFORWINDOWS_ENABLE_INSTALL)
+  install(
+    TARGETS "ebpfsvc"
+    DESTINATION "."
+  )
+endif()

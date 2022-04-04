@@ -34,6 +34,7 @@ target_link_directories("NetEbpfExt" PRIVATE
 )
 
 target_link_libraries("NetEbpfExt"
+  "ebpf_for_windows_common_settings"
   "Ndis.lib"
   "Netio.lib"
   "Fwpkclnt.lib"
@@ -48,3 +49,15 @@ target_compile_definitions("NetEbpfExt" PRIVATE
   NDIS60
   POOL_NX_OPTIN_AUTO
 )
+
+if(EBPFFORWINDOWS_ENABLE_INSTALL)
+  install(
+    TARGETS "NetEbpfExt"
+    DESTINATION "drivers"
+  )
+
+  install(
+    FILES "netebpfext.inf"
+    DESTINATION "drivers"
+  )
+endif()

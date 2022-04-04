@@ -30,7 +30,7 @@ target_include_directories("test_util" PRIVATE
 )
 
 target_link_libraries("test_util" PRIVATE
-  "ebpf_for_windows_cxx_settings"
+  "ebpf_for_windows_common_settings"
   "Catch2::Catch2"
 )
 

@@ -21,6 +21,7 @@ target_link_directories("EbpfCore" PRIVATE
 )
 
 target_link_libraries("EbpfCore"
+  "ebpf_for_windows_common_settings"
   "execution_context_kernel"
   "platform_kernel"
   "ubpf_kernel"
@@ -36,3 +37,15 @@ target_compile_definitions("EbpfCore" PRIVATE
   NDIS60
   POOL_NX_OPTIN_AUTO
 )
+
+if(EBPFFORWINDOWS_ENABLE_INSTALL)
+  install(
+    TARGETS "EbpfCore"
+    DESTINATION "drivers"
+  )
+
+  install(
+    FILES "EbpfCore.inf"
+    DESTINATION "drivers"
+  )
+endif()

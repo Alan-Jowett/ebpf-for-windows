@@ -14,7 +14,7 @@ target_include_directories("encode_program_info" PRIVATE
 )
 
 target_link_libraries("encode_program_info" PRIVATE
-  "ebpf_for_windows_cxx_settings"
+  "ebpf_for_windows_common_settings"
   "execution_context_user"
   "platform_user"
   "Kernel32.lib"

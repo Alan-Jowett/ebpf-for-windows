@@ -25,7 +25,7 @@ target_include_directories("EbpfApi" PRIVATE
 )
 
 target_link_libraries("EbpfApi" PRIVATE
-  "ebpf_for_windows_cxx_settings"
+  "ebpf_for_windows_common_settings"
   "api"
   "api_common"
   "external::ebpfverifier"
@@ -43,3 +43,14 @@ target_compile_definitions("EbpfApi" PRIVATE
   _WINDOWS
   _USRDLL
 )
+
+if(EBPFFORWINDOWS_ENABLE_INSTALL)
+  # Only install the .dll file, without the .lib
+  install(
+    TARGETS "EbpfApi"
+
+    RUNTIME
+      DESTINATION "."
+      COMPONENT Runtime
+  )
+endif()

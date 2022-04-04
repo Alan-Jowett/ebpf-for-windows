@@ -43,7 +43,7 @@ target_include_directories("unit_tests" PRIVATE
 )
 
 target_link_libraries("unit_tests" PRIVATE
-  "ebpf_for_windows_cxx_settings"
+  "ebpf_for_windows_common_settings"
   "api"
   "api_common"
   "Catch2::Catch2WithMain"

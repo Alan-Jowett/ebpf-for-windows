@@ -22,6 +22,7 @@ add_subdirectory("tools")
 add_subdirectory("ebpfsvc")
 add_subdirectory("netebpfext")
 add_subdirectory("ebpfcore")
+add_subdirectory("scripts")
 
 if(EBPFFORWINDOWS_ENABLE_TESTS)
   include("CTest")
