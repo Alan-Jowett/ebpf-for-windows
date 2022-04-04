@@ -3,18 +3,36 @@
 
 #define CATCH_CONFIG_MAIN
 
+#include <cstdlib>
+
 #include "bpf_code_generator.h"
 #include "catch_wrapper.hpp"
 
 #define SEPERATOR "\\"
-#define CC "cl"
-#define CXXFLAG "/EHsc"
-#define EXT ".exe"
-#define PYTHON "C:\\Python27\\python.exe -u "
+
+std::string
+env_or_default(const char* environment_variable, const char* default_value)
+{
+    std::string return_value = default_value;
+    char* buffer = nullptr;
+    size_t buffer_size = 0;
+    if (_dupenv_s(&buffer, &buffer_size, environment_variable) == 0) {
+        if (buffer != nullptr) {
+            return_value = buffer;
+        }
+        free(buffer);
+    }
+
+    return return_value;
+}
 
 void
 run_test(const std::string& data_file)
 {
+    std::string python = env_or_default("PYTHON", "python.exe");
+    std::string cc = env_or_default("CC", "cl.exe");
+    std::string cxxflags = env_or_default("CXXFLAGS", "/EHsc");
+
     enum class _state
     {
         state_ignore,
@@ -90,8 +108,9 @@ run_test(const std::string& data_file)
         result = result.substr(result.find("0x") + 2);
     }
 
-    std::string assembler_command = std::string(PYTHON " .." SEPERATOR ".." SEPERATOR "external" SEPERATOR
-                                                       "ubpf" SEPERATOR "bin" SEPERATOR "ubpf-assembler <") +
+    std::string assembler_command = python +
+                                    std::string(" .." SEPERATOR ".." SEPERATOR "external" SEPERATOR "ubpf" SEPERATOR
+                                                "bin" SEPERATOR "ubpf-assembler <") +
                                     std::string(temp_asm_name) + std::string(" >") + std::string(prefix) +
                                     std::string(".bc");
     REQUIRE(system(assembler_command.c_str()) == 0);
@@ -116,11 +135,12 @@ run_test(const std::string& data_file)
     c_file.flush();
     c_file.close();
 
-    std::string compile_command = std::string(CC " " CXXFLAG " -I .." SEPERATOR ".." SEPERATOR "include ") +
-                                  std::string(prefix) + std::string(".c ") + std::string(" bpf_test.cpp >") +
-                                  std::string(prefix) + std::string(".log");
+    std::string compile_command = cc + std::string(" ") + cxxflags +
+                                  std::string(" -I .." SEPERATOR ".." SEPERATOR "include ") + std::string(prefix) +
+                                  std::string(".c ") + std::string(" bpf_test.cpp >") + std::string(prefix) +
+                                  std::string(".log");
     REQUIRE(system(compile_command.c_str()) == 0);
-    std::string test_command = std::string("." SEPERATOR) + std::string(prefix) + std::string(EXT) + std::string(" ") +
+    std::string test_command = std::string("." SEPERATOR) + std::string(prefix) + std::string(" ") +
                                std::string(result) + std::string(" \"") + std::string(mem) + std::string("\"");
     REQUIRE(system(test_command.c_str()) == 0);
 }
