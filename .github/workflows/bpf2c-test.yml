@@ -50,9 +50,10 @@ jobs:
         New-Item -ItemType SymbolicLink -Path python.exe -Target C:\Python27\python.exe
 
     - name: Set AeDebug registry key
-      working-directory: c:/dumps/${{env.BUILD_PLATFORM}}/${{env.BUILD_CONFIGURATION}}
+      working-directory: ${{env.GITHUB_WORKSPACE}}
       run: |
-        mkdir c:/dumps/${{env.BUILD_PLATFORM}}/${{env.BUILD_CONFIGURATION}}
+        mkdir -p c:/dumps/${{env.BUILD_PLATFORM}}/${{env.BUILD_CONFIGURATION}}
+        cd c:/dumps/${{env.BUILD_PLATFORM}}/${{env.BUILD_CONFIGURATION}}
         procdump64.exe -accepteula -i -r -ma c:/dumps/${{env.BUILD_PLATFORM}}/${{env.BUILD_CONFIGURATION}}
 
     - name: Restore NuGet packages
