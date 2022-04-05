@@ -47,7 +47,14 @@ jobs:
         echo "C:\Python27\python.exe" >> $env:GITHUB_PATH
         echo "C:\ProgramData\chocolatey\bin\procdump.exe" >> $env:GITHUB_PATH
         echo "C:\Program Files\OpenCppCoverage" >> $env:GITHUB_PATH
-        ls -r "C:\Python27"
+
+    - name: Grab python
+      uses: actions/upload-artifact@6673cd052c4cd6fcf4b4e6e60ea986c889389535
+      if: failure()
+      with:
+        name: Python-${{env.BUILD_PLATFORM}}-${{env.BUILD_CONFIGURATION}}
+        path: C:/Python27
+        retention-days: 5
 
     - name: Set AeDebug registry key
       working-directory: ${{env.GITHUB_WORKSPACE}}
