@@ -39,74 +39,73 @@ jobs:
     - name: Install Tools
       working-directory: ${{env.GITHUB_WORKSPACE}}
       run: |
-        choco install llvm
+        # choco install llvm
         choco install --force python2 --params '"/InstallDir:C:\Python27"'
-        choco install procdump
-        choco install -y --requirechecksum=true --checksum=2295A733DA39412C61E4F478677519DD0BB1893D88313CE56B468C9E50517888 --checksum-type=sha256 OpenCppCoverage
-        echo "C:\Program Files\LLVM\bin\clang.exe" >> $env:GITHUB_PATH
-        echo "C:\Python27\python.exe" >> $env:GITHUB_PATH
-        echo "C:\ProgramData\chocolatey\bin\procdump.exe" >> $env:GITHUB_PATH
-        echo "C:\Program Files\OpenCppCoverage" >> $env:GITHUB_PATH
+        # choco install procdump
+        # choco install -y --requirechecksum=true --checksum=2295A733DA39412C61E4F478677519DD0BB1893D88313CE56B468C9E50517888 --checksum-type=sha256 OpenCppCoverage
+        # echo "C:\Program Files\LLVM\bin\clang.exe" >> $env:GITHUB_PATH
+        # echo "C:\Python27\python.exe" >> $env:GITHUB_PATH
+        # echo "C:\ProgramData\chocolatey\bin\procdump.exe" >> $env:GITHUB_PATH
+        # echo "C:\Program Files\OpenCppCoverage" >> $env:GITHUB_PATH
 
     - name: Grab python
       uses: actions/upload-artifact@6673cd052c4cd6fcf4b4e6e60ea986c889389535
-      if: failure()
       with:
         name: Python-${{env.BUILD_PLATFORM}}-${{env.BUILD_CONFIGURATION}}
         path: C:/Python27
         retention-days: 5
 
-    - name: Set AeDebug registry key
-      working-directory: ${{env.GITHUB_WORKSPACE}}
-      run: |
-        mkdir -p c:/dumps/${{env.BUILD_PLATFORM}}/${{env.BUILD_CONFIGURATION}}
-        cd c:/dumps/${{env.BUILD_PLATFORM}}/${{env.BUILD_CONFIGURATION}}
-        procdump64.exe -accepteula -i -r -ma c:/dumps/${{env.BUILD_PLATFORM}}/${{env.BUILD_CONFIGURATION}}
+    # - name: Set AeDebug registry key
+    #   working-directory: ${{env.GITHUB_WORKSPACE}}
+    #   run: |
+    #     mkdir -p c:/dumps/${{env.BUILD_PLATFORM}}/${{env.BUILD_CONFIGURATION}}
+    #     cd c:/dumps/${{env.BUILD_PLATFORM}}/${{env.BUILD_CONFIGURATION}}
+    #     procdump64.exe -accepteula -i -r -ma c:/dumps/${{env.BUILD_PLATFORM}}/${{env.BUILD_CONFIGURATION}}
 
-    - name: Restore NuGet packages
-      working-directory: ${{env.GITHUB_WORKSPACE}}
-      run: nuget restore ${{env.SOLUTION_FILE_PATH}}
+    # - name: Restore NuGet packages
+    #   working-directory: ${{env.GITHUB_WORKSPACE}}
+    #   run: nuget restore ${{env.SOLUTION_FILE_PATH}}
 
-    - name: Create verifier project
-      working-directory: ${{env.GITHUB_WORKSPACE}}
-      run: |
-        cmake -G "Visual Studio 16 2019" -S external\ebpf-verifier -B external\ebpf-verifier\build
+    # - name: Create verifier project
+    #   working-directory: ${{env.GITHUB_WORKSPACE}}
+    #   run: |
+    #     cmake -G "Visual Studio 16 2019" -S external\ebpf-verifier -B external\ebpf-verifier\build
 
-    - name: Create catch2 project
-      working-directory: ${{env.GITHUB_WORKSPACE}}
-      run: |
-        cmake -G "Visual Studio 16 2019" -S external\catch2 -B external\catch2\build -DBUILD_TESTING=OFF
+    # - name: Create catch2 project
+    #   working-directory: ${{env.GITHUB_WORKSPACE}}
+    #   run: |
+    #     cmake -G "Visual Studio 16 2019" -S external\catch2 -B external\catch2\build -DBUILD_TESTING=OFF
 
-    - name: Build
-      working-directory: ${{env.GITHUB_WORKSPACE}}
-      # Add additional options to the MSBuild command line here (like platform or verbosity level).
-      # See https://docs.microsoft.com/visualstudio/msbuild/msbuild-command-line-reference
-      run: msbuild /m /p:Configuration=${{env.BUILD_CONFIGURATION}} /p:Platform=${{env.BUILD_PLATFORM}} ${{env.SOLUTION_FILE_PATH}} /target:tests\bpf2c_tests
+    # - name: Build
+    #   working-directory: ${{env.GITHUB_WORKSPACE}}
+    #   # Add additional options to the MSBuild command line here (like platform or verbosity level).
+    #   # See https://docs.microsoft.com/visualstudio/msbuild/msbuild-command-line-reference
+    #   run: msbuild /m /p:Configuration=${{env.BUILD_CONFIGURATION}} /p:Platform=${{env.BUILD_PLATFORM}} ${{env.SOLUTION_FILE_PATH}} /target:tests\bpf2c_tests
 
-    # Run bpf2c_tests.exe.exe and generate ebpf_for_windows.xml
-    - name: Generate Report - bpf2c Tests
-      shell: cmd
-      run: |
-        set PYTHON="C:\ProgramData\Chocolatey\bin\python.exe"
-        %PYTHON% -m pip install external/parcon
-        %PYTHON% -m pip install --require-hash -r tests/bpf2c_tests/requirements.txt
-        OpenCppCoverage.exe --sources %CD% --excluded_sources %CD%\external\Catch2 --export_type cobertura:ebpf_for_windows_%BUILD_CONFIGURATION%.xml --working_dir %BUILD_PLATFORM%\%BUILD_CONFIGURATION% -- %env.BUILD_PLATFORM%\%BUILD_CONFIGURATION%\bpf2c_tests.exe -s
+    # # Run bpf2c_tests.exe.exe and generate ebpf_for_windows.xml
+    # - name: Generate Report - bpf2c Tests
+    #   shell: cmd
+    #   run: |
+    #     set PYTHON="C:\ProgramData\Chocolatey\bin\python.exe"
+    #     %PYTHON% -m pip install external/parcon
+    #     %PYTHON% -m pip install --require-hash -r tests/bpf2c_tests/requirements.txt
+    #     OpenCppCoverage.exe --sources %CD% --excluded_sources %CD%\external\Catch2 --export_type cobertura:ebpf_for_windows_%BUILD_CONFIGURATION%.xml --working_dir %BUILD_PLATFORM%\%BUILD_CONFIGURATION% -- %env.BUILD_PLATFORM%\%BUILD_CONFIGURATION%\bpf2c_tests.exe -s
 
-    - name: Upload Report to Codecov
-      uses: codecov/codecov-action@f32b3a3741e1053eb607407145bc9619351dc93b
-      with:
-        files: ebpf_for_windows_${{env.BUILD_CONFIGURATION}}.xml
-        fail_ci_if_error: true
-        functionalities: fix
+    # - name: Upload Report to Codecov
+    #   uses: codecov/codecov-action@f32b3a3741e1053eb607407145bc9619351dc93b
+    #   with:
+    #     files: ebpf_for_windows_${{env.BUILD_CONFIGURATION}}.xml
+    #     fail_ci_if_error: true
+    #     functionalities: fix
 
-    - name: Check for crash dumps
-      working-directory: c:/dumps/${{env.BUILD_PLATFORM}}/${{env.BUILD_CONFIGURATION}}
-      run: if (Test-Path *.dmp) { exit 1 }
+    # - name: Check for crash dumps
+    #   working-directory: c:/dumps/${{env.BUILD_PLATFORM}}/${{env.BUILD_CONFIGURATION}}
+    #   run: if (Test-Path *.dmp) { exit 1 }
 
-    - name: Upload any crash dumps
-      uses: actions/upload-artifact@6673cd052c4cd6fcf4b4e6e60ea986c889389535
-      if: failure()
-      with:
-        name: Crash-Dumps-${{env.BUILD_PLATFORM}}-${{env.BUILD_CONFIGURATION}}
-        path: c:/dumps/${{env.BUILD_PLATFORM}}/${{env.BUILD_CONFIGURATION}}
-        retention-days: 5
+    # - name: Upload any crash dumps
+    #   uses: actions/upload-artifact@6673cd052c4cd6fcf4b4e6e60ea986c889389535
+    #   if: failure()
+    #   with:
+    #     name: Crash-Dumps-${{env.BUILD_PLATFORM}}-${{env.BUILD_CONFIGURATION}}
+    #     path: c:/dumps/${{env.BUILD_PLATFORM}}/${{env.BUILD_CONFIGURATION}}
+    #     retention-days: 5
