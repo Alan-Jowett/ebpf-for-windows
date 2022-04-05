@@ -26,12 +26,7 @@ message(STATUS "ebpf-for-windows - KMDF version: ${EBPFFORWINDOWS_WDK_KMDF_VERSI
 
 if(EBPFFORWINDOWS_ENABLE_INSTALL)
   if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
-    set(folder_name_suffix "")
-    if(CMAKE_SIZEOF_VOID_P MATCHES "4")
-      set(folder_name_suffix " (x86)")
-    endif()
-
-    set(CMAKE_INSTALL_PREFIX "/Program Files${folder_name_suffix}/Microsoft/${CMAKE_PROJECT_NAME}" CACHE PATH "" FORCE)
+    set(CMAKE_INSTALL_PREFIX "/Program Files/${CMAKE_PROJECT_NAME}" CACHE PATH "" FORCE)
   endif()
 
   message(STATUS "ebpf-for-windows - CMAKE_INSTALL_PREFIX set to ${CMAKE_INSTALL_PREFIX}")
