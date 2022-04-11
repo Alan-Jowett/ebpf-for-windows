@@ -91,7 +91,7 @@ jobs:
   driver:
     uses: ./.github/workflows/reusable-test.yml
     # Only run this on repos that have self-host runners.
-    if: github.repository == 'microsoft/ebpf-for-windows' && !on.push
+    if: github.repository == 'microsoft/ebpf-for-windows' && ${{github.event.issue.pull_request}}
     with:
       pre_test: powershell ".\setup_ebpf_cicd_tests.ps1;"
       test_command: powershell ".\execute_ebpf_cicd_tests.ps1"
