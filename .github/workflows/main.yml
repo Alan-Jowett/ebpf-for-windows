@@ -1,0 +1,25 @@
+# Copyright (c) Microsoft Corporation
+# SPDX-License-Identifier: MIT
+
+# This is the top-level workflow that runs on each pull request and push to main.
+# It invokes other jobs to perform builds and run tests.
+# All jobs run in parallel, using build artifacts to synchronize jobs.
+
+name: CI/CD
+
+# Run on push so we can capture the baseline code coverage for any squash commit.
+on:
+  push:
+
+permissions:
+  contents: read
+  checks: read  # Required by reusable-test.yml to check build status.
+
+jobs:
+  log:
+    runs-on: windows-2019
+    steps:
+      - name: Log stuff
+        shell: cmd
+        run: echo ${{github.event.type}}
+
