@@ -21,5 +21,5 @@ jobs:
     steps:
       - name: Log stuff
         shell: cmd
-        run: echo ${{github.event.type}}
+        run: echo ${{github.event_name}}
 
