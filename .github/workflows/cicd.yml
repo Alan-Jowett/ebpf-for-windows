@@ -9,7 +9,6 @@ name: CI/CD
 
 # Run on push so we can capture the baseline code coverage for any squash commit.
 on:
-  push:
   schedule:
     - cron: '00 21 * * *'
   pull_request:
@@ -19,14 +18,7 @@ permissions:
   checks: read  # Required by reusable-test.yml to check build status.
 
 jobs:
-  log:
-    runs-on: windows-2019
-    steps:
-      - name: Log stuff
-        shell: cmd
-        run: echo ${{github.event}}
-
-# Perform the regular build.
+  # Perform the regular build.
   regular:
     uses: ./.github/workflows/reusable-build.yml
     with:
