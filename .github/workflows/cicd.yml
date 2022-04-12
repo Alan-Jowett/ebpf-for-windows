@@ -40,7 +40,7 @@ jobs:
       build_options: /p:Sanitizer='True'
 
   codeql:
-    if: ${{github.event.pull_request.number}} != 0
+    if: github.event_name != 'pull_request'
     uses: ./.github/workflows/reusable-build.yml
     with:
       build_artifact: Build-x64-CodeQl
