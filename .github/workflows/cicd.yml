@@ -18,7 +18,14 @@ permissions:
   checks: read  # Required by reusable-test.yml to check build status.
 
 jobs:
-  # Perform the regular build.
+  log:
+    runs-on: windows-2019
+    steps:
+      - name: Log stuff
+        shell: cmd
+        run: echo ${{github.event}}
+
+# Perform the regular build.
   regular:
     uses: ./.github/workflows/reusable-build.yml
     with:
