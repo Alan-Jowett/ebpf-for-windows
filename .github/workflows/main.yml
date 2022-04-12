@@ -17,6 +17,7 @@ permissions:
 
 jobs:
   log:
+    if: github.event_name != pull
     runs-on: windows-2019
     steps:
       - name: Log stuff
