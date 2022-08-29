@@ -39,7 +39,6 @@ jobs:
             const title = process.env.TITLE;
             const labels = process.env.LABELS;
             const label_array = labels ? labels.split(',') : [];
-            console.log(`Creating issue ${title}`);
 
             const opts = github.rest.issues.listForRepo.endpoint.merge({
               ...context.issue,
@@ -48,17 +47,14 @@ jobs:
             });
 
             const issues = await github.paginate(opts);
-
-            console.log('Found issues:', issues);
             for (const issue of issues) {
               if (issue.title === title) {
                 console.log(`Updating issue ${title}`);
-                await github.issues.update({
+                await github.issues.createComment({
+                  issue_number: issue.number,
                   owner,
                   repo,
-                  issue_number: issue.number,
                   body,
-                  labels: label_array,
                 });
                 return;
               }
