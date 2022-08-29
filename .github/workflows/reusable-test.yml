@@ -296,13 +296,13 @@ jobs:
       run: exit 1
 
     - name: Create issue if run failed
-      if: failure() && github.event_name == 'schedule' || github.event_name == 'push'
+      if: failure() && (github.ref_name == 'main')
       uses: JasonEtco/create-an-issue@v2
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         TEST_NAME: ${{ inputs.name }}
         RUN_ID: ${{ github.run_id }}
       with:
-        filename: ${{github.workspace}}/.github/ISSUE_TEMPLATE/test-failure.md
+        filename: ${{github.workspace}}\.github\ISSUE_TEMPLATE\test-failure.md
         update_existing: true
         search_existing: all
