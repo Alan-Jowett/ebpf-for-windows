@@ -28,7 +28,7 @@ jobs:
       - uses: actions/github-script@v6
         with:
           script: |
-            octokit.paginate(octokit.issues.listForRepo({
+            github.paginate(github.issues.listForRepo({
               owner: github.repository.owner.login,
               repo: github.repository.name,
               state: 'open',
@@ -36,7 +36,7 @@ jobs:
             })).then(issues => {
               if (issues.length > 0) {
                 // Update the existing issue.
-                octokit.issues.createComment({
+                github.issues.createComment({
                   owner: github.repository.owner.login,
                   repo: github.repository.name,
                   issue_number: issues[0].number,
@@ -44,7 +44,7 @@ jobs:
                 });
               }
               else {
-                octokit.issues.create({
+                github.issues.create({
                   owner: github.repository.owner.login,
                   repo: github.repository.name,
                   title: inputs.title,
