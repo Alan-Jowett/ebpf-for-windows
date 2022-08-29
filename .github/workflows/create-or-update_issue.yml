@@ -44,14 +44,14 @@ jobs:
 
             const opts = github.rest.issues.listForRepo.endpoint.merge({
               ...context.issue,
-              owner: owner,
-              repo: repo,
               state: 'open',
-              per_page: 100,
               title: title,
             });
 
+
             const issues = await github.paginate(opts);
+
+            console.log(issues);
             if (issues.length > 0) {
               const issue = issues[0];
               await github.rest.issues.update({
