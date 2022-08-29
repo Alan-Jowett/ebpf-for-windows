@@ -26,30 +26,44 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/github-script@v6
+        env:
+          TITLE: ${{inputs.title}}
+          BODY: ${{inputs.body}}
+          LABELS: ${{inputs.labels}}
+
         with:
           script: |
-            github.paginate(github.issues.listForRepo({
-              owner: github.repository.owner.login,
-              repo: github.repository.name,
+            const owner = process.env.GITHUB_REPOSITORY.split('/')[0]
+            const repo = process.env.GITHUB_REPOSITORY.split('/')[1]
+            const body = process.env.BODY;
+            const title = process.env.TITLE;
+            const labels = process.env.LABELS;
+            const label_array = labels ? labels.split(',') : [];
+
+            const opts = github.rest.issues.listForRepo.endpoint.merge({
+              owner: owner,
+              repo: repo,
               state: 'open',
-              title: inputs.title,
-            })).then(issues => {
-              if (issues.length > 0) {
-                // Update the existing issue.
-                github.issues.createComment({
-                  owner: github.repository.owner.login,
-                  repo: github.repository.name,
-                  issue_number: issues[0].number,
-                  body: inputs.body,
-                });
-              }
-              else {
-                github.issues.create({
-                  owner: github.repository.owner.login,
-                  repo: github.repository.name,
-                  title: inputs.title,
-                  body: inputs.body,
-                  labels: input.labels.split(','),
-                });
-              }
+              per_page: 100,
+              title: title,
             });
+
+            const issues = await github.paginate(opts);
+            if (issues.length > 0) {
+              const issue = issues[0];
+              await github.rest.issues.update({
+                owner: owner,
+                repo: repo,
+                issue_number: issue.number,
+                body: body,
+                labels: label_array,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: owner,
+                repo: repo,
+                title: title,
+                body: body,
+                labels: label_array,
+              });
+            }
