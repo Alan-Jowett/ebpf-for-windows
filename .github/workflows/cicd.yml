@@ -40,7 +40,7 @@ jobs:
       title: Test Failed - Fake
       body: |
         - Test: Fake
-      labels: bug, ci/cd
+      labels: bug,ci/cd
 
   # # Perform the regular build.
   # regular:
