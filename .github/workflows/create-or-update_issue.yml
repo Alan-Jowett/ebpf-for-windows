@@ -39,8 +39,11 @@ jobs:
             const title = process.env.TITLE;
             const labels = process.env.LABELS;
             const label_array = labels ? labels.split(',') : [];
+            console.log(`Creating issue ${title}`);
+            console.log(context);
 
             const opts = github.rest.issues.listForRepo.endpoint.merge({
+              ...context.issue,
               owner: owner,
               repo: repo,
               state: 'open',
