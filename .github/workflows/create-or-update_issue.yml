@@ -65,5 +65,4 @@ jobs:
               repo: repo,
               title: title,
               body: body,
-              labels: label_array,
             });
