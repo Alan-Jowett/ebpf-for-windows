@@ -33,6 +33,15 @@ jobs:
   # Jobs to run on pull, push, and schedule.
   # ---------------------------------------------------------------------------
 
+  test_issue:
+    # test issue creation
+    uses: ./.github/workflows/create-or-update_issue.yml
+    with:
+      title: Test Failed - Fake
+      body: |
+        - Test: Fake
+      labels: bug, ci/cd
+
   # Perform the regular build.
   regular:
     # Always run this job.

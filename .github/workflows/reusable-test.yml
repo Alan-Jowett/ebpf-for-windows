@@ -297,35 +297,15 @@ jobs:
       if: steps.check_dumps.outputs.files_exists == 'true'
       run: exit 1
 
-    - uses: nickderobertis/check-if-issue-exists-action@8edfc8560578e80eb6061565e5359d85d5d63b74
-      if: failure() && ${{github.branch}} == 'main'
-      name: Check if Issue Exists
-      id: check_if_issue_exists
+    - name: Create or update issue if failed
+      if: failure()
+      uses: ./.github/workflows/create-or-update_issue
       with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        title: ${{ env.ISSUE_TITLE }}
-        labels: bug, ci/cd
-
-    - name: Create Issue on Failed workflow
-      if: failure() && steps.check_if_issue_exists.outputs.exists == 'false' && ${{github.branch}} == 'main'
-      uses: dacbd/create-issue-action@7d1799705bc00f49e3ab75ce95692c413c17c183
-      with:
-        repo: github.repository
-        token: ${{ github.token }}
-        title: ${{ env.ISSUE_TITLE }}
+        title: Test Failed - ${{env.NAME}}
         body: |
-          ### Context
+          - Test: ${{env.NAME}}
+          - Build: ${{env.BUILD_PLATFORM}} ${{env.BUILD_CONFIGURATION}}
+          - Branch: ${{github.ref}}
+          - Commit: ${{github.sha}}
           [Failed Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
-          [Codebase](https://github.com/${{ github.repository }}/tree/${{ github.sha }})
-          Test name -     `${{ github.workflow }}`
-          Job -           `${{ github.job }}`
-          status -        `${{ job.status }}`
         labels: bug, ci/cd
-
-    - name: Update Issue on Failed workflow
-      if: failure() && steps.check_if_issue_exists.outputs.exists == 'true' && ${{github.branch}} == 'main'
-      uses: ben-z/actions-comment-on-issue@966bbbd2113de1f8008322fd1cc7674981a6b1ab
-      with:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        message: |
-          [Failed Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})

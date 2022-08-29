@@ -1,0 +1,55 @@
+# Copyright (c) Microsoft Corporation
+# SPDX-License-Identifier: MIT
+
+# This workflow executes a single test, optionally gathering code coverage and logs.
+
+name: Create Or Update issue
+
+on:
+  workflow_call:
+    inputs:
+      title:
+        required: true
+        type: string
+      body:
+        required: true
+        type: string
+      labels:
+        required: false
+        type: string
+
+permissions:
+  issues: write # Required to create issues.
+
+jobs:
+  create_or_update_issue:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v6
+        with:
+          script: |
+            octokit.paginate(octokit.issues.listForRepo({
+              owner: github.repository.owner.login,
+              repo: github.repository.name,
+              state: 'open',
+              title: inputs.title,
+            })).then(issues => {
+              if (issues.length > 0) {
+                // Update the existing issue.
+                octokit.issues.createComment({
+                  owner: github.repository.owner.login,
+                  repo: github.repository.name,
+                  issue_number: issues[0].number,
+                  body: inputs.body,
+                });
+              }
+              else {
+                octokit.issues.create({
+                  owner: github.repository.owner.login,
+                  repo: github.repository.name,
+                  title: inputs.title,
+                  body: inputs.body,
+                  labels: input.labels.split(','),
+                });
+              }
+            });
