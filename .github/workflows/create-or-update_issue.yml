@@ -39,7 +39,7 @@ jobs:
             const title = process.env.TITLE;
             const labels = process.env.LABELS;
             const label_array = labels ? labels.split(',') : [];
-
+            console.log(label_array);
             const opts = github.rest.issues.listForRepo.endpoint.merge({
               ...context.issue,
               state: 'open',
@@ -65,4 +65,5 @@ jobs:
               repo: repo,
               title: title,
               body: body,
+              labels: label_array,
             });
