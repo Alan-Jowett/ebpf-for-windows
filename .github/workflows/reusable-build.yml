@@ -59,6 +59,17 @@ jobs:
       with:
         submodules: 'recursive'
 
+    - name: Create issue if run failed
+      uses: JasonEtco/create-an-issue@v2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        TEST_NAME: build_test
+        RUN_ID: ${{ github.run_id }}
+      with:
+        filename: ${{github.workspace}}\.github\ISSUE_TEMPLATE\test-failure.md
+        update_existing: true
+        search_existing: all
+
     - name: Initialize CodeQL
       if: inputs.build_codeql == true
       uses: github/codeql-action/init@7fee4ca032ac341c12486c4c06822c5221c76533
