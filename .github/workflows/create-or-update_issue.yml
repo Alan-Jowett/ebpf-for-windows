@@ -50,7 +50,7 @@ jobs:
             for (const issue of issues) {
               if (issue.title === title) {
                 console.log(`Updating issue ${title}`);
-                await github.issues.createComment({
+                await github.rest.issues.createComment({
                   issue_number: issue.number,
                   owner,
                   repo,
