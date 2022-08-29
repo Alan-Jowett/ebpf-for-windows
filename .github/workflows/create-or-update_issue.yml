@@ -40,32 +40,34 @@ jobs:
             const labels = process.env.LABELS;
             const label_array = labels ? labels.split(',') : [];
             console.log(`Creating issue ${title}`);
-            console.log(context);
 
             const opts = github.rest.issues.listForRepo.endpoint.merge({
               ...context.issue,
               state: 'open',
-              title: '${title}',
+              labels: label_array,
             });
 
             const issues = await github.paginate(opts);
 
-            console.log(issues);
-            if (issues.length > 0) {
-              const issue = issues[0];
-              await github.rest.issues.update({
-                owner: owner,
-                repo: repo,
-                issue_number: issue.number,
-                body: body,
-                labels: label_array,
-              });
-            } else {
-              await github.rest.issues.create({
-                owner: owner,
-                repo: repo,
-                title: title,
-                body: body,
-                labels: label_array,
-              });
+            console.log('Found issues:', issues);
+            for (const issue of issues) {
+              if (issue.title === title) {
+                console.log(`Updating issue ${title}`);
+                await github.issues.update({
+                  owner,
+                  repo,
+                  issue_number: issue.number,
+                  body,
+                  labels: label_array,
+                });
+                return;
+              }
             }
+            console.log(`Creating issue ${title}`);
+            await github.rest.issues.create({
+              owner: owner,
+              repo: repo,
+              title: title,
+              body: body,
+              labels: label_array,
+            });
