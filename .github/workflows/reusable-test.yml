@@ -49,6 +49,7 @@ on:
 permissions:
   checks: read  # Required by fountainhead/action-wait-for-check to wait for another GitHub check to complete.
   contents: read  # Required by actions/checkout to fetch code.
+  issues: write # Required to create issues.
 
 jobs:
   run_test:
@@ -66,6 +67,7 @@ jobs:
       TEST_COMMAND: ${{inputs.test_command}}
       PRE_COMMAND: ${{inputs.pre_test}}
       POST_COMMAND: ${{inputs.post_test}}
+      ISSUE_TITLE: Workflow failed - Test ${{ inputs.NAME }}
 
     # Checking out the branch is needed to gather correct code coverage data.
     steps:
@@ -294,3 +296,36 @@ jobs:
     - name: Mark run as failed if crash dumps are found
       if: steps.check_dumps.outputs.files_exists == 'true'
       run: exit 1
+
+    - uses: nickderobertis/check-if-issue-exists-action@8edfc8560578e80eb6061565e5359d85d5d63b74
+      if: failure() && ${{github.branch}} == 'main'
+      name: Check if Issue Exists
+      id: check_if_issue_exists
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        title: ${{ env.ISSUE_TITLE }}
+        labels: bug, ci/cd
+
+    - name: Create Issue on Failed workflow
+      if: failure() && steps.check_if_issue_exists.outputs.exists == 'false' && ${{github.branch}} == 'main'
+      uses: dacbd/create-issue-action@7d1799705bc00f49e3ab75ce95692c413c17c183
+      with:
+        repo: github.repository
+        token: ${{ github.token }}
+        title: ${{ env.ISSUE_TITLE }}
+        body: |
+          ### Context
+          [Failed Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          [Codebase](https://github.com/${{ github.repository }}/tree/${{ github.sha }})
+          Test name -     `${{ github.workflow }}`
+          Job -           `${{ github.job }}`
+          status -        `${{ job.status }}`
+        labels: bug, ci/cd
+
+    - name: Update Issue on Failed workflow
+      if: failure() && steps.check_if_issue_exists.outputs.exists == 'true' && ${{github.branch}} == 'main'
+      uses: ben-z/actions-comment-on-issue@966bbbd2113de1f8008322fd1cc7674981a6b1ab
+      with:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        message: |
+          [Failed Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
