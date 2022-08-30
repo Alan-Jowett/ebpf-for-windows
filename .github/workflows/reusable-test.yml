@@ -295,7 +295,7 @@ jobs:
       run: exit 1
 
     - name: Create or update an issue if the workflow fails
-      if: failure() && ${{github.branch}} == 'main'
+      if: failure()
       uses: ./.github/workflows/create-or-update-issue.yml
       with:
         title: Workflow failed - ${{env.NAME}}

@@ -35,6 +35,8 @@
 
 const int nonexistent_fd = 12345678;
 
+TEST_CASE("fail", "[fail") { REQUIRE(false); }
+
 TEST_CASE("libbpf load program", "[libbpf][deprecated]")
 {
     _test_helper_libbpf test_helper;
