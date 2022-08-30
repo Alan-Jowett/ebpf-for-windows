@@ -37,8 +37,7 @@ jobs:
     uses: ./.github/workflows/create-or-update-issue.yml
     with:
       title: Workflow failed - Test
-      body: |
-        The test workflow failed.
+      body: Blah
       labels: bug,ci/cd
 
   # # Perform the regular build.
