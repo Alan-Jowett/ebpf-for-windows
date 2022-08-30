@@ -38,11 +38,7 @@ jobs:
     with:
       title: Workflow failed - Test
       body: |
-        [Failed Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
-        [Codebase](https://github.com/${{ github.repository }}/tree/${{ github.sha }})
-        Test name -     `${{ github.workflow }}`
-        Job -           `${{ github.job }}`
-        status -        `${{ job.status }}`
+        The test workflow failed.
       labels: bug,ci/cd
 
   # # Perform the regular build.
