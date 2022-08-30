@@ -46,27 +46,31 @@ jobs:
             const title = process.env.TITLE;
             const labels = process.env.LABELS;
             const label_array = labels ? labels.split(',') : [];
-            console.log(`Creating issue ${title}`);
+            console.log(label_array);
+
+            // Get all issues that have these labels.
             const opts = github.rest.issues.listForRepo.endpoint.merge({
               ...context.issue,
               state: 'open',
               labels: label_array,
             });
             const issues = await github.paginate(opts);
-            console.log('Found issues:', issues);
+
+            // Look for an existing issue with the same title.
             for (const issue of issues) {
               if (issue.title === title) {
                 console.log(`Updating issue ${title}`);
-                await github.issues.update({
+                await github.rest.issues.createComment({
+                  issue_number: issue.number,
                   owner,
                   repo,
-                  issue_number: issue.number,
                   body,
-                  labels: label_array,
                 });
                 return;
               }
             }
+
+            // Existing issue not found, create a new one.
             console.log(`Creating issue ${title}`);
             await github.rest.issues.create({
               owner: owner,
