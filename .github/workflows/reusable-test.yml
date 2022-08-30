@@ -82,6 +82,19 @@ jobs:
       with:
         ref: ${{ github.event.workflow_run.head_branch }}
 
+    - name: Create or update an issue if the workflow fails
+      #if: failure()
+      uses: ./.github/workflows/create-or-update-issue.yml
+      with:
+        title: Workflow failed - ${{env.NAME}}
+        body: |
+          [Failed Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          [Codebase](https://github.com/${{ github.repository }}/tree/${{ github.sha }})
+          Test name -     `${{ github.workflow }}`
+          Job -           `${{ github.job }}`
+          status -        `${{ job.status }}`
+        labels: bug,ci/cd
+
     - name: Set up OpenCppCoverage and add to PATH
       id: set_up_opencppcoverage
       if: (inputs.code_coverage == true) && (inputs.environment != 'ebpf_cicd_tests')

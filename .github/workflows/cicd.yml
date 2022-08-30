@@ -33,13 +33,6 @@ jobs:
   # Jobs to run on pull, push, and schedule.
   # ---------------------------------------------------------------------------
 
-  test:
-    uses: ./.github/workflows/create-or-update-issue.yml
-    with:
-      title: Workflow failed - Test
-      body: Blah
-      labels: bug,ci/cd
-
   # # Perform the regular build.
   # regular:
   #   # Always run this job.
@@ -83,21 +76,21 @@ jobs:
   #     gather_dumps: true
   #     capture_etw: true
 
-  # # Run the bpf2c tests in GitHub.
-  # bpf2c:
-  #   # Always run this job.
-  #   needs: regular
-  #   if: github.event_name == 'schedule' || github.event_name == 'pull_request' || github.event_name == 'push'
-  #   uses: ./.github/workflows/reusable-test.yml
-  #   with:
-  #     test_command: .\bpf2c_tests.exe -d yes
-  #     name: bpf2c
-  #     build_artifact: Build-x64
-  #     environment: windows-2019
-  #     vs_dev: true
-  #     code_coverage: true
-  #     gather_dumps: true
-  #     capture_etw: true
+  # Run the bpf2c tests in GitHub.
+  bpf2c:
+    # Always run this job.
+    #needs: regular
+    if: github.event_name == 'schedule' || github.event_name == 'pull_request' || github.event_name == 'push'
+    uses: ./.github/workflows/reusable-test.yml
+    with:
+      test_command: .\bpf2c_tests.exe -d yes
+      name: bpf2c
+      build_artifact: Build-x64
+      environment: windows-2019
+      vs_dev: true
+      code_coverage: true
+      gather_dumps: true
+      capture_etw: true
 
   # # Run the driver tests on self-hosted runners.
   # driver:
