@@ -82,7 +82,7 @@ jobs:
       with:
         ref: ${{ github.event.workflow_run.head_branch }}
 
-    - uses: ./.github/workflows/create-or-update-issue.yml
+    - uses: alan-jowett/ebpf-for-windows/.github/workflows/create-or-update-issue.yml@${{ github.event.workflow_run.head_branch }}
       #if: failure()
       with:
         title: Workflow failed - ${{env.NAME}}
