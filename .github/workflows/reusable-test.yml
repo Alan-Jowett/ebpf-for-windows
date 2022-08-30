@@ -82,9 +82,8 @@ jobs:
       with:
         ref: ${{ github.event.workflow_run.head_branch }}
 
-    - name: Create or update an issue if the workflow fails
+    - uses: ./.github/workflows/create-or-update-issue.yml
       #if: failure()
-      uses: alan-jowett/ebpf-for-windows/.github/workflows/create-or-update-issue.yml@${{ github.event.workflow_run.head_branch }}
       with:
         title: Workflow failed - ${{env.NAME}}
         body: |
