@@ -33,231 +33,243 @@ jobs:
   # Jobs to run on pull, push, and schedule.
   # ---------------------------------------------------------------------------
 
-  # Perform the regular build.
-  regular:
-    # Always run this job.
-    if: github.event_name == 'schedule' || github.event_name == 'pull_request' || github.event_name == 'push'
-    uses: ./.github/workflows/reusable-build.yml
+  test:
+    uses: ./.github/workflows/create-or-update-issue.yml
     with:
-      build_artifact: Build-x64
-      generate_release_package: true
-      build_nuget: true
+      title: Workflow failed - ${{env.NAME}}
+      body: |
+        [Failed Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+        [Codebase](https://github.com/${{ github.repository }}/tree/${{ github.sha }})
+        Test name -     `${{ github.workflow }}`
+        Job -           `${{ github.job }}`
+        status -        `${{ job.status }}`
+      labels: bug,ci/cd
 
-  cmake:
-    # Always run this job.
-    if: github.event_name == 'schedule' || github.event_name == 'pull_request' || github.event_name == 'push'
-    uses: ./.github/workflows/reusable-cmake-build.yml
-    with:
-      build_artifact: Build-x64-cmake
+  # # Perform the regular build.
+  # regular:
+  #   # Always run this job.
+  #   if: github.event_name == 'schedule' || github.event_name == 'pull_request' || github.event_name == 'push'
+  #   uses: ./.github/workflows/reusable-build.yml
+  #   with:
+  #     build_artifact: Build-x64
+  #     generate_release_package: true
+  #     build_nuget: true
 
-  # Perform the libfuzzer build.
-  libfuzzer:
-    # Always run this job.
-    if: github.event_name == 'schedule' || github.event_name == 'pull_request' || github.event_name == 'push'
-    uses: ./.github/workflows/reusable-build.yml
-    with:
-      build_artifact: Build-x64-fuzzer
-      cxx_flags: /fsanitize-coverage=inline-bool-flag /fsanitize-coverage=edge /fsanitize-coverage=trace-cmp /fsanitize-coverage=trace-div /ZH:SHA_256
-      ld_flags: '"clang_rt.fuzzer_MD-x86_64.lib" "libsancov.lib"'
-      build_options: /p:Fuzzer='True' /t:tests\libfuzzer\execution_context_fuzzer /t:tests\libfuzzer\bpf2c_fuzzer /t:tests\libfuzzer\verifier_fuzzer /t:tests\libfuzzer\core_helper_fuzzer
+  # cmake:
+  #   # Always run this job.
+  #   if: github.event_name == 'schedule' || github.event_name == 'pull_request' || github.event_name == 'push'
+  #   uses: ./.github/workflows/reusable-cmake-build.yml
+  #   with:
+  #     build_artifact: Build-x64-cmake
 
-  # Run the unit tests in GitHub.
-  unit_tests:
-    # Always run this job.
-    needs: regular
-    if: github.event_name == 'schedule' || github.event_name == 'pull_request' || github.event_name == 'push'
-    uses: ./.github/workflows/reusable-test.yml
-    with:
-      name: unit_tests
-      test_command: .\unit_tests.exe -d yes
-      build_artifact: Build-x64
-      environment: windows-2019
-      code_coverage: true
-      gather_dumps: true
-      capture_etw: true
+  # # Perform the libfuzzer build.
+  # libfuzzer:
+  #   # Always run this job.
+  #   if: github.event_name == 'schedule' || github.event_name == 'pull_request' || github.event_name == 'push'
+  #   uses: ./.github/workflows/reusable-build.yml
+  #   with:
+  #     build_artifact: Build-x64-fuzzer
+  #     cxx_flags: /fsanitize-coverage=inline-bool-flag /fsanitize-coverage=edge /fsanitize-coverage=trace-cmp /fsanitize-coverage=trace-div /ZH:SHA_256
+  #     ld_flags: '"clang_rt.fuzzer_MD-x86_64.lib" "libsancov.lib"'
+  #     build_options: /p:Fuzzer='True' /t:tests\libfuzzer\execution_context_fuzzer /t:tests\libfuzzer\bpf2c_fuzzer /t:tests\libfuzzer\verifier_fuzzer /t:tests\libfuzzer\core_helper_fuzzer
 
-  # Run the bpf2c tests in GitHub.
-  bpf2c:
-    # Always run this job.
-    needs: regular
-    if: github.event_name == 'schedule' || github.event_name == 'pull_request' || github.event_name == 'push'
-    uses: ./.github/workflows/reusable-test.yml
-    with:
-      test_command: .\bpf2c_tests.exe -d yes
-      name: bpf2c
-      build_artifact: Build-x64
-      environment: windows-2019
-      vs_dev: true
-      code_coverage: true
-      gather_dumps: true
-      capture_etw: true
+  # # Run the unit tests in GitHub.
+  # unit_tests:
+  #   # Always run this job.
+  #   needs: regular
+  #   if: github.event_name == 'schedule' || github.event_name == 'pull_request' || github.event_name == 'push'
+  #   uses: ./.github/workflows/reusable-test.yml
+  #   with:
+  #     name: unit_tests
+  #     test_command: .\unit_tests.exe -d yes
+  #     build_artifact: Build-x64
+  #     environment: windows-2019
+  #     code_coverage: true
+  #     gather_dumps: true
+  #     capture_etw: true
 
-  # Run the driver tests on self-hosted runners.
-  driver:
-    # Always run this job.
-    # Only run this on repos that have self-host runners.
-    needs: regular
-    if: github.repository == 'microsoft/ebpf-for-windows'
-    uses: ./.github/workflows/reusable-test.yml
-    with:
-      pre_test: .\setup_ebpf_cicd_tests.ps1
-      test_command: .\execute_ebpf_cicd_tests.ps1
-      post_test: .\cleanup_ebpf_cicd_tests.ps1
-      name: driver
-      build_artifact: Build-x64
-      environment: ebpf_cicd_tests
-      # driver test copies dumps to testlog folder.
-      gather_dumps: false
-      # driver tests manually gather code coverage
-      code_coverage: false
+  # # Run the bpf2c tests in GitHub.
+  # bpf2c:
+  #   # Always run this job.
+  #   needs: regular
+  #   if: github.event_name == 'schedule' || github.event_name == 'pull_request' || github.event_name == 'push'
+  #   uses: ./.github/workflows/reusable-test.yml
+  #   with:
+  #     test_command: .\bpf2c_tests.exe -d yes
+  #     name: bpf2c
+  #     build_artifact: Build-x64
+  #     environment: windows-2019
+  #     vs_dev: true
+  #     code_coverage: true
+  #     gather_dumps: true
+  #     capture_etw: true
 
-  ossar:
-    # Always run this job.
-    needs: regular
-    if: github.event_name == 'schedule' || github.event_name == 'pull_request' || github.event_name == 'push'
-    uses: ./.github/workflows/ossar-scan.yml
-    with:
-      build_artifact: Build-x64
+  # # Run the driver tests on self-hosted runners.
+  # driver:
+  #   # Always run this job.
+  #   # Only run this on repos that have self-host runners.
+  #   needs: regular
+  #   if: github.repository == 'microsoft/ebpf-for-windows'
+  #   uses: ./.github/workflows/reusable-test.yml
+  #   with:
+  #     pre_test: .\setup_ebpf_cicd_tests.ps1
+  #     test_command: .\execute_ebpf_cicd_tests.ps1
+  #     post_test: .\cleanup_ebpf_cicd_tests.ps1
+  #     name: driver
+  #     build_artifact: Build-x64
+  #     environment: ebpf_cicd_tests
+  #     # driver test copies dumps to testlog folder.
+  #     gather_dumps: false
+  #     # driver tests manually gather code coverage
+  #     code_coverage: false
 
-  # Additional jobs to run on pull and schedule only (skip push).
-  # ---------------------------------------------------------------------------
-  # Build with C++ static analyzer.
-  analyze:
-    # Only run on schedule and pull request.
-    if: github.event_name == 'schedule' || github.event_name == 'pull_request'
-    uses: ./.github/workflows/reusable-build.yml
-    with:
-      build_artifact: Build-x64-Analyze
-      build_options: /p:Analysis='True'
+  # ossar:
+  #   # Always run this job.
+  #   needs: regular
+  #   if: github.event_name == 'schedule' || github.event_name == 'pull_request' || github.event_name == 'push'
+  #   uses: ./.github/workflows/ossar-scan.yml
+  #   with:
+  #     build_artifact: Build-x64
 
-  # Build with C++ address sanitizer.
-  sanitize:
-    # Only run on schedule and pull request.
-    if: github.event_name == 'schedule' || github.event_name == 'pull_request'
-    uses: ./.github/workflows/reusable-build.yml
-    with:
-      build_artifact: Build-x64-Sanitize
-      build_options: /p:Sanitizer='True'
+  # # Additional jobs to run on pull and schedule only (skip push).
+  # # ---------------------------------------------------------------------------
+  # # Build with C++ static analyzer.
+  # analyze:
+  #   # Only run on schedule and pull request.
+  #   if: github.event_name == 'schedule' || github.event_name == 'pull_request'
+  #   uses: ./.github/workflows/reusable-build.yml
+  #   with:
+  #     build_artifact: Build-x64-Analyze
+  #     build_options: /p:Analysis='True'
 
-  # Run the fuzzing tests in GitHub.
-  fuzzing:
-    needs: sanitize
-    # Always run this job.
-    if: github.event_name == 'schedule' || github.event_name == 'pull_request'
-    uses: ./.github/workflows/reusable-test.yml
-    with:
-      name: fuzzing
-      test_command: .\fuzz.exe -d yes
-      build_artifact: Build-x64-Sanitize
-      environment: windows-2019
-      code_coverage: false
-      gather_dumps: true
+  # # Build with C++ address sanitizer.
+  # sanitize:
+  #   # Only run on schedule and pull request.
+  #   if: github.event_name == 'schedule' || github.event_name == 'pull_request'
+  #   uses: ./.github/workflows/reusable-build.yml
+  #   with:
+  #     build_artifact: Build-x64-Sanitize
+  #     build_options: /p:Sanitizer='True'
 
-  bpf2c_fuzzer:
-    needs: libfuzzer
-    # Always run this job.
-    if: github.event_name == 'schedule' || github.event_name == 'pull_request'
-    uses: ./.github/workflows/reusable-test.yml
-    with:
-      name: bpf2c_fuzzer
-      test_command: .\bpf2c_fuzzer.exe bpf2c_fuzzer_corpus -use_value_profile=1 -max_total_time=900 -artifact_prefix=Artifacts\
-      build_artifact: Build-x64-fuzzer
-      environment: windows-2019
-      code_coverage: false
-      gather_dumps: true
+  # # Run the fuzzing tests in GitHub.
+  # fuzzing:
+  #   needs: sanitize
+  #   # Always run this job.
+  #   if: github.event_name == 'schedule' || github.event_name == 'pull_request'
+  #   uses: ./.github/workflows/reusable-test.yml
+  #   with:
+  #     name: fuzzing
+  #     test_command: .\fuzz.exe -d yes
+  #     build_artifact: Build-x64-Sanitize
+  #     environment: windows-2019
+  #     code_coverage: false
+  #     gather_dumps: true
 
-  execution_context_fuzzer:
-    needs: libfuzzer
-    # Always run this job.
-    if: github.event_name == 'schedule' || github.event_name == 'pull_request'
-    uses: ./.github/workflows/reusable-test.yml
-    with:
-      name: execution_context_fuzzer
-      pre_test: powershell Expand-Archive -Path .\corpus.zip -DestinationPath execution_context_fuzzer_corpus -Force
-      test_command: .\execution_context_fuzzer.exe execution_context_fuzzer_corpus -use_value_profile=1 -runs=3000 -artifact_prefix=Artifacts\
-      build_artifact: Build-x64-fuzzer
-      environment: windows-2019
-      code_coverage: false
-      gather_dumps: true
+  # bpf2c_fuzzer:
+  #   needs: libfuzzer
+  #   # Always run this job.
+  #   if: github.event_name == 'schedule' || github.event_name == 'pull_request'
+  #   uses: ./.github/workflows/reusable-test.yml
+  #   with:
+  #     name: bpf2c_fuzzer
+  #     test_command: .\bpf2c_fuzzer.exe bpf2c_fuzzer_corpus -use_value_profile=1 -max_total_time=900 -artifact_prefix=Artifacts\
+  #     build_artifact: Build-x64-fuzzer
+  #     environment: windows-2019
+  #     code_coverage: false
+  #     gather_dumps: true
 
-  # Run the verifier fuzzer.
-  verifier_fuzzer:
-    needs: libfuzzer
-    # Always run this job.
-    if: github.event_name == 'schedule' || github.event_name == 'pull_request'
-    uses: ./.github/workflows/reusable-test.yml
-    with:
-      name: verifier_fuzzer
-      test_command: .\verifier_fuzzer.exe verifier_corpus -use_value_profile=1 -max_total_time=900 -artifact_prefix=Artifacts\
-      build_artifact: Build-x64-fuzzer
-      environment: windows-2019
-      code_coverage: false
-      gather_dumps: true
+  # execution_context_fuzzer:
+  #   needs: libfuzzer
+  #   # Always run this job.
+  #   if: github.event_name == 'schedule' || github.event_name == 'pull_request'
+  #   uses: ./.github/workflows/reusable-test.yml
+  #   with:
+  #     name: execution_context_fuzzer
+  #     pre_test: powershell Expand-Archive -Path .\corpus.zip -DestinationPath execution_context_fuzzer_corpus -Force
+  #     test_command: .\execution_context_fuzzer.exe execution_context_fuzzer_corpus -use_value_profile=1 -runs=3000 -artifact_prefix=Artifacts\
+  #     build_artifact: Build-x64-fuzzer
+  #     environment: windows-2019
+  #     code_coverage: false
+  #     gather_dumps: true
 
-  core_helper_fuzzer:
-    needs: libfuzzer
-    # Always run this job.
-    if: github.event_name == 'schedule' || github.event_name == 'pull_request'
-    uses: ./.github/workflows/reusable-test.yml
-    with:
-      name: core_helper_fuzzer
-      test_command: .\core_helper_fuzzer core_helper_corpus -max_len=139 -runs=1000 -use_value_profile=1 -artifact_prefix=Artifacts\
-      build_artifact: Build-x64-fuzzer
-      environment: windows-2019
-      code_coverage: false
-      gather_dumps: true
+  # # Run the verifier fuzzer.
+  # verifier_fuzzer:
+  #   needs: libfuzzer
+  #   # Always run this job.
+  #   if: github.event_name == 'schedule' || github.event_name == 'pull_request'
+  #   uses: ./.github/workflows/reusable-test.yml
+  #   with:
+  #     name: verifier_fuzzer
+  #     test_command: .\verifier_fuzzer.exe verifier_corpus -use_value_profile=1 -max_total_time=900 -artifact_prefix=Artifacts\
+  #     build_artifact: Build-x64-fuzzer
+  #     environment: windows-2019
+  #     code_coverage: false
+  #     gather_dumps: true
 
-  # Run Cilium regression tests in GitHub.
-  cilium_tests:
-    needs: regular
-    # Only run on schedule and pull request.
-    if: github.event_name == 'schedule' || github.event_name == 'pull_request'
-    uses: ./.github/workflows/reusable-test.yml
-    with:
-      name: cilium_tests
-      test_command: .\cilium_tests.exe -d yes
-      build_artifact: Build-x64
-      environment: windows-2019
-      code_coverage: false
-      gather_dumps: true
+  # core_helper_fuzzer:
+  #   needs: libfuzzer
+  #   # Always run this job.
+  #   if: github.event_name == 'schedule' || github.event_name == 'pull_request'
+  #   uses: ./.github/workflows/reusable-test.yml
+  #   with:
+  #     name: core_helper_fuzzer
+  #     test_command: .\core_helper_fuzzer core_helper_corpus -max_len=139 -runs=1000 -use_value_profile=1 -artifact_prefix=Artifacts\
+  #     build_artifact: Build-x64-fuzzer
+  #     environment: windows-2019
+  #     code_coverage: false
+  #     gather_dumps: true
 
-  # Run the quick stress tests in GitHub.
-  stress:
-    needs: regular
-    # Only run on schedule and pull request.
-    if: github.event_name == 'schedule' || github.event_name == 'pull_request'
-    uses: ./.github/workflows/reusable-test.yml
-    with:
-      name: stress
-      # Until there is a dedicated stress test, re-use the perf test.
-      test_command: .\ebpf_performance.exe
-      build_artifact: Build-x64
-      environment: windows-2019
-      # No code coverage on stress.
-      code_coverage: false
-      gather_dumps: true
+  # # Run Cilium regression tests in GitHub.
+  # cilium_tests:
+  #   needs: regular
+  #   # Only run on schedule and pull request.
+  #   if: github.event_name == 'schedule' || github.event_name == 'pull_request'
+  #   uses: ./.github/workflows/reusable-test.yml
+  #   with:
+  #     name: cilium_tests
+  #     test_command: .\cilium_tests.exe -d yes
+  #     build_artifact: Build-x64
+  #     environment: windows-2019
+  #     code_coverage: false
+  #     gather_dumps: true
 
-  # Run the unit tests in GitHub with address sanitizer.
-  sanitize_unit_tests:
-    needs: sanitize
-    # Only run on schedule and pull request.
-    if: github.event_name == 'schedule' || github.event_name == 'pull_request'
-    uses: ./.github/workflows/reusable-test.yml
-    with:
-      name: unit_tests
-      test_command: .\unit_tests.exe -d yes
-      build_artifact: Build-x64-Sanitize
-      environment: windows-2019
-      code_coverage: false
-      gather_dumps: true
-      capture_etw: true
+  # # Run the quick stress tests in GitHub.
+  # stress:
+  #   needs: regular
+  #   # Only run on schedule and pull request.
+  #   if: github.event_name == 'schedule' || github.event_name == 'pull_request'
+  #   uses: ./.github/workflows/reusable-test.yml
+  #   with:
+  #     name: stress
+  #     # Until there is a dedicated stress test, re-use the perf test.
+  #     test_command: .\ebpf_performance.exe
+  #     build_artifact: Build-x64
+  #     environment: windows-2019
+  #     # No code coverage on stress.
+  #     code_coverage: false
+  #     gather_dumps: true
 
-  # Additional jobs to on a schedule only (skip push and pull request).
-  # ---------------------------------------------------------------------------
-  codeql:
-    # Only run during daily scheduled run
-    if: github.event_name == 'schedule'
-    uses: ./.github/workflows/reusable-build.yml
-    with:
-      build_artifact: Build-x64-CodeQl
-      build_codeql: true
+  # # Run the unit tests in GitHub with address sanitizer.
+  # sanitize_unit_tests:
+  #   needs: sanitize
+  #   # Only run on schedule and pull request.
+  #   if: github.event_name == 'schedule' || github.event_name == 'pull_request'
+  #   uses: ./.github/workflows/reusable-test.yml
+  #   with:
+  #     name: unit_tests
+  #     test_command: .\unit_tests.exe -d yes
+  #     build_artifact: Build-x64-Sanitize
+  #     environment: windows-2019
+  #     code_coverage: false
+  #     gather_dumps: true
+  #     capture_etw: true
+
+  # # Additional jobs to on a schedule only (skip push and pull request).
+  # # ---------------------------------------------------------------------------
+  # codeql:
+  #   # Only run during daily scheduled run
+  #   if: github.event_name == 'schedule'
+  #   uses: ./.github/workflows/reusable-build.yml
+  #   with:
+  #     build_artifact: Build-x64-CodeQl
+  #     build_codeql: true

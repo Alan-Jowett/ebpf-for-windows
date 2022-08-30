@@ -71,6 +71,7 @@ jobs:
     # Checking out the branch is needed to gather correct code coverage data.
     steps:
     - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b
+      if: inputs.environment != 'ebpf_cicd_tests'
       with:
         submodules: 'recursive'
         ref: ${{ github.event.workflow_run.head_branch }}
