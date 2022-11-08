@@ -2,3 +2,13 @@ github
 https
 ssh
 ubuntu
+Microsoft
+SPDX
+pragma
+bpf
+attr
+enum
+numa
+btf
+ifindex
+vmlinux
