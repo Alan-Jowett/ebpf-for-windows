@@ -80,7 +80,7 @@ _bpf_link__destroy(struct bpf_link* link) noexcept
     if (!link->disconnected) {
         result = ebpf_link_detach(link);
     }
-    ebpf_link_close(link);
+    ebpf_assert_success(ebpf_link_close(link));
 
     return libbpf_result_err(result);
 }
