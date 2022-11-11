@@ -1059,7 +1059,7 @@ _clean_up_ebpf_link(_Frees_ptr_opt_ ebpf_link_t* link) noexcept
 #pragma warning(push)
 #pragma warning(disable : 6001)
     if (link->handle != ebpf_handle_invalid) {
-        ebpf_assert_success(ebpf_api_close_handle(link->handle));
+        ebpf_assert_success(Platform::_close(link->fd));
     }
 
     ebpf_free(link->pin_path);
