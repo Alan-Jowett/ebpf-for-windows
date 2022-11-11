@@ -97,22 +97,27 @@ _ebpf_low_memory_test::log_stack_trace(
     IMAGEHLP_LINE64 line;
     symbol->SizeOfStruct = sizeof(SYMBOL_INFO);
     symbol->MaxNameLen = MAX_SYM_NAME;
+    _last_failed_allocation.resize(0);
     for (auto frame : stack) {
         if (frame == 0) {
             break;
         }
         DWORD64 displacement = 0;
+        std::string debug_stack_frame;
         _log_file << "# ";
         if (SymFromAddr(GetCurrentProcess(), frame, &displacement, symbol)) {
             _log_file << std::hex << frame << " " << symbol->Name << " + " << displacement;
+            debug_stack_frame += symbol->Name + std::string(" ") + std::to_string(displacement);
             DWORD displacement32 = (DWORD)displacement;
             if (SymGetLineFromAddr64(GetCurrentProcess(), frame, &displacement32, &line)) {
                 _log_file << " " << line.FileName << std::dec << " " << line.LineNumber;
+                debug_stack_frame += line.FileName + std::string(" ") + std::to_string(line.LineNumber);
             }
             _log_file << std::endl;
         } else {
             _log_file << std::hex << frame << std::endl;
         }
+        _last_failed_allocation.push_back(debug_stack_frame);
     }
     _log_file << std::endl;
     // Flush the file after every write to prevent loss on crash.

@@ -295,9 +295,7 @@ jobs:
   # Run the low memory simulator in GitHub.
   low_memory:
     needs: regular
-    #if: github.event_name == 'schedule' || github.event_name == 'pull_request'
-    # Disable running this on PR until all low memory issues are fixed.
-    if: github.event_name == 'schedule'
+    if: github.event_name == 'schedule' || github.event_name == 'pull_request'
     uses: ./.github/workflows/reusable-test.yml
     with:
       name: low_memory
@@ -305,5 +303,19 @@ jobs:
       build_artifact: Build-x64
       environment: windows-2019
       code_coverage: true
+      gather_dumps: true
+      low_memory: true
+
+  # Run the low memory simulator in GitHub with deep stack look-back.
+  low_memory_exhaustive:
+    needs: regular
+    if: github.event_name == 'schedule' || github.event_name == 'pull_request'
+    uses: ./.github/workflows/reusable-test.yml
+    with:
+      name: low_memory_exhaustive
+      test_command: .\unit_tests.exe
+      build_artifact: Build-x64
+      environment: windows-2019
+      code_coverage: false
       gather_dumps: true
       low_memory: true
