@@ -293,7 +293,12 @@ _nmr::remove(_Inout_ collection_t& collection, _In_ collection_t::value_type::fi
 
     // Wait for bindings to reach zero if requested.
     if (it->second.binding_count > 0) {
-        bindings_changed.wait(l, [&]() { return it->second.binding_count == 0; });
+        // Wait with timeout
+        while (auto timed_out = !bindings_changed.wait_for(
+                   l, std::chrono::seconds(5), [&]() { return it->second.binding_count == 0; })) {
+            // Assert if it took longer than 5 seconds to remove all bindings.
+            assert(!timed_out && "NMR timeout waiting for bindings to complete");
+        }
     }
 
     collection.erase(it);
