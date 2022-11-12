@@ -70,6 +70,11 @@ _ebpf_low_memory_test::~_ebpf_low_memory_test()
 bool
 _ebpf_low_memory_test::fail_stack_allocation()
 {
+    ebpf_low_memory_test_recursion_guard recursion_guard;
+    if (recursion_guard.is_recursing()) {
+        return false;
+    }
+
     std::unique_lock lock(_mutex);
     return is_new_stack();
 }
@@ -78,10 +83,6 @@ bool
 _ebpf_low_memory_test::is_new_stack()
 {
     // Prevent infinite recursion during allocation.
-    ebpf_low_memory_test_recursion_guard recursion_guard;
-    if (recursion_guard.is_recursing()) {
-        return false;
-    }
     std::vector<uintptr_t> stack(EBPF_ALLOCATION_STACK_CAPTURE_FRAME_COUNT);
     std::vector<uintptr_t> canonical_stack(_stack_depth);
 
