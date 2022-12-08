@@ -275,19 +275,19 @@ TEST_CASE("pinning_test", "[platform]")
     REQUIRE(ebpf_pinning_table_allocate(&pinning_table) == EBPF_SUCCESS);
 
     REQUIRE(ebpf_pinning_table_insert(pinning_table, &foo, &an_object.object) == EBPF_SUCCESS);
-    REQUIRE(an_object.object.reference_count == 2);
+    REQUIRE(an_object.object.base.reference_count == 2);
     REQUIRE(ebpf_pinning_table_insert(pinning_table, &bar, &another_object.object) == EBPF_SUCCESS);
-    REQUIRE(another_object.object.reference_count == 2);
+    REQUIRE(another_object.object.base.reference_count == 2);
     REQUIRE(ebpf_pinning_table_find(pinning_table, &foo, (ebpf_core_object_t**)&some_object) == EBPF_SUCCESS);
-    REQUIRE(an_object.object.reference_count == 3);
+    REQUIRE(an_object.object.base.reference_count == 3);
     REQUIRE(some_object == &an_object);
     ebpf_object_release_reference(&some_object->object);
     REQUIRE(ebpf_pinning_table_delete(pinning_table, &foo) == EBPF_SUCCESS);
-    REQUIRE(another_object.object.reference_count == 2);
+    REQUIRE(another_object.object.base.reference_count == 2);
 
     ebpf_pinning_table_free(pinning_table);
-    REQUIRE(an_object.object.reference_count == 1);
-    REQUIRE(another_object.object.reference_count == 1);
+    REQUIRE(an_object.object.base.reference_count == 1);
+    REQUIRE(another_object.object.base.reference_count == 1);
 
     ebpf_object_release_reference(&an_object.object);
     ebpf_object_release_reference(&another_object.object);
@@ -634,13 +634,15 @@ TEST_CASE("serialize_map_test", "[platform]")
     }
 
     // Serialize.
-    ebpf_result_t result = ebpf_serialize_internal_map_info_array(
-        map_count, internal_map_info_array, buffer, buffer_length, &serialized_length, &required_length);
-    REQUIRE(result == EBPF_INSUFFICIENT_BUFFER);
+    REQUIRE(
+        ebpf_serialize_internal_map_info_array(
+            map_count, internal_map_info_array, buffer, buffer_length, &serialized_length, &required_length) ==
+        EBPF_INSUFFICIENT_BUFFER);
 
-    buffer = static_cast<uint8_t*>(calloc(required_length, 1));
-    REQUIRE(buffer != nullptr);
-    if (!buffer) {
+    buffer = static_cast<uint8_t*>(ebpf_allocate(required_length));
+    // Required to deal with code analysis warning about buffer not being checked for null.
+    if (buffer == nullptr) {
+        REQUIRE(false);
         return;
     }
     buffer_length = required_length;
@@ -699,8 +701,12 @@ TEST_CASE("serialize_program_info_test", "[platform]")
     // Serialize.
     REQUIRE(ebpf_serialize_program_info(&in_program_info, buffer, buffer_length, &serialized_length, &required_length));
 
-    buffer = static_cast<uint8_t*>(calloc(required_length, 1));
-    _Analysis_assume_(buffer != nullptr);
+    buffer = static_cast<uint8_t*>(ebpf_allocate(required_length));
+    // Work around code analysis warning about buffer not being checked for null.
+    if (buffer == nullptr) {
+        REQUIRE(false);
+        return;
+    }
     buffer_length = required_length;
 
     REQUIRE(
