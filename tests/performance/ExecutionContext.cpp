@@ -92,10 +92,10 @@ typedef class _ebpf_map_test_state
     _ebpf_map_test_state(ebpf_map_type_t type, std::optional<uint32_t> map_size = {})
     {
         ebpf_utf8_string_t name{(uint8_t*)"test", 4};
+        REQUIRE(ebpf_core_initiate() == EBPF_SUCCESS);
         ebpf_map_definition_in_memory_t definition{
             type, sizeof(uint32_t), sizeof(uint64_t), map_size.has_value() ? map_size.value() : ebpf_get_cpu_count()};
 
-        REQUIRE(ebpf_core_initiate() == EBPF_SUCCESS);
         REQUIRE(ebpf_map_create(&name, &definition, ebpf_handle_invalid, &map) == EBPF_SUCCESS);
 
         for (uint32_t i = 0; i < ebpf_get_cpu_count(); i++) {
@@ -352,7 +352,22 @@ void
 test_bpf_map_update_lru_elem(bool preemptible)
 {
     size_t iterations = 1000;
-    ebpf_map_test_state_t map_test_state(map_type, {100});
+    ebpf_map_test_state_t map_test_state(map_type, {1024});
+    _ebpf_map_test_state_instance = &map_test_state;
+    std::string name = __FUNCTION__;
+    name += "<";
+    name += _ebpf_map_type_t_to_string(map_type);
+    name += ">";
+    _performance_measure measure(name.c_str(), preemptible, _map_update_lru_test, iterations);
+    measure.run_test();
+}
+
+template <ebpf_map_type_t map_type>
+void
+test_bpf_map_lookup_lru_elem(bool preemptible)
+{
+    size_t iterations = 1000;
+    ebpf_map_test_state_t map_test_state(map_type, {1024});
     _ebpf_map_test_state_instance = &map_test_state;
     std::string name = __FUNCTION__;
     name += "<";

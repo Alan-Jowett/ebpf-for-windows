@@ -28,13 +28,72 @@ typedef struct _ebpf_core_object_map
     ebpf_program_type_t program_type;
 } ebpf_core_object_map_t;
 
+// Generations:
+// 0: Uninitialized.
+// 1 to 2^64-2: Valid generations.
+// 2^64-1: Invalid generation (being deleted).
+
+#define EBPF_LRU_INITIAL_GENERATION 1
+#define EBPF_LRU_INVALID_GENERATION 0xFFFFFFFFFFFFFFFF
+
+// Define the granularity at which the LRU list is updated.
+#define EBPF_LRU_GENERATION_COUNT 10
+
+/**
+ * @brief Each LRU entry tracks a key for an entry stored in a LRU map. The entry is stored in one of two lists: hot or
+ * cold. The hot list is for items that have been accessed in the current generation, where a generation is defined as a
+ * period of time during which max_entries/EBPF_LRU_GENERATION_COUNT elements have been accessed in the map. The cold
+ * list is for items that have not been accessed in the current generation. When the hot list reaches
+ * max_entries/EBPF_LRU_GENERATION_COUNT, the hot list is merged into the cold list, a new generation is started, and
+ * the hot list is cleared.  When space is needed in the map, the cold list is trimmed to make room for new entries. The
+ * cold list is trimmed by removing the oldest entries in the list, which are part of the oldest generation. The benefit
+ * is that the lock only needs to be acquired when moving items between generations, and not on every access.
+ */
+typedef struct _ebpf_lru_entry
+{
+    ebpf_list_entry_t list_entry; //< List entry for the hot or cold list.
+    size_t generation;            //< Generation in which the key was last accessed.
+    uint8_t key[1];               //< Variable length key. The actual size is determined by the map definition.
+} ebpf_lru_entry_t;
+
 typedef struct _ebpf_core_lru_map
 {
-    ebpf_core_map_t core_map;
-    // https://github.com/microsoft/ebpf-for-windows/issues/557
-    // Investigate replacing this with a heap to speed up finding oldest key.
-    ebpf_hash_table_t* key_history;
+    ebpf_core_map_t core_map;   //< Core map structure.
+    ebpf_list_entry_t hot_list; //< List of ebpf_lru_entry_t containing keys accessed in the current generation.
+    ebpf_list_entry_t
+        cold_list; //< List of ebpf_lru_entry_t containing keys accessed in previous generations, sorted by generation.
+    ebpf_lock_t lock;          //< Lock to protect access to the hot, cold lists, current generation, and hot list size.
+    size_t current_generation; //< Current generation. Updated when the hot list is merged into the cold list.
+    size_t hot_list_size;      //< Current size of the hot list.
+    size_t hot_list_limit;     //< Maximum size of the hot list.
 } ebpf_core_lru_map_t;
+
+/**
+ * @brief Operation being performed on the LRU maps key history.
+ *
+ */
+typedef enum _ebpf_lru_key_operation
+{
+    EBPF_LRU_KEY_OPERATION_INSERT, //< Insert an uninitialized key into the LRU map key history and initialize it.
+    EBPF_LRU_KEY_OPERATION_UPDATE, //< Update an existing key in the LRU map key history.
+    EBPF_LRU_KEY_OPERATION_DELETE  //< Delete an existing key from the LRU map key history.
+} ebpf_lru_key_operation_t;
+
+/**
+ * @brief LRU keys follow a lifecycle of being uninitialized, hot, cold, and deleted. The state of the key is used to
+ * determine how to update the LRU map key history. Given that the keys are not directly controlled, the state of the
+ * key can transition to the deleted state at any point. Excluding transitions to the deleted state, the state
+ * transitions are as follows: Uninitialized -> Hot -> Cold -> Hot -> Cold -> ... -> Deleted.
+ */
+typedef enum _ebpf_lru_key_state
+{
+    EBPF_LRU_KEY_UNINITIALIZED, //< Key is uninitialized. It has been inserted into the LRU map, but the key history has
+                                //< not been updated yet.
+    EBPF_LRU_KEY_COLD,          //< Key is cold. It has not been accessed in the current generation.
+    EBPF_LRU_KEY_HOT,           //< Key is hot. It has been accessed in the current generation.
+    EBPF_LRU_KEY_DELETED //< The key and value have been deleted from the LRU map. The backing store for this memory
+                         // will be freed when the current epoch is retired.
+} ebpf_lru_key_state_t;
 
 typedef struct _ebpf_core_lpm_map
 {
@@ -192,7 +251,7 @@ typedef struct _ebpf_map_metadata_table
     void (*delete_map)(_In_ ebpf_core_map_t* map);
     ebpf_result_t (*associate_program)(_In_ ebpf_map_t* map, _In_ const ebpf_program_t* program);
     ebpf_result_t (*find_entry)(
-        _In_ ebpf_core_map_t* map, _In_opt_ const uint8_t* key, _In_ bool delete_on_success, _Outptr_ uint8_t** data);
+        _In_ ebpf_core_map_t* map, _In_opt_ const uint8_t* key, bool delete_on_success, _Outptr_ uint8_t** data);
     ebpf_core_object_t* (*get_object_from_entry)(_In_ ebpf_core_map_t* map, _In_ const uint8_t* key);
     ebpf_result_t (*update_entry)(
         _In_ ebpf_core_map_t* map, _In_opt_ const uint8_t* key, _In_ const uint8_t* value, ebpf_map_option_t option);
@@ -279,7 +338,7 @@ _delete_array_map(_In_ _Post_invalid_ ebpf_core_map_t* map)
 
 static ebpf_result_t
 _find_array_map_entry(
-    _In_ ebpf_core_map_t* map, _In_opt_ const uint8_t* key, _In_ bool delete_on_success, _Outptr_ uint8_t** data)
+    _In_ ebpf_core_map_t* map, _In_opt_ const uint8_t* key, bool delete_on_success, _Outptr_ uint8_t** data)
 {
     uint32_t key_value;
     if (!map || !key || delete_on_success)
@@ -690,13 +749,13 @@ static ebpf_result_t
 _create_hash_map_internal(
     size_t map_struct_size,
     _In_ const ebpf_map_definition_in_memory_t* map_definition,
+    size_t supplemental_value_size,
     _In_opt_ void (*extract_function)(
         _In_ const uint8_t* value, _Outptr_ const uint8_t** data, _Out_ size_t* length_in_bits),
     _Outptr_ ebpf_core_map_t** map)
 {
     ebpf_result_t retval;
     ebpf_core_map_t* local_map = NULL;
-
     *map = NULL;
 
     local_map = ebpf_epoch_allocate(map_struct_size);
@@ -708,18 +767,20 @@ _create_hash_map_internal(
     local_map->ebpf_map_definition = *map_definition;
     local_map->data = NULL;
 
+    const ebpf_hash_table_creation_options_t options = {
+        .key_size = local_map->ebpf_map_definition.key_size,
+        .value_size = local_map->ebpf_map_definition.value_size,
+        .bucket_count = local_map->ebpf_map_definition.max_entries,
+        .max_entries = local_map->ebpf_map_definition.max_entries,
+        .extract_function = extract_function,
+        .supplemental_data_size = supplemental_value_size,
+    };
+
     // Note:
     // ebpf_hash_table_t doesn't require synchronization as long as allocations
     // are performed using the epoch allocator.
-    retval = ebpf_hash_table_create(
-        (ebpf_hash_table_t**)&local_map->data,
-        ebpf_epoch_allocate,
-        ebpf_epoch_free,
-        local_map->ebpf_map_definition.key_size,
-        local_map->ebpf_map_definition.value_size,
-        local_map->ebpf_map_definition.max_entries,
-        local_map->ebpf_map_definition.max_entries,
-        extract_function);
+    retval = ebpf_hash_table_create((ebpf_hash_table_t**)&local_map->data, &options);
+
     if (retval != EBPF_SUCCESS) {
         goto Done;
     }
@@ -747,7 +808,7 @@ _create_hash_map(
 {
     if (inner_map_handle != ebpf_handle_invalid)
         return EBPF_INVALID_ARGUMENT;
-    return _create_hash_map_internal(sizeof(ebpf_core_map_t), map_definition, NULL, map);
+    return _create_hash_map_internal(sizeof(ebpf_core_map_t), map_definition, 0, NULL, map);
 }
 
 static void
@@ -802,7 +863,7 @@ _create_object_hash_map(
 
     *map = NULL;
 
-    result = _create_hash_map_internal(sizeof(ebpf_core_object_map_t), map_definition, NULL, &local_map);
+    result = _create_hash_map_internal(sizeof(ebpf_core_object_map_t), map_definition, 0, NULL, &local_map);
     if (result != EBPF_SUCCESS)
         goto Exit;
 
@@ -841,25 +902,33 @@ _create_lru_hash_map(
         goto Exit;
     }
 
-    retval = _create_hash_map_internal(sizeof(ebpf_core_lru_map_t), map_definition, NULL, (ebpf_core_map_t**)&lru_map);
+    size_t lru_entry_size;
+    retval = ebpf_safe_size_t_add(EBPF_OFFSET_OF(ebpf_lru_entry_t, key), map_definition->key_size, &lru_entry_size);
+    if (retval != EBPF_SUCCESS) {
+        goto Exit;
+    }
+
+    // Align the supplemental value to 8 byte boundary.
+    // Pad value_size to next 8 byte boundary and subtract the value_size to get the padding.
+    size_t supplemental_value_size;
+    retval = ebpf_safe_size_t_add(
+        lru_entry_size, EBPF_PAD_8(map_definition->value_size) - map_definition->value_size, &supplemental_value_size);
+    if (retval != EBPF_SUCCESS) {
+        goto Exit;
+    }
+
+    retval = _create_hash_map_internal(
+        sizeof(ebpf_core_lru_map_t), map_definition, supplemental_value_size, NULL, (ebpf_core_map_t**)&lru_map);
     if (retval != EBPF_SUCCESS)
         goto Exit;
 
-    // Note:
-    // ebpf_hash_table_t doesn't require synchronization as long as allocations
-    // are performed using the epoch allocator.
-    retval = ebpf_hash_table_create(
-        &lru_map->key_history,
-        ebpf_epoch_allocate,
-        ebpf_epoch_free,
-        lru_map->core_map.ebpf_map_definition.key_size,
-        sizeof(uint64_t),
-        lru_map->core_map.ebpf_map_definition.max_entries,
-        lru_map->core_map.ebpf_map_definition.max_entries,
-        NULL);
+    ebpf_list_initialize(&lru_map->hot_list);
+    ebpf_list_initialize(&lru_map->cold_list);
+    ebpf_lock_create(&lru_map->lock);
 
-    if (retval != EBPF_SUCCESS)
-        goto Exit;
+    lru_map->current_generation = EBPF_LRU_INITIAL_GENERATION;
+    lru_map->hot_list_size = 0;
+    lru_map->hot_list_limit = max(map_definition->max_entries / EBPF_LRU_GENERATION_COUNT, 1);
 
     *map = &lru_map->core_map;
 
@@ -878,38 +947,215 @@ static void
 _delete_lru_hash_map(_In_ _Post_invalid_ ebpf_core_map_t* map)
 {
     ebpf_core_lru_map_t* lru_map = EBPF_FROM_FIELD(ebpf_core_lru_map_t, core_map, map);
-    ebpf_hash_table_destroy(lru_map->key_history);
     ebpf_hash_table_destroy((ebpf_hash_table_t*)lru_map->core_map.data);
     ebpf_epoch_free(map);
 }
 
-static ebpf_result_t
-_update_key_history(_In_ ebpf_core_map_t* map, _In_ const uint8_t* key, bool remove)
+/**
+ * @brief Given a pointer to a value, return a pointer to the supplemental value.
+ *
+ * @param[in] map Pointer to the map, used to determine the size of the value.
+ * @param[in] value Pointer to the value.
+ * @return Pointer to the supplemental value.
+ */
+static uint8_t*
+_get_value_supplement(_In_ const ebpf_core_map_t* map, _In_ uint8_t* value)
 {
-    uint64_t now;
-    ebpf_core_lru_map_t* lru_map;
+    return value + EBPF_PAD_8(map->ebpf_map_definition.value_size);
+}
+
+/**
+ * @brief Helper function to translate generation into key state.
+ *
+ * @param[in] map Pointer to the map. Used to determine the current generation.
+ * @param[in] entry LRU entry to get the key state for.
+ * @return The key state.
+ */
+static ebpf_lru_key_state_t
+_get_key_state(_In_ const ebpf_core_lru_map_t* map, _In_ const ebpf_lru_entry_t* entry)
+{
+    if (entry->generation == 0) {
+        return EBPF_LRU_KEY_UNINITIALIZED;
+    } else if (entry->generation == EBPF_LRU_INVALID_GENERATION) {
+        return EBPF_LRU_KEY_DELETED;
+    } else if (entry->generation == map->current_generation) {
+        return EBPF_LRU_KEY_HOT;
+    } else {
+        return EBPF_LRU_KEY_COLD;
+    }
+}
+
+/**
+ * @brief Helper function to insert an entry into the hot list if it is in the cold list and update the hot list size.
+ *
+ * @param[in,out] map Pointer to the map.
+ * @param[in,out] entry Entry to insert into the hot list.
+ */
+_Requires_lock_held_(map->lock) static void _insert_into_hot_list(
+    _Inout_ ebpf_core_lru_map_t* map, _Inout_ ebpf_lru_entry_t* entry)
+{
+    ebpf_lru_key_state_t key_state = _get_key_state(map, entry);
+    // Skip if not in the cold list.
+    // If not yet initialized, it will be added to the hot list when initialized.
+    // If already deleted, don't add it to the hot list.
+    if (key_state != EBPF_LRU_KEY_COLD) {
+        return;
+    }
+    ebpf_list_remove_entry(&entry->list_entry);
+    ebpf_list_insert_tail(&map->hot_list, &entry->list_entry);
+    map->hot_list_size++;
+}
+
+/**
+ * @brief Helper function to initialize an LRU entry that was created when an entry was inserted into the hash table.
+ * Sets the current generation, populates the key, and inserts the entry into the hot list.
+ *
+ * @param[in,out] map Pointer to the map.
+ * @param[in,out] entry Entry to initialize.
+ * @param[in] key Key to initialize the entry with.
+ */
+_Requires_lock_held_(map->lock) static void _initialize_lru_entry(
+    _Inout_ ebpf_core_lru_map_t* map, _Inout_ ebpf_lru_entry_t* entry, _In_ const uint8_t* key)
+{
+    ebpf_lru_key_state_t key_state = _get_key_state(map, entry);
+    // Skip if already initialized.
+    if (key_state != EBPF_LRU_KEY_UNINITIALIZED) {
+        return;
+    }
+    ebpf_list_initialize(&entry->list_entry);
+    entry->generation = map->current_generation;
+    memcpy(entry->key, key, map->core_map.ebpf_map_definition.key_size);
+    ebpf_list_insert_tail(&map->hot_list, &entry->list_entry);
+    map->hot_list_size++;
+}
+
+/**
+ * @brief Helper function called when an entry is deleted from the hash table. Removes the entry from the hot or cold
+ * list and sets the generation to EBPF_LRU_INVALID_GENERATION so that subsequent access doesn't reinsert it into the
+ * hot list.
+ *
+ * @param[in,out] map Pointer to the map.
+ * @param[in,out] entry Entry being deleted.
+ */
+_Requires_lock_held_(map->lock) static void _uninitialize_lru_entry(
+    _Inout_ ebpf_core_lru_map_t* map, _Inout_ ebpf_lru_entry_t* entry)
+{
+    ebpf_lru_key_state_t key_state = _get_key_state(map, entry);
+
+    // Remove from hot or cold list.
+    ebpf_list_remove_entry(&entry->list_entry);
+
+    // If the entry was in the hot list, decrement the hot list size.
+    if (key_state == EBPF_LRU_KEY_HOT) {
+        map->hot_list_size--;
+    }
+
+    // Always mark as uninitialized.
+    entry->generation = EBPF_LRU_INVALID_GENERATION;
+}
+
+/**
+ * @brief Helper function to merge the hot list into the cold list if the hot list size exceeds the hot list limit.
+ * Resets the hot list size and increments the current generation.
+ *
+ * @param[in,out] map Pointer to the map.
+ */
+_Requires_lock_held_(map->lock) static void _merge_hot_into_cold_list_if_needed(_Inout_ ebpf_core_lru_map_t* map)
+{
+    if (map->hot_list_size <= map->hot_list_limit) {
+        return;
+    }
+
+    ebpf_list_entry_t* list_entry = map->hot_list.Flink;
+    ebpf_list_remove_entry(&map->hot_list);
+    ebpf_list_append_tail_list(&map->cold_list, list_entry);
+
+    ebpf_list_initialize(&map->hot_list);
+    map->hot_list_size = 0;
+    map->current_generation++;
+}
+
+/**
+ * @brief Helper function to update the LRU key history for a given key if the map tracks key history.
+ *
+ * @param[in,out] map Pointer to the map.
+ * @param[in] key Key to update.
+ * @param[in] value Optional value for the key. If NULL, the value will be looked up.
+ * @param[in] operation Operation to perform on the key.
+ * @retval EBPF_SUCCESS The operation was successful.
+ * @retval EBPF_KEY_NOT_FOUND The key was not found in the map.
+ */
+static ebpf_result_t
+_update_key_history(
+    _Inout_ ebpf_core_map_t* map, _In_ const uint8_t* key, _In_opt_ uint8_t* value, ebpf_lru_key_operation_t operation)
+{
+    // Fast path:
+    // If this map doesn't track key history, return success.
     if (!(ebpf_map_metadata_tables[map->ebpf_map_definition.type].key_history)) {
         return EBPF_SUCCESS;
     }
 
-    lru_map = EBPF_FROM_FIELD(ebpf_core_lru_map_t, core_map, map);
-    now = ebpf_query_time_since_boot(true);
-
-    if (!remove) {
-        return ebpf_hash_table_update(lru_map->key_history, key, (uint8_t*)&now, EBPF_HASH_TABLE_OPERATION_ANY);
-    } else {
-        return ebpf_hash_table_delete(lru_map->key_history, key);
+    // If value was not provided, attempt to find it.
+    if (value == NULL) {
+        ebpf_result_t find_result = ebpf_hash_table_find((ebpf_hash_table_t*)map->data, key, &value);
+        if (find_result != EBPF_SUCCESS) {
+            return find_result;
+        }
     }
+
+    // If the value is not found, return success as it has already been deleted.
+
+    // If the value is found, update the key history.
+    if (value) {
+        ebpf_lru_entry_t* entry = (ebpf_lru_entry_t*)_get_value_supplement(map, value);
+        ebpf_core_lru_map_t* lru_map = EBPF_FROM_FIELD(ebpf_core_lru_map_t, core_map, map);
+
+        ebpf_lru_key_state_t key_state = _get_key_state(lru_map, entry);
+
+        // Fast path:
+        // If the key is already in the hot list, no need to update the key history.
+        if (key_state == EBPF_LRU_KEY_HOT && operation == EBPF_LRU_KEY_OPERATION_UPDATE) {
+            // Key is already in the hot list. No need to update the key history.
+            return EBPF_SUCCESS;
+        }
+
+        ebpf_lock_state_t state = ebpf_lock_lock(&lru_map->lock);
+
+        // Code needs to handle all possible combinations of key_state and operation.
+        switch (operation) {
+        case EBPF_LRU_KEY_OPERATION_INSERT:
+            _initialize_lru_entry(lru_map, entry, key);
+            break;
+        case EBPF_LRU_KEY_OPERATION_UPDATE:
+            _insert_into_hot_list(lru_map, entry);
+            break;
+        case EBPF_LRU_KEY_OPERATION_DELETE:
+            _uninitialize_lru_entry(lru_map, entry);
+            break;
+        }
+
+        // If the hot list is full, move the entire hot list to the cold list, and start a new generation.
+        _merge_hot_into_cold_list_if_needed(lru_map);
+
+        ebpf_lock_unlock(&lru_map->lock, state);
+    }
+
+    return EBPF_SUCCESS;
 }
 
-static bool
-_reap_oldest_map_entry(_In_ ebpf_core_map_t* map)
+static ebpf_result_t
+_delete_hash_map_entry(_Inout_ ebpf_core_map_t* map, _In_ const uint8_t* key);
+
+/**
+ * @brief Helper function to reap the oldest entry from the map if the map tracks key history.
+ *
+ * @param[in,out] map Pointer to the map.
+ * @retval EBPF_SUCCESS The operation was successful.
+ * @retval EBPF_KEY_NOT_FOUND The key selected for deletion was not found in the map.
+ */
+static ebpf_result_t
+_reap_oldest_map_entry(_Inout_ ebpf_core_map_t* map)
 {
-    uint8_t* previous_key = NULL;
-    uint8_t* next_key = NULL;
-    uint8_t* oldest_key = NULL;
-    uint64_t* key_age = NULL;
-    uint64_t oldest_key_age = MAXUINT64;
     ebpf_result_t result;
     ebpf_core_lru_map_t* lru_map;
 
@@ -919,41 +1165,20 @@ _reap_oldest_map_entry(_In_ ebpf_core_map_t* map)
 
     lru_map = EBPF_FROM_FIELD(ebpf_core_lru_map_t, core_map, map);
 
-    // Walk through all the keys and values and find the oldest one.
-    for (;;) {
-        result = ebpf_hash_table_next_key_pointer_and_value(
-            lru_map->key_history, previous_key, &next_key, (uint8_t**)&key_age);
-        if (result != EBPF_SUCCESS) {
-            break;
-        }
+    // Grab key from the front of the cold list.
+    ebpf_lock_state_t state = ebpf_lock_lock(&lru_map->lock);
+    ebpf_lru_entry_t* entry = EBPF_FROM_FIELD(ebpf_lru_entry_t, list_entry, lru_map->cold_list.Flink);
+    ebpf_lock_unlock(&lru_map->lock, state);
 
-        if (*key_age < oldest_key_age) {
-            oldest_key_age = *key_age;
-            oldest_key = next_key;
-        }
-        previous_key = next_key;
-    }
-
-    // If we reached the end of the keys, delete the oldest one found.
-    if (result == EBPF_NO_MORE_KEYS && oldest_key != NULL) {
-        ebpf_result_t delete_result = ebpf_hash_table_delete((ebpf_hash_table_t*)lru_map->core_map.data, oldest_key);
-        // See issue #557 for why the delete can fail.
-        // https://github.com/microsoft/ebpf-for-windows/issues/557
-        // This can result in map having more entries than max_entries.
-        if (delete_result == EBPF_SUCCESS) {
-            _update_key_history(map, oldest_key, true);
-        }
-        return true;
-    }
-    return false;
+    // Delete may fail if the key was already deleted. Caller should attempt the insert again and if it fails with map
+    // full, then it should call this function again.
+    result = _delete_hash_map_entry(map, entry->key);
+    return result;
 }
 
 static ebpf_result_t
-_delete_hash_map_entry(_In_ ebpf_core_map_t* map, _In_ const uint8_t* key);
-
-static ebpf_result_t
 _find_hash_map_entry(
-    _In_ ebpf_core_map_t* map, _In_opt_ const uint8_t* key, _In_ bool delete_on_success, _Outptr_ uint8_t** data)
+    _In_ ebpf_core_map_t* map, _In_opt_ const uint8_t* key, bool delete_on_success, _Outptr_ uint8_t** data)
 {
     uint8_t* value = NULL;
     if (!map || !key)
@@ -964,7 +1189,7 @@ _find_hash_map_entry(
     }
 
     if (value)
-        _update_key_history(map, key, false);
+        _update_key_history(map, key, value, EBPF_LRU_KEY_OPERATION_UPDATE);
 
     if (delete_on_success) {
         // Delete is atomic.
@@ -1014,7 +1239,6 @@ _update_hash_map_entry(
     _In_ ebpf_core_map_t* map, _In_opt_ const uint8_t* key, _In_opt_ const uint8_t* data, ebpf_map_option_t option)
 {
     ebpf_result_t result;
-    size_t entry_count = 0;
     ebpf_hash_table_operations_t hash_table_operation;
 
     if (!map || !key)
@@ -1034,15 +1258,29 @@ _update_hash_map_entry(
         return EBPF_INVALID_ARGUMENT;
     }
 
-    entry_count = ebpf_hash_table_key_count((ebpf_hash_table_t*)map->data);
+    // Note:
+    // Update replaces the value in the map if the key already exists.
+    // If the key exists, we need to unlink the entry from the LRU list.
+
+    // Unlink the entry from the LRU list if needed.
+    _update_key_history(map, key, NULL, EBPF_LRU_KEY_OPERATION_DELETE);
+
+    // https://github.com/microsoft/ebpf-for-windows/issues/1741
+    // This second insert can still fail with EBPF_OUT_OF_SPACE due to a race with another ebpf_hash_table_update. This
+    // is a known issue and will be fixed in a future PR. In addition, the _reap_oldest_map_entry can fail if the map is
+    // empty, which can happen if the map is full and all the entries are deleted by other threads between the
+    // ebpf_hash_table_update and the call to _reap_oldest_map_entry.
 
     result = ebpf_hash_table_update((ebpf_hash_table_t*)map->data, key, data, hash_table_operation);
-    if (result == EBPF_OUT_OF_SPACE && _reap_oldest_map_entry(map)) {
+    // If the map is a LRU map, and the update failed because the map is full, try to free up space by deleting the
+    // oldest entry.
+    if (result == EBPF_OUT_OF_SPACE && _reap_oldest_map_entry(map) == EBPF_SUCCESS) {
+        // Attempt to update the map again.
         result = ebpf_hash_table_update((ebpf_hash_table_t*)map->data, key, data, hash_table_operation);
     }
 
-    if (result == EBPF_SUCCESS)
-        _update_key_history(map, key, false);
+    // Attempt to add the entry to the LRU list if needed.
+    _update_key_history(map, key, NULL, EBPF_LRU_KEY_OPERATION_INSERT);
 
     return result;
 }
@@ -1154,12 +1392,12 @@ _delete_map_hash_map_entry(_In_ ebpf_core_map_t* map, _In_ const uint8_t* key)
 }
 
 static ebpf_result_t
-_delete_hash_map_entry(_In_ ebpf_core_map_t* map, _In_ const uint8_t* key)
+_delete_hash_map_entry(_Inout_ ebpf_core_map_t* map, _In_ const uint8_t* key)
 {
     if (!map || !key)
         return EBPF_INVALID_ARGUMENT;
 
-    _update_key_history(map, key, true);
+    _update_key_history(map, key, NULL, EBPF_LRU_KEY_OPERATION_DELETE);
     return ebpf_hash_table_delete((ebpf_hash_table_t*)map->data, key);
 }
 
@@ -1262,6 +1500,7 @@ _create_lpm_map(
     result = _create_hash_map_internal(
         EBPF_OFFSET_OF(ebpf_core_lpm_map_t, data) + ebpf_bitmap_size(max_prefix_length),
         map_definition,
+        0,
         _lpm_extract,
         (ebpf_core_map_t**)&lpm_map);
     if (result != EBPF_SUCCESS)
@@ -1277,7 +1516,7 @@ Exit:
 
 static ebpf_result_t
 _find_lpm_map_entry(
-    _In_ ebpf_core_map_t* map, _In_opt_ const uint8_t* key, _In_ bool delete_on_success, _Outptr_ uint8_t** data)
+    _In_ ebpf_core_map_t* map, _In_opt_ const uint8_t* key, bool delete_on_success, _Outptr_ uint8_t** data)
 {
     if (!map || !key || delete_on_success)
         return EBPF_INVALID_ARGUMENT;
@@ -1388,7 +1627,7 @@ _delete_circular_map(_In_ _Post_invalid_ ebpf_core_map_t* map)
 
 static ebpf_result_t
 _find_circular_map_entry(
-    _In_ ebpf_core_map_t* map, _In_opt_ const uint8_t* key, _In_ bool delete_on_success, _Outptr_ uint8_t** data)
+    _In_ ebpf_core_map_t* map, _In_opt_ const uint8_t* key, bool delete_on_success, _Outptr_ uint8_t** data)
 {
     if (!map)
         return EBPF_INVALID_ARGUMENT;
@@ -1755,7 +1994,7 @@ const ebpf_map_metadata_table_t ebpf_map_metadata_tables[] = {
     {
         BPF_MAP_TYPE_LRU_HASH,
         _create_lru_hash_map,
-        _delete_lru_hash_map,
+        _delete_hash_map,
         NULL,
         _find_hash_map_entry,
         NULL,
@@ -1807,7 +2046,7 @@ const ebpf_map_metadata_table_t ebpf_map_metadata_tables[] = {
     {
         BPF_MAP_TYPE_LRU_PERCPU_HASH,
         _create_lru_hash_map,
-        _delete_lru_hash_map,
+        _delete_hash_map,
         NULL,
         _find_hash_map_entry,
         NULL,
