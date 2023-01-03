@@ -631,7 +631,9 @@ TEST_CASE("program", "[execution_context]")
     REQUIRE(
         ebpf_update_trampoline_table(
             table, EBPF_COUNT_OF(test_function_ids), test_function_ids, &helper_function_addresses) == EBPF_SUCCESS);
-    REQUIRE(ebpf_get_trampoline_function(table, 0, reinterpret_cast<void**>(&test_function)) == EBPF_SUCCESS);
+    REQUIRE(
+        ebpf_get_trampoline_function(
+            table, EBPF_MAX_GENERAL_HELPER_FUNCTION + 1, reinterpret_cast<void**>(&test_function)) == EBPF_SUCCESS);
 
     // Size of the actual function is unknown, but we know the allocation is on page granularity.
     REQUIRE(
@@ -654,6 +656,7 @@ TEST_CASE("program", "[execution_context]")
     REQUIRE(addresses[0] != 0);
     REQUIRE(addresses[1] == 0);
     REQUIRE(addresses[2] != 0);
+    ebpf_free_trampoline_table(table);
 }
 
 TEST_CASE("name size", "[execution_context]")
