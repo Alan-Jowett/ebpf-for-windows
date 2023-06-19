@@ -1,0 +1,42 @@
+# Copyright (c) Microsoft Corporation
+# SPDX-License-Identifier: MIT
+name: test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  run_test:
+    runs-on: Windows-2022
+    steps:
+    - name: Install ProcDump
+      id: install_procdump
+      run: |
+        choco install -y procdump
+        where procdump.exe
+
+    # Look for processes that are running from ${{github.workspace}} and capture a dump of them.
+    - name: Check if test is still running
+      id: check_test_running
+      run: |
+        $ProcessIds = Get-Process | Where-Object -Property Path -Like '${{github.workspace}}\*' | Select-Object -Property id
+        if ($ProcessIds) {
+          Write-Host "Found processes still running from ${{github.workspace}}. Killing them."
+          $ProcessIds | ForEach-Object { procdump $_  'c:\dumps' }
+        }
+
+    - name: Check for crash dumps
+      # Check for crash dumps even if the workflow failed.
+      uses: andstor/file-existence-action@20b4d2e596410855db8f9ca21e96fbe18e12930b
+      id: check_dumps
+      with:
+        files: c:/dumps/*.dmp
+
+    - name: Upload any crash dumps
+      # Upload crash dumps even if the workflow failed.
+      uses: actions/upload-artifact@0b7f8abb1508181956e8e162db84b466c27e18ce
+      id: upload_crash_dumps
+      with:
+        name: Crash-Dumps
+        path: c:/dumps
+        retention-days: 5

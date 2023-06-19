@@ -63,7 +63,8 @@ permissions:
 
 jobs:
   run_test:
-    timeout-minutes: 60
+    # Lower timeout to test dump collection.
+    timeout-minutes: 1
 
     strategy:
       matrix:
@@ -100,6 +101,13 @@ jobs:
       if: (inputs.environment == 'ebpf_cicd_tests') && (steps.skip_check.outputs.should_skip != 'true')
       with:
         ref: ${{ github.event.workflow_run.head_branch }}
+
+    - name: Install ProcDump
+      id: install_procdump
+      if: (inputs.gather_dumps == true) && (steps.skip_check.outputs.should_skip != 'true')
+      run: |
+        choco install -y procdump
+        where procdump.exe
 
     - name: Set up OpenCppCoverage and add to PATH
       id: set_up_opencppcoverage
@@ -298,6 +306,17 @@ jobs:
       shell: cmd
       run: |
           copy ${{github.workspace}}\${{env.BUILD_PLATFORM}}\${{env.BUILD_CONFIGURATION}}\*.log ${{github.workspace}}\${{env.BUILD_PLATFORM}}\${{env.BUILD_CONFIGURATION}}\TestLogs
+
+    # Look for processes that are running from ${{github.workspace}} and capture a dump of them.
+    - name: Check if test is still running
+      id: check_test_running
+      if: (inputs.gather_dumps == true) && (steps.skip_check.outputs.should_skip != 'true')
+      run: |
+        $ProcessIds = Get-Process | Where-Object -Property Path -Like '${{github.workspace}}\*' | Select-Object -Property id
+        if ($ProcessIds) {
+          Write-Host "Found processes still running from ${{github.workspace}}. Killing them."
+          $ProcessIds | ForEach-Object { procdump $_  'c:\dumps\${{env.BUILD_PLATFORM}}\${{env.BUILD_CONFIGURATION}}' }
+        }
 
     - name: Check for crash dumps
       # Check for crash dumps even if the workflow failed.
