@@ -3104,3 +3104,5 @@ TEST_CASE("multiple_map_insert", "[close_cleanup]")
 
     bpf_object__close(unique_object.release());
 }
+
+TEST_CASE("fail", "[negative]") { REQUIRE(false); }
