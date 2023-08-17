@@ -1,0 +1,70 @@
+# Copyright (c) Microsoft Corporation
+# SPDX-License-Identifier: MIT
+
+# This workflow downloads a build artifact from a previous build, builds the bpf_performance test suite, and uploads
+# the test suite as an artifact.
+
+name: Build bpf_performance test suite and upload artifacts
+
+on:
+  workflow_call:
+    inputs:
+      name:
+        required: true
+        type: string
+      # The name of the build artifact to download.
+      build_artifact:
+        required: true
+        type: string
+      # The environment to run this test on.
+      environment:
+        description: 'Environment to run tests on'
+        type: string
+        required: true
+
+permissions:
+  contents: read  # Required by actions/checkout to fetch code.
+
+jobs:
+  run_test:
+    runs-on: ${{inputs.environment}}
+    env:
+      # Configuration type to build.
+      SOURCE_ROOT: ${{github.workspace}}
+      NAME: ${{inputs.name}}
+      BUILD_PLATFORM: x64
+
+    steps:
+    - name: Clone bpf_performance
+      run:
+        git clone https://github.com/Alan-Jowett/bpf_performance ${{github.workspace}}\bpf_performance
+
+    - name: Download build artifact
+      uses: actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a
+      id: download_artifact
+      with:
+        name: ebpf-for-windows - NuGet package (Build-x64_Release)
+        path: ${{github.workspace}}
+
+    - name: Extract build artifact
+      if: steps.skip_check.outputs.should_skip != 'true'
+      working-directory: ${{github.workspace}}
+      run: |
+        mkdir ${{github.workspace}}\packages
+        Expand-Archive "${{github.workspace}}\ebpf-for-windows - NuGet package (Build-x64_Release).zip" -DestinationPath ${{github.workspace}}\packages
+
+    - name: Configure bpf_performance
+      working-directory: ${{github.workspace}}\bpf_performance
+      run: |
+        cmake -B build -S . -DBPF_PERF_LOCAL_NUGET_PATH=${{github.workspace}}\packages
+
+    - name: Build bpf_performance
+      working-directory: ${{github.workspace}}\bpf_performance
+      run: |
+        cmake --build build --config Release
+
+    - name: Upload bpf_performance artifacts
+      uses: actions/upload-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a
+      with:
+        name: bpf_performance - Release
+        path: ${{github.workspace}}\bpf_performance\build\bin

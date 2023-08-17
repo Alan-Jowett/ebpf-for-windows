@@ -464,3 +464,13 @@ jobs:
       leak_detection: false
       gather_dumps: true
       capture_etw: true
+
+  # Build the performance test.
+  build_bpf_performance:
+    needs: regular
+    if: github.event_name == 'schedule'
+    uses: ./.github/workflows/build_perf_test.yml
+    with:
+      name: bpf_performance
+      build_artifact: Build-x64
+      environment: windows-2022
