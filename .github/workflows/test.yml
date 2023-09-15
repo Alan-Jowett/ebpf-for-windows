@@ -1,0 +1,31 @@
+# Copyright (c) Microsoft Corporation
+# SPDX-License-Identifier: MIT
+
+# This is the top-level workflow that runs on each pull request and push to main.
+# It invokes other jobs to perform builds and run tests.
+# All jobs run in parallel, using build artifacts to synchronize jobs.
+#
+# If you add or remove any tests that use reusable-test.yml on a pull request,
+# you must update codecov.yml to match.
+
+name: TEST
+
+on:
+  # Permit manual runs of the workflow.
+  workflow_dispatch:
+
+
+permissions:
+  contents: read
+  checks: read  # Required by reusable-test.yml to check build status.
+
+jobs:
+  netperf:
+    name: Run Perf
+    runs-on: windows-latest
+    steps:
+    - name: Run NetPerf Workflow
+      shell: pwsh
+      run: |
+        $url = "https://raw.githubusercontent.com/microsoft/netperf/main/run-workflow.ps1"
+        iex "& { $(irm $url) } xdp xdp ${{ github.ref }} ${{ github.sha }} ${{ secrets.NET_PERF_TRIGGER }} 6195531095"
