@@ -306,10 +306,12 @@ ebpf_verify_and_load_program(
         }
 
         // Verify the program.
-        set_verification_in_progress(true);
-        result = verify_byte_code(program_type, instructions, instruction_count, error_message, error_message_size);
-        if (result != EBPF_SUCCESS) {
-            goto Exit;
+        {
+            _verification_in_progress_helper helper;
+            result = verify_byte_code(program_type, instructions, instruction_count, error_message, error_message_size);
+            if (result != EBPF_SUCCESS) {
+                goto Exit;
+            }
         }
 
         result = _resolve_maps_in_byte_code(program_handle, instructions, instruction_count);
@@ -421,7 +423,7 @@ ebpf_service_initialize() noexcept
     // it will be re-attempted before an IOCTL call is made.
     // This is needed to ensure the service can successfully start
     // even if the driver is not installed.
-    (void)initialize_device_handle();
+    (void)initialize_async_device_handle();
 
     return ERROR_SUCCESS;
 }
@@ -429,5 +431,5 @@ ebpf_service_initialize() noexcept
 void
 ebpf_service_cleanup() noexcept
 {
-    clean_up_device_handle();
+    clean_up_async_device_handle();
 }

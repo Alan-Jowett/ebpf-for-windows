@@ -14,6 +14,7 @@
 
 #include <winsock2.h>
 #include <windows.h>
+#include <iostream>
 #include <netsh.h>
 #include <regex>
 #include <sstream>
@@ -168,7 +169,6 @@ TEST_CASE("show sections bpf.o .text", "[netsh][sections]")
                   "Program Type : unspec\n"
                   "Size         : 16 bytes\n"
                   "Instructions : 2\n"
-                  "adjust_head  : 0\n"
                   "arith        : 0\n"
                   "arith32      : 0\n"
                   "arith64      : 1\n"
@@ -184,6 +184,7 @@ TEST_CASE("show sections bpf.o .text", "[netsh][sections]")
                   "map_in_map   : 0\n"
                   "other        : 2\n"
                   "packet_access: 0\n"
+                  "reallocate   : 0\n"
                   "store        : 0\n"
                   "\n"
                   "                     Key  Value      Max\n"
@@ -294,22 +295,23 @@ TEST_CASE("show sections cgroup_sock_addr.sys", "[netsh][sections]")
                                         "             Section       Type  (bytes)\n"
                                         "====================  =========  =======\n"
 #if defined(NDEBUG)
-                                        "     cgroup/connect4  sock_addr      193\n"
-                                        "     cgroup/connect6  sock_addr      210\n"
-                                        " cgroup/recv_accept4  sock_addr      193\n"
-                                        " cgroup/recv_accept6  sock_addr      210\n"
+                                        "     cgroup/connect4  sock_addr      285\n"
+                                        "     cgroup/connect6  sock_addr      302\n"
+                                        " cgroup/recv_accept4  sock_addr      285\n"
+                                        " cgroup/recv_accept6  sock_addr      302\n"
 #else
-                                        "     cgroup/connect4  sock_addr      531\n"
-                                        "     cgroup/connect6  sock_addr      606\n"
-                                        " cgroup/recv_accept4  sock_addr      531\n"
-                                        " cgroup/recv_accept6  sock_addr      606\n"
+                                        "     cgroup/connect4  sock_addr      860\n"
+                                        "     cgroup/connect6  sock_addr      935\n"
+                                        " cgroup/recv_accept4  sock_addr      860\n"
+                                        " cgroup/recv_accept6  sock_addr      935\n"
 #endif
                                         "\n"
                                         "                     Key  Value      Max\n"
                                         "          Map Type  Size   Size  Entries  Name\n"
                                         "==================  ====  =====  =======  ========\n"
                                         "              hash    56      4        1  egress_connection_policy_map\n"
-                                        "              hash    56      4        1  ingress_connection_policy_map\n";
+                                        "              hash    56      4        1  ingress_connection_policy_map\n"
+                                        "              hash    56      8     1000  socket_cookie_map\n";
     REQUIRE(output == expected_output);
 }
 
@@ -354,6 +356,29 @@ TEST_CASE("show verification droppacket.o", "[netsh][verification]")
                   "Program terminates within 0 loop iterations\n");
 }
 
+TEST_CASE("show verification xdp_adjust_head_unsafe.o", "[netsh][verification]")
+{
+    _test_helper_netsh test_helper;
+    test_helper.initialize();
+
+    int result;
+    std::string output =
+        _run_netsh_command(handle_ebpf_show_verification, L"xdp_adjust_head_unsafe.o", L"xdp", nullptr, &result);
+    REQUIRE(result == ERROR_SUPPRESS_OUTPUT);
+    output = strip_paths(output);
+    REQUIRE(
+        output == "Verification failed\n"
+                  "\n"
+                  "Verification report:\n"
+                  "\n"
+                  "; ./tests/sample/unsafe/xdp_adjust_head_unsafe.c:42\n"
+                  ";     ethernet_header->Type = 0x0800;\n"
+                  "17: Upper bound must be at most packet_size (valid_access(r1.offset+12, width=2) for write)\n"
+                  "\n"
+                  "1 errors\n"
+                  "\n");
+}
+
 TEST_CASE("show verification droppacket_unsafe.o", "[netsh][verification]")
 {
     _test_helper_netsh test_helper;
@@ -380,14 +405,14 @@ TEST_CASE("show verification droppacket_unsafe.o", "[netsh][verification]")
                   "\n");
 }
 
-TEST_CASE("show verification xdp_adjust_head_unsafe.o", "[netsh][verification]")
+TEST_CASE("show verification xdp_datasize_unsafe.o", "[netsh][verification]")
 {
     _test_helper_netsh test_helper;
     test_helper.initialize();
 
     int result;
     std::string output =
-        _run_netsh_command(handle_ebpf_show_verification, L"xdp_adjust_head_unsafe.o", L"xdp", nullptr, &result);
+        _run_netsh_command(handle_ebpf_show_verification, L"xdp_datasize_unsafe.o", L"xdp", nullptr, &result);
     REQUIRE(result == ERROR_SUPPRESS_OUTPUT);
     output = strip_paths(output);
     REQUIRE(
@@ -395,11 +420,39 @@ TEST_CASE("show verification xdp_adjust_head_unsafe.o", "[netsh][verification]")
                   "\n"
                   "Verification report:\n"
                   "\n"
-                  "; ./tests/sample/unsafe/xdp_adjust_head_unsafe.c:42\n"
-                  ";     ethernet_header->Type = 0x0800;\n"
-                  "17: Upper bound must be at most packet_size (valid_access(r1.offset+12, width=2) for write)\n"
+                  "; ./tests/sample/unsafe/xdp_datasize_unsafe.c:32\n"
+                  ";     if (next_header + sizeof(ETHERNET_HEADER) > (char*)ctx->data_end) {\n"
+                  "4: Invalid type (r3.type in {number, ctx, stack, packet, shared})\n"
+                  "; ./tests/sample/unsafe/xdp_datasize_unsafe.c:32\n"
+                  ";     if (next_header + sizeof(ETHERNET_HEADER) > (char*)ctx->data_end) {\n"
+                  "5: Invalid type (valid_access(r3.offset) for comparison/subtraction)\n"
+                  "; ./tests/sample/unsafe/xdp_datasize_unsafe.c:32\n"
+                  ";     if (next_header + sizeof(ETHERNET_HEADER) > (char*)ctx->data_end) {\n"
+                  "5: Invalid type (r3.type == non_map_fd)\n"
+                  "; ./tests/sample/unsafe/xdp_datasize_unsafe.c:32\n"
+                  ";     if (next_header + sizeof(ETHERNET_HEADER) > (char*)ctx->data_end) {\n"
+                  "5: Cannot subtract pointers to different regions (r3.type == r1.type in {ctx, stack, packet})\n"
+                  "; ./tests/sample/unsafe/xdp_datasize_unsafe.c:38\n"
+                  ";     if (ethernet_header->Type != ntohs(ETHERNET_TYPE_IPV4) && ethernet_header->Type != "
+                  "ntohs(ETHERNET_TYPE_IPV6)) {\n"
+                  "6: Invalid type (r2.type in {ctx, stack, packet, shared})\n"
+                  "; ./tests/sample/unsafe/xdp_datasize_unsafe.c:38\n"
+                  ";     if (ethernet_header->Type != ntohs(ETHERNET_TYPE_IPV4) && ethernet_header->Type != "
+                  "ntohs(ETHERNET_TYPE_IPV6)) {\n"
+                  "6: Invalid type (valid_access(r2.offset+12, width=2) for read)\n"
+                  "; ./tests/sample/unsafe/xdp_datasize_unsafe.c:38\n"
+                  ";     if (ethernet_header->Type != ntohs(ETHERNET_TYPE_IPV4) && ethernet_header->Type != "
+                  "ntohs(ETHERNET_TYPE_IPV6)) {\n"
+                  "7: Invalid type (r1.type == number)\n"
+                  "; ./tests/sample/unsafe/xdp_datasize_unsafe.c:38\n"
+                  ";     if (ethernet_header->Type != ntohs(ETHERNET_TYPE_IPV4) && ethernet_header->Type != "
+                  "ntohs(ETHERNET_TYPE_IPV6)) {\n"
+                  "8: Invalid type (r1.type == number)\n"
+                  "; ./tests/sample/unsafe/xdp_datasize_unsafe.c:43\n"
+                  ";     return rc;\n"
+                  "10: Invalid type (r0.type == number)\n"
                   "\n"
-                  "1 errors\n"
+                  "9 errors\n"
                   "\n");
 }
 
@@ -420,7 +473,7 @@ TEST_CASE("show verification printk_unsafe.o", "[netsh][verification]")
                   "\n"
                   "; ./tests/sample/unsafe/printk_unsafe.c:22\n"
                   ";     bpf_printk(\"ctx: %u\", (uint64_t)ctx);\n"
-                  "7:  (r3.type == number)\n"
+                  "7: Invalid type (r3.type == number)\n"
                   "\n"
                   "1 errors\n"
                   "\n");
@@ -438,6 +491,7 @@ verify_no_programs_exist()
                   "======  ====  =====  =========  =============  ====================\n");
 }
 
+#if !defined(CONFIG_BPF_JIT_DISABLED) || !defined(CONFIG_BPF_INTERPRETER_DISABLED)
 TEST_CASE("pin first program", "[netsh][programs]")
 {
     _test_helper_netsh test_helper;
@@ -895,11 +949,11 @@ TEST_CASE("cgroup_sock_addr compartment parameter", "[netsh][programs]")
     // Load program with pinpath and compaetment=1.
     std::string output = run_netsh_command_with_args(
         handle_ebpf_add_program, &result, 4, L"cgroup_sock_addr.o", L"cgroup/connect4", L"mypinpath", L"compartment=1");
-    REQUIRE(strcmp(output.c_str(), "Loaded with ID 5\n") == 0);
+    REQUIRE(strcmp(output.c_str(), "Loaded with ID 6\n") == 0);
     REQUIRE(result == NO_ERROR);
-    output = _run_netsh_command(handle_ebpf_delete_program, L"5", nullptr, nullptr, &result);
+    output = _run_netsh_command(handle_ebpf_delete_program, L"6", nullptr, nullptr, &result);
     REQUIRE(result == NO_ERROR);
-    REQUIRE(output == "Unpinned 5 from mypinpath\n");
+    REQUIRE(output == "Unpinned 6 from mypinpath\n");
     verify_no_programs_exist();
 
     // (Negative) Load program with incorrect compartment id.
@@ -920,6 +974,7 @@ TEST_CASE("cgroup_sock_addr compartment parameter", "[netsh][programs]")
 
     ebpf_epoch_synchronize();
 }
+#endif // !defined(CONFIG_BPF_JIT_DISABLED) || !defined(CONFIG_BPF_INTERPRETER_DISABLED)
 
 TEST_CASE("show processes", "[netsh][processes]")
 {

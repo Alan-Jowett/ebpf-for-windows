@@ -15,6 +15,7 @@
 #include "ebpf_program.h"
 #include "ebpf_program_attach_type_guids.h"
 #include "ebpf_program_types.h"
+#include "ebpf_shared_framework.h"
 #include "ebpf_state.h"
 #include "ebpf_tracelog.h"
 #include "ubpf.h"
@@ -23,6 +24,9 @@
 
 static size_t _ebpf_program_state_index = MAXUINT64;
 #define EBPF_MAX_HASH_SIZE 128
+
+// Global flag to disable invoking programs. This is used when fuzzing the IOCTL interface.
+bool ebpf_program_disable_invoke = false;
 
 typedef struct _ebpf_program
 {
@@ -60,8 +64,8 @@ typedef struct _ebpf_program
 
     EX_RUNDOWN_REF program_information_rundown_reference;
 
-    const ebpf_extension_data_t* general_helper_provider_data;
-    const ebpf_extension_data_t* info_extension_provider_data;
+    const ebpf_program_data_t* general_helper_program_data;
+    const ebpf_program_data_t* extension_program_data;
 
     bpf_prog_type_t bpf_prog_type;
 
@@ -104,7 +108,7 @@ static const NPI_CLIENT_CHARACTERISTICS _ebpf_program_general_program_informatio
     _ebpf_program_general_program_information_detach_provider,
     NULL,
     {
-        EBPF_PROGRAM_INFORMATION_PROVIDER_DATA_VERSION,
+        EBPF_PROGRAM_INFORMATION_CLIENT_DATA_CURRENT_VERSION,
         sizeof(NPI_REGISTRATION_INSTANCE),
         &EBPF_PROGRAM_INFO_EXTENSION_IID,
         NULL,
@@ -123,7 +127,7 @@ static const NPI_CLIENT_CHARACTERISTICS _ebpf_program_type_specific_program_info
     _ebpf_program_type_specific_program_information_detach_provider,
     NULL,
     {
-        EBPF_PROGRAM_INFORMATION_PROVIDER_DATA_VERSION,
+        EBPF_PROGRAM_INFORMATION_CLIENT_DATA_CURRENT_VERSION,
         sizeof(NPI_REGISTRATION_INSTANCE),
         &EBPF_PROGRAM_INFO_EXTENSION_IID,
         NULL,
@@ -182,10 +186,106 @@ _IRQL_requires_max_(PASSIVE_LEVEL) static ebpf_result_t _ebpf_program_compute_pr
     _In_ const uint32_t* actual_helper_ids,
     size_t count_of_actual_helper_ids,
     _In_ const ebpf_program_data_t* general_program_information_data,
-    _In_ const ebpf_program_data_t* type_specific_program_information_data,
+    _In_ const ebpf_program_data_t* extension_program_data,
     _In_ const cxplat_utf8_string_t* hash_algorithm,
     _Outptr_ uint8_t** hash,
     _Out_ size_t* hash_length);
+
+static bool
+_ebpf_program_match_provider_data_module_id(_In_ const PNPI_MODULEID npi_module_id, _In_ const GUID* expected_module_id)
+{
+    bool match = false;
+    // Verify the NPI module ID is a GUID.
+    if (npi_module_id->Type != MIT_GUID) {
+        EBPF_LOG_MESSAGE(
+            EBPF_TRACELOG_LEVEL_ERROR,
+            EBPF_TRACELOG_KEYWORD_PROGRAM,
+            "Program information provider module ID type mismatch.");
+        goto Done;
+    }
+
+    // Check if the provider module ID matches the expected module ID.
+    if (memcmp(&npi_module_id->Guid, expected_module_id, sizeof(GUID)) != 0) {
+        // This is expected as the attach callback will be called for each provider of NPI
+        // EBPF_PROGRAM_INFO_EXTENSION_IID.
+        goto Done;
+    }
+    match = true;
+Done:
+    return match;
+}
+
+enum ebpf_program_info_provider_type
+{
+    EBPF_PROGRAM_INFO_PROVIDER_TYPE_EXTENSION,
+    EBPF_PROGRAM_INFO_PROVIDER_TYPE_GENERAL_HELPER
+};
+
+static bool
+_ebpf_program_verify_provider_program_data(
+    _In_ enum ebpf_program_info_provider_type provider_type,
+    _In_ const PNPI_MODULEID npi_module_id,
+    _In_opt_ const ebpf_program_data_t* program_data)
+{
+    bool program_data_valid = false;
+    bool is_general_helper_program_data = (provider_type == EBPF_PROGRAM_INFO_PROVIDER_TYPE_GENERAL_HELPER);
+
+    // Verify that the program data is present.
+    if (program_data == NULL) {
+        EBPF_LOG_MESSAGE(
+            EBPF_TRACELOG_LEVEL_ERROR,
+            EBPF_TRACELOG_KEYWORD_PROGRAM,
+            "The program information provider data is not present.");
+        goto Done;
+    }
+
+    // Perform validation of the program data.
+    if (!is_general_helper_program_data) {
+        if (!ebpf_validate_program_data(program_data)) {
+            EBPF_LOG_MESSAGE(
+                EBPF_TRACELOG_LEVEL_ERROR,
+                EBPF_TRACELOG_KEYWORD_PROGRAM,
+                "Program data provided by the extension is not valid.");
+            goto Done;
+        }
+        if (program_data->required_irql > HIGH_LEVEL) {
+            EBPF_LOG_MESSAGE_GUID(
+                EBPF_TRACELOG_LEVEL_ERROR,
+                EBPF_TRACELOG_KEYWORD_PROGRAM,
+                "An extension cannot have required_irql higher than HIGH_LEVEL",
+                &npi_module_id->Guid);
+            goto Done;
+        }
+
+        if ((program_data->program_type_specific_helper_function_addresses) &&
+            program_data->program_type_specific_helper_function_addresses->helper_function_count !=
+                program_data->program_info->count_of_program_type_specific_helpers) {
+            EBPF_LOG_MESSAGE_GUID(
+                EBPF_TRACELOG_LEVEL_ERROR,
+                EBPF_TRACELOG_KEYWORD_PROGRAM,
+                "An extension cannot have a mismatch between the number of helper functions and the number of helper "
+                "function addresses",
+                &npi_module_id->Guid);
+            goto Done;
+        }
+
+        if ((program_data->global_helper_function_addresses) &&
+            (program_data->global_helper_function_addresses->helper_function_count !=
+             program_data->program_info->count_of_global_helpers)) {
+            EBPF_LOG_MESSAGE_GUID(
+                EBPF_TRACELOG_LEVEL_ERROR,
+                EBPF_TRACELOG_KEYWORD_PROGRAM,
+                "An extension cannot have a mismatch between the number of helper functions and the number of helper "
+                "function addresses",
+                &npi_module_id->Guid);
+            goto Done;
+        }
+    }
+    program_data_valid = true;
+
+Done:
+    return program_data_valid;
+}
 
 static NTSTATUS
 _ebpf_program_general_program_information_attach_provider(
@@ -193,50 +293,35 @@ _ebpf_program_general_program_information_attach_provider(
     _In_ void* client_context,
     _In_ const NPI_REGISTRATION_INSTANCE* provider_registration_instance)
 {
-    const ebpf_extension_data_t* provider_data =
-        (const ebpf_extension_data_t*)provider_registration_instance->NpiSpecificCharacteristics;
+    const ebpf_program_data_t* program_data =
+        (const ebpf_program_data_t*)provider_registration_instance->NpiSpecificCharacteristics;
     ebpf_program_t* program = (ebpf_program_t*)client_context;
     NTSTATUS status;
-
     void* provider_binding_context;
     void* provider_dispatch;
-
+    ebpf_lock_state_t state = 0;
     bool lock_held = false;
 
-    ebpf_lock_state_t state = ebpf_lock_lock(&program->lock);
+    if (!_ebpf_program_match_provider_data_module_id(
+            provider_registration_instance->ModuleId, &ebpf_general_helper_function_module_id.Guid)) {
+        EBPF_LOG_MESSAGE(
+            EBPF_TRACELOG_LEVEL_ERROR,
+            EBPF_TRACELOG_KEYWORD_PROGRAM,
+            "Program information provider module ID mismatch.");
+        status = STATUS_INVALID_PARAMETER;
+        goto Done;
+    }
+
+    if (!_ebpf_program_verify_provider_program_data(
+            EBPF_PROGRAM_INFO_PROVIDER_TYPE_GENERAL_HELPER, provider_registration_instance->ModuleId, program_data)) {
+        status = STATUS_INVALID_PARAMETER;
+        goto Done;
+    }
+
+    state = ebpf_lock_lock(&program->lock);
     lock_held = true;
 
-    // Verify that that the provider is using the same version of the extension as the client.
-    if (provider_data->version > EBPF_PROGRAM_INFORMATION_PROVIDER_DATA_VERSION ||
-        provider_data->size < sizeof(ebpf_program_data_t)) {
-        EBPF_LOG_MESSAGE(
-            EBPF_TRACELOG_LEVEL_ERROR,
-            EBPF_TRACELOG_KEYWORD_PROGRAM,
-            "Global program information provider version mismatch.");
-        status = STATUS_INVALID_PARAMETER;
-        goto Done;
-    }
-
-    if (provider_registration_instance->ModuleId->Type != MIT_GUID) {
-        EBPF_LOG_MESSAGE(
-            EBPF_TRACELOG_LEVEL_ERROR,
-            EBPF_TRACELOG_KEYWORD_PROGRAM,
-            "Global program information provider module ID type mismatch.");
-        status = STATUS_INVALID_PARAMETER;
-        goto Done;
-    }
-
-    if (memcmp(
-            &provider_registration_instance->ModuleId->Guid,
-            &ebpf_general_helper_function_module_id.Guid,
-            sizeof(GUID)) != 0) {
-        status = STATUS_NOINTERFACE;
-        // This is expected as the attach callback will be called for each provider of NPI
-        // EBPF_PROGRAM_INFO_EXTENSION_IID.
-        goto Done;
-    }
-
-    if (program->general_helper_provider_data != NULL) {
+    if (program->general_helper_program_data != NULL) {
         EBPF_LOG_MESSAGE(
             EBPF_TRACELOG_LEVEL_ERROR,
             EBPF_TRACELOG_KEYWORD_PROGRAM,
@@ -245,8 +330,7 @@ _ebpf_program_general_program_information_attach_provider(
         goto Done;
     }
 
-    program->general_helper_provider_data = provider_data;
-    const ebpf_program_data_t* program_data = (const ebpf_program_data_t*)program->general_helper_provider_data->data;
+    program->general_helper_program_data = program_data;
 
     program->global_helper_function_count =
         program_data->program_type_specific_helper_function_addresses->helper_function_count;
@@ -270,7 +354,7 @@ _ebpf_program_general_program_information_attach_provider(
             EBPF_TRACELOG_KEYWORD_PROGRAM,
             "NmrClientAttachProvider failed for global program information provider.",
             status);
-        program->general_helper_provider_data = NULL;
+        program->general_helper_program_data = NULL;
         goto Done;
     }
 
@@ -287,7 +371,7 @@ _ebpf_program_general_program_information_detach_provider(void* client_binding_c
 {
     ebpf_program_t* program = (ebpf_program_t*)client_binding_context;
     ebpf_lock_state_t state = ebpf_lock_lock(&program->lock);
-    program->general_helper_provider_data = NULL;
+    program->general_helper_program_data = NULL;
     ebpf_lock_unlock(&program->lock, state);
     return STATUS_SUCCESS;
 }
@@ -298,11 +382,10 @@ _ebpf_program_type_specific_program_information_attach_provider(
     _In_ void* client_context,
     _In_ const NPI_REGISTRATION_INSTANCE* provider_registration_instance)
 {
-    const ebpf_extension_data_t* provider_data =
-        (const ebpf_extension_data_t*)provider_registration_instance->NpiSpecificCharacteristics;
+    ebpf_result_t result = EBPF_SUCCESS;
     ebpf_program_t* program = (ebpf_program_t*)client_context;
-    const ebpf_program_data_t* type_specific_program_information_data;
-    const ebpf_program_data_t* general_program_information_data;
+    const ebpf_program_data_t* extension_program_data = NULL;
+    const ebpf_program_data_t* general_program_information_data = NULL;
     cxplat_utf8_string_t hash_algorithm = {0};
     NTSTATUS status;
     uint8_t* hash = NULL;
@@ -313,18 +396,41 @@ _ebpf_program_type_specific_program_information_attach_provider(
 
     void* provider_binding_context;
     void* provider_dispatch;
-
+    ebpf_lock_state_t state = 0;
     bool lock_held = false;
 
-    ebpf_lock_state_t state = ebpf_lock_lock(&program->lock);
-    lock_held = true;
-
-    if (ebpf_duplicate_utf8_string(&hash_algorithm, &program->parameters.program_info_hash_type) != EBPF_SUCCESS) {
-        status = STATUS_NO_MEMORY;
+    if (!_ebpf_program_match_provider_data_module_id(
+            provider_registration_instance->ModuleId, &program->parameters.program_type)) {
+        EBPF_LOG_MESSAGE_GUID_GUID(
+            EBPF_TRACELOG_LEVEL_ERROR,
+            EBPF_TRACELOG_KEYWORD_PROGRAM,
+            "Program information provider module ID mismatch.",
+            &program->parameters.program_type,
+            &provider_registration_instance->ModuleId->Guid);
+        status = STATUS_INVALID_PARAMETER;
         goto Done;
     }
 
-    if (!program->general_helper_provider_data) {
+    if (!_ebpf_program_verify_provider_program_data(
+            EBPF_PROGRAM_INFO_PROVIDER_TYPE_EXTENSION,
+            provider_registration_instance->ModuleId,
+            (const ebpf_program_data_t*)provider_registration_instance->NpiSpecificCharacteristics)) {
+        status = STATUS_INVALID_PARAMETER;
+        goto Done;
+    }
+
+    result = ebpf_duplicate_program_data(
+        (const ebpf_program_data_t*)provider_registration_instance->NpiSpecificCharacteristics,
+        &extension_program_data);
+    if (result != EBPF_SUCCESS) {
+        status = ebpf_result_to_ntstatus(result);
+        goto Done;
+    }
+
+    state = ebpf_lock_lock(&program->lock);
+    lock_held = true;
+
+    if (!program->general_helper_program_data) {
         EBPF_LOG_MESSAGE(
             EBPF_TRACELOG_LEVEL_ERROR,
             EBPF_TRACELOG_KEYWORD_PROGRAM,
@@ -333,7 +439,12 @@ _ebpf_program_type_specific_program_information_attach_provider(
         goto Done;
     }
 
-    general_program_information_data = (ebpf_program_data_t*)program->general_helper_provider_data->data;
+    if (ebpf_duplicate_utf8_string(&hash_algorithm, &program->parameters.program_info_hash_type) != EBPF_SUCCESS) {
+        status = STATUS_NO_MEMORY;
+        goto Done;
+    }
+
+    general_program_information_data = program->general_helper_program_data;
 
     actual_helper_function_ids = program->helper_function_ids;
     actual_helper_function_count = program->helper_function_count;
@@ -341,37 +452,6 @@ _ebpf_program_type_specific_program_information_attach_provider(
 
     ebpf_lock_unlock(&program->lock, state);
     lock_held = false;
-
-    // Verify that that the provider is using the same version of the extension as the client.
-    if (provider_data->version > EBPF_PROGRAM_INFORMATION_PROVIDER_DATA_VERSION ||
-        provider_data->size < sizeof(ebpf_program_data_t)) {
-        EBPF_LOG_MESSAGE_GUID(
-            EBPF_TRACELOG_LEVEL_ERROR,
-            EBPF_TRACELOG_KEYWORD_PROGRAM,
-            "Program information provider version mismatch.",
-            &program->parameters.program_type);
-        status = STATUS_INVALID_PARAMETER;
-        goto Done;
-    }
-
-    if (provider_registration_instance->ModuleId->Type != MIT_GUID) {
-        EBPF_LOG_MESSAGE_GUID(
-            EBPF_TRACELOG_LEVEL_ERROR,
-            EBPF_TRACELOG_KEYWORD_PROGRAM,
-            "Program information provider module ID type mismatch.",
-            &program->parameters.program_type);
-        status = STATUS_INVALID_PARAMETER;
-        goto Done;
-    }
-
-    if (memcmp(&provider_registration_instance->ModuleId->Guid, &program->parameters.program_type, sizeof(GUID)) != 0) {
-        // This is expected as the attach callback will be called for each provider of NPI
-        // EBPF_PROGRAM_INFO_EXTENSION_IID.
-        status = STATUS_NOINTERFACE;
-        goto Done;
-    }
-
-    type_specific_program_information_data = (ebpf_program_data_t*)provider_data->data;
 
     // Compute (and compare) the hash only if the actual helper IDs have been set.
     if (actual_helper_ids_set) {
@@ -381,7 +461,7 @@ _ebpf_program_type_specific_program_information_attach_provider(
                 actual_helper_function_ids,
                 actual_helper_function_count,
                 general_program_information_data,
-                type_specific_program_information_data,
+                extension_program_data,
                 &hash_algorithm,
                 &hash,
                 &hash_length) != EBPF_SUCCESS) {
@@ -393,7 +473,7 @@ _ebpf_program_type_specific_program_information_attach_provider(
     state = ebpf_lock_lock(&program->lock);
     lock_held = true;
 
-    if (program->info_extension_provider_data != NULL) {
+    if (program->extension_program_data != NULL) {
         EBPF_LOG_MESSAGE_GUID(
             EBPF_TRACELOG_LEVEL_ERROR,
             EBPF_TRACELOG_KEYWORD_PROGRAM,
@@ -402,7 +482,6 @@ _ebpf_program_type_specific_program_information_attach_provider(
         status = STATUS_INVALID_PARAMETER;
         goto Done;
     }
-    program->info_extension_provider_data = provider_data;
 
     // Compare the hash only if actual helper IDs have been set.
     if (actual_helper_ids_set) {
@@ -419,63 +498,16 @@ _ebpf_program_type_specific_program_information_attach_provider(
         }
     }
 
-    const ebpf_program_data_t* program_data = (const ebpf_program_data_t*)provider_data->data;
-    if (program_data == NULL) {
-        EBPF_LOG_MESSAGE_GUID(
-            EBPF_TRACELOG_LEVEL_ERROR,
-            EBPF_TRACELOG_KEYWORD_PROGRAM,
-            "An extension cannot have empty program_data",
-            &program->parameters.program_type);
-        // An extension cannot have empty program_data.
-        status = STATUS_INVALID_PARAMETER;
-        goto Done;
-    }
-
-    if (program_data->required_irql > HIGH_LEVEL) {
-        EBPF_LOG_MESSAGE_GUID(
-            EBPF_TRACELOG_LEVEL_ERROR,
-            EBPF_TRACELOG_KEYWORD_PROGRAM,
-            "An extension cannot have required_irql higher than HIGH_LEVEL",
-            &program->parameters.program_type);
-        status = STATUS_INVALID_PARAMETER;
-        goto Done;
-    }
-
-    if ((program_data->program_type_specific_helper_function_addresses) &&
-        program_data->program_type_specific_helper_function_addresses->helper_function_count !=
-            program_data->program_info->count_of_program_type_specific_helpers) {
-        EBPF_LOG_MESSAGE_GUID(
-            EBPF_TRACELOG_LEVEL_ERROR,
-            EBPF_TRACELOG_KEYWORD_PROGRAM,
-            "An extension cannot have a mismatch between the number of helper functions and the number of helper "
-            "function addresses",
-            &program->parameters.program_type);
-        status = STATUS_INVALID_PARAMETER;
-        goto Done;
-    }
-
-    if ((program_data->global_helper_function_addresses) &&
-        (program_data->global_helper_function_addresses->helper_function_count !=
-         program_data->program_info->count_of_global_helpers)) {
-        EBPF_LOG_MESSAGE_GUID(
-            EBPF_TRACELOG_LEVEL_ERROR,
-            EBPF_TRACELOG_KEYWORD_PROGRAM,
-            "An extension cannot have a mismatch between the number of helper functions and the number of helper "
-            "function addresses",
-            &program->parameters.program_type);
-        status = STATUS_INVALID_PARAMETER;
-        goto Done;
-    }
-
     // This should be done after the call to NmrClientAttachProvider, but _ebpf_program_update_helpers requires
     // the program information to be set.
 
     // Unblock calls to use the program information.
-    program->info_extension_provider_data = provider_data;
+    program->extension_program_data = extension_program_data;
+    extension_program_data = NULL;
     ExInitializeRundownProtection(&program->program_information_rundown_reference);
 
     program->program_type_specific_helper_function_count =
-        program_data->program_info->count_of_program_type_specific_helpers;
+        program->extension_program_data->program_info->count_of_program_type_specific_helpers;
 
     if (_ebpf_program_update_helpers(program) != EBPF_SUCCESS) {
         EBPF_LOG_MESSAGE(
@@ -484,7 +516,7 @@ _ebpf_program_type_specific_program_information_attach_provider(
         goto Done;
     }
 
-    program->bpf_prog_type = program_data->program_info->program_type_descriptor.bpf_prog_type;
+    program->bpf_prog_type = program->extension_program_data->program_info->program_type_descriptor->bpf_prog_type;
 
     ebpf_lock_unlock(&program->lock, state);
     lock_held = false;
@@ -506,7 +538,7 @@ _ebpf_program_type_specific_program_information_attach_provider(
         state = ebpf_lock_lock(&program->lock);
         lock_held = true;
 
-        program->general_helper_provider_data = NULL;
+        program->general_helper_program_data = NULL;
         ebpf_lock_unlock(&program->lock, state);
         lock_held = false;
         goto Done;
@@ -519,6 +551,7 @@ Done:
     if (lock_held) {
         ebpf_lock_unlock(&program->lock, state);
     }
+    ebpf_program_data_free((ebpf_program_data_t*)extension_program_data);
 
     return status;
 }
@@ -531,7 +564,8 @@ _ebpf_program_type_specific_program_information_detach_provider(void* client_bin
     ExWaitForRundownProtectionRelease(&program->program_information_rundown_reference);
 
     ebpf_lock_state_t state = ebpf_lock_lock(&program->lock);
-    program->info_extension_provider_data = NULL;
+    ebpf_program_data_free((ebpf_program_data_t*)program->extension_program_data);
+    program->extension_program_data = NULL;
     ebpf_lock_unlock(&program->lock, state);
     return STATUS_SUCCESS;
 }
@@ -610,6 +644,7 @@ _IRQL_requires_max_(PASSIVE_LEVEL) static void _ebpf_program_free(_In_opt_ _Post
         }
     }
 
+    ebpf_program_data_free((ebpf_program_data_t*)program->extension_program_data);
     ebpf_lock_destroy(&program->lock);
 
     switch (program->parameters.code_type) {
@@ -788,11 +823,11 @@ ebpf_program_create(_In_ const ebpf_program_parameters_t* program_parameters, _O
         goto Done;
     }
 
-    if (local_program->general_helper_provider_data == NULL || local_program->info_extension_provider_data == NULL) {
+    if (local_program->general_helper_program_data == NULL || local_program->extension_program_data == NULL) {
         EBPF_LOG_MESSAGE_GUID_GUID(
             EBPF_TRACELOG_LEVEL_INFO,
             EBPF_TRACELOG_KEYWORD_PROGRAM,
-            "Program type and Attach type:",
+            "Failed to load program information.",
             &program_parameters->program_type,
             &program_parameters->expected_attach_type);
         retval = EBPF_EXTENSION_FAILED_TO_LOAD;
@@ -1073,7 +1108,7 @@ _ebpf_program_update_jit_helpers(
     UNREFERENCED_PARAMETER(address_count);
     UNREFERENCED_PARAMETER(addresses);
     ebpf_program_t* program = (ebpf_program_t*)context;
-    ebpf_program_data_t* program_data = NULL;
+    const ebpf_program_data_t* program_data = NULL;
     const ebpf_helper_function_addresses_t* helper_function_addresses = NULL;
     const ebpf_helper_function_addresses_t* global_helper_function_addresses = NULL;
 
@@ -1092,7 +1127,7 @@ _ebpf_program_update_jit_helpers(
         goto Exit;
     }
     provider_data_referenced = true;
-    program_data = (ebpf_program_data_t*)program->info_extension_provider_data->data;
+    program_data = program->extension_program_data;
     helper_function_addresses = program_data->program_type_specific_helper_function_addresses;
     global_helper_function_addresses = program_data->global_helper_function_addresses;
 
@@ -1372,7 +1407,7 @@ ebpf_program_set_tail_call(_In_ const ebpf_program_t* next_program)
 _Must_inspect_result_ ebpf_result_t
 ebpf_program_reference_providers(_Inout_ ebpf_program_t* program)
 {
-    if (program->info_extension_provider_data == NULL) {
+    if (program->extension_program_data == NULL) {
         return EBPF_EXTENSION_FAILED_TO_LOAD;
     }
     if (!ExAcquireRundownProtection(&program->program_information_rundown_reference)) {
@@ -1394,6 +1429,11 @@ ebpf_program_invoke(
     _Out_ uint32_t* result,
     _Inout_ ebpf_execution_context_state_t* execution_state)
 {
+    if (ebpf_program_disable_invoke) {
+        *result = 0;
+        return;
+    }
+
     // High volume call - Skip entry/exit logging.
     const ebpf_program_t* current_program = program;
 
@@ -1434,8 +1474,8 @@ _Requires_lock_held_(program->lock) static ebpf_result_t _ebpf_program_get_helpe
 {
     ebpf_result_t return_value;
     uint64_t* function_address = NULL;
-    ebpf_program_data_t* program_data = NULL;
-    ebpf_program_data_t* general_program_data = NULL;
+    const ebpf_program_data_t* program_data = NULL;
+    const ebpf_program_data_t* general_program_data = NULL;
 
     EBPF_LOG_ENTRY();
 
@@ -1454,8 +1494,8 @@ _Requires_lock_held_(program->lock) static ebpf_result_t _ebpf_program_get_helpe
     }
     provider_data_referenced = true;
 
-    program_data = (ebpf_program_data_t*)program->info_extension_provider_data->data;
-    general_program_data = (ebpf_program_data_t*)program->general_helper_provider_data->data;
+    program_data = program->extension_program_data;
+    general_program_data = program->general_helper_program_data;
 
     use_trampoline = program->parameters.code_type == EBPF_CODE_JIT;
     if (use_trampoline && !program->trampoline_table) {
@@ -1476,7 +1516,8 @@ _Requires_lock_held_(program->lock) static ebpf_result_t _ebpf_program_get_helpe
     }
 
     if (helper_function_id < EBPF_MAX_GENERAL_HELPER_FUNCTION) {
-        // Check the general helper function table of the program type.
+        // First check the global helper function table of the program type for any helper functions that are
+        // overwritten.
         if (!found) {
             for (size_t index = 0; index < program_data->program_info->count_of_global_helpers; index++) {
                 if (program_data->program_info->global_helper_prototype[index].helper_id == helper_function_id) {
@@ -1488,7 +1529,7 @@ _Requires_lock_held_(program->lock) static ebpf_result_t _ebpf_program_get_helpe
             }
         }
 
-        // Check the general helper function table of the general program type.
+        // Next check the general helper function table of the general program type.
         if (!found) {
             for (size_t index = 0; index < general_program_data->program_info->count_of_program_type_specific_helpers;
                  index++) {
@@ -1496,7 +1537,17 @@ _Requires_lock_held_(program->lock) static ebpf_result_t _ebpf_program_get_helpe
                     helper_function_id) {
                     function_address = (void*)general_program_data->program_type_specific_helper_function_addresses
                                            ->helper_function_address[index];
-                    found = true;
+                    // In case of helper functions that do not have any default / general implementation, the function
+                    // address will be NULL.
+                    if (function_address != NULL) {
+                        found = true;
+                    } else {
+                        EBPF_LOG_MESSAGE_UINT64(
+                            EBPF_TRACELOG_LEVEL_ERROR,
+                            EBPF_TRACELOG_KEYWORD_PROGRAM,
+                            "No override implementation found for helper ID",
+                            helper_function_id);
+                    }
                     break;
                 }
             }
@@ -1573,7 +1624,6 @@ ebpf_program_set_helper_function_ids(
     state = ebpf_lock_lock(&program->lock);
 
     if (helper_function_count == 0) {
-        program->helper_ids_set = true;
         goto Exit;
     }
 
@@ -1598,6 +1648,8 @@ ebpf_program_set_helper_function_ids(
     for (size_t index = 0; index < helper_function_count; index++) {
         program->helper_function_ids[index] = helper_function_ids[index];
     }
+
+    program->helper_ids_set = true;
 
 Exit:
     ebpf_lock_unlock(&program->lock, state);
@@ -1627,7 +1679,7 @@ ebpf_program_set_program_info_hash(_Inout_ ebpf_program_t* program)
 
     ebpf_result_t result = EBPF_SUCCESS;
     bool provider_data_referenced = false;
-    const ebpf_program_data_t* type_specific_program_information_data;
+    const ebpf_program_data_t* extension_program_data;
     const ebpf_program_data_t* general_program_information_data;
     cxplat_utf8_string_t hash_algorithm = {0};
     uint32_t* actual_helper_function_ids = NULL;
@@ -1657,8 +1709,8 @@ ebpf_program_set_program_info_hash(_Inout_ ebpf_program_t* program)
         goto Exit;
     }
 
-    general_program_information_data = (ebpf_program_data_t*)program->general_helper_provider_data->data;
-    type_specific_program_information_data = (ebpf_program_data_t*)program->info_extension_provider_data->data;
+    general_program_information_data = program->general_helper_program_data;
+    extension_program_data = program->extension_program_data;
     actual_helper_function_ids = program->helper_function_ids;
     actual_helper_function_count = program->helper_function_count;
 
@@ -1670,7 +1722,7 @@ ebpf_program_set_program_info_hash(_Inout_ ebpf_program_t* program)
         actual_helper_function_ids,
         actual_helper_function_count,
         general_program_information_data,
-        type_specific_program_information_data,
+        extension_program_data,
         &hash_algorithm,
         &hash,
         &hash_length);
@@ -1718,8 +1770,8 @@ ebpf_program_get_program_info(_In_ const ebpf_program_t* program, _Outptr_ ebpf_
 {
     EBPF_LOG_ENTRY();
     ebpf_result_t result = EBPF_SUCCESS;
-    ebpf_program_data_t* program_data = NULL;
-    ebpf_program_data_t* general_helper_program_data = NULL;
+    const ebpf_program_data_t* program_data = NULL;
+    const ebpf_program_data_t* general_helper_program_data = NULL;
     ebpf_program_info_t* local_program_info = NULL;
     uint32_t total_count_of_helpers = 0;
     uint32_t helper_index = 0;
@@ -1738,9 +1790,9 @@ ebpf_program_get_program_info(_In_ const ebpf_program_t* program, _Outptr_ ebpf_
         goto Exit;
     }
     provider_data_referenced = true;
-    program_data = (ebpf_program_data_t*)program->info_extension_provider_data->data;
+    program_data = program->extension_program_data;
 
-    if (!program->general_helper_provider_data) {
+    if (!program->general_helper_program_data) {
         EBPF_LOG_MESSAGE_GUID(
             EBPF_TRACELOG_LEVEL_ERROR,
             EBPF_TRACELOG_KEYWORD_PROGRAM,
@@ -1749,7 +1801,7 @@ ebpf_program_get_program_info(_In_ const ebpf_program_t* program, _Outptr_ ebpf_
         result = EBPF_EXTENSION_FAILED_TO_LOAD;
         goto Exit;
     }
-    general_helper_program_data = (ebpf_program_data_t*)program->general_helper_provider_data->data;
+    general_helper_program_data = program->general_helper_program_data;
 
     total_count_of_helpers = program_data->program_info->count_of_program_type_specific_helpers +
                              general_helper_program_data->program_info->count_of_program_type_specific_helpers;
@@ -1984,7 +2036,7 @@ _IRQL_requires_max_(PASSIVE_LEVEL) static ebpf_result_t _ebpf_program_compute_pr
     _In_ const uint32_t* actual_helper_ids,
     size_t count_of_actual_helper_ids,
     _In_ const ebpf_program_data_t* general_program_information_data,
-    _In_ const ebpf_program_data_t* type_specific_program_information_data,
+    _In_ const ebpf_program_data_t* extension_program_data,
     _In_ const cxplat_utf8_string_t* hash_algorithm,
     _Outptr_ uint8_t** hash,
     _Out_ size_t* hash_length)
@@ -1993,7 +2045,7 @@ _IRQL_requires_max_(PASSIVE_LEVEL) static ebpf_result_t _ebpf_program_compute_pr
     ebpf_result_t result;
     ebpf_cryptographic_hash_t* cryptographic_hash = NULL;
     ebpf_helper_id_to_index_t* helper_id_to_index = NULL;
-    const ebpf_program_info_t* type_specific_program_info = type_specific_program_information_data->program_info;
+    const ebpf_program_info_t* type_specific_program_info = extension_program_data->program_info;
     const ebpf_program_info_t* general_program_info = general_program_information_data->program_info;
     size_t helper_function_count = count_of_actual_helper_ids;
     uint32_t helper_function_index = 0;
@@ -2071,31 +2123,31 @@ _IRQL_requires_max_(PASSIVE_LEVEL) static ebpf_result_t _ebpf_program_compute_pr
     // new fields, both here and in bpf2c.
 
     result = EBPF_CRYPTOGRAPHIC_HASH_APPEND_STR(
-        cryptographic_hash, type_specific_program_info->program_type_descriptor.name);
+        cryptographic_hash, type_specific_program_info->program_type_descriptor->name);
     if (result != EBPF_SUCCESS) {
         goto Exit;
     }
 
     result = EBPF_CRYPTOGRAPHIC_HASH_APPEND_VALUE(
-        cryptographic_hash, *type_specific_program_info->program_type_descriptor.context_descriptor);
+        cryptographic_hash, *type_specific_program_info->program_type_descriptor->context_descriptor);
     if (result != EBPF_SUCCESS) {
         goto Exit;
     }
 
     result = EBPF_CRYPTOGRAPHIC_HASH_APPEND_VALUE(
-        cryptographic_hash, type_specific_program_info->program_type_descriptor.program_type);
+        cryptographic_hash, type_specific_program_info->program_type_descriptor->program_type);
     if (result != EBPF_SUCCESS) {
         goto Exit;
     }
 
     result = EBPF_CRYPTOGRAPHIC_HASH_APPEND_VALUE(
-        cryptographic_hash, type_specific_program_info->program_type_descriptor.bpf_prog_type);
+        cryptographic_hash, type_specific_program_info->program_type_descriptor->bpf_prog_type);
     if (result != EBPF_SUCCESS) {
         goto Exit;
     }
 
     result = EBPF_CRYPTOGRAPHIC_HASH_APPEND_VALUE(
-        cryptographic_hash, type_specific_program_info->program_type_descriptor.is_privileged);
+        cryptographic_hash, type_specific_program_info->program_type_descriptor->is_privileged);
     if (result != EBPF_SUCCESS) {
         goto Exit;
     }
@@ -2130,8 +2182,9 @@ _IRQL_requires_max_(PASSIVE_LEVEL) static ebpf_result_t _ebpf_program_compute_pr
             }
         }
 
-        if (helper_function_prototype->reallocate_packet) {
-            result = EBPF_CRYPTOGRAPHIC_HASH_APPEND_STR(cryptographic_hash, "reallocate_packet");
+        // This check for flags is temporary, until https://github.com/microsoft/ebpf-for-windows/issues/3429 is fixed.
+        if (helper_function_prototype->flags.reallocate_packet != 0) {
+            result = EBPF_CRYPTOGRAPHIC_HASH_APPEND_VALUE(cryptographic_hash, helper_function_prototype->flags);
             if (result != EBPF_SUCCESS) {
                 goto Exit;
             }
@@ -2166,8 +2219,7 @@ Exit:
 typedef struct _ebpf_program_test_run_context
 {
     const ebpf_program_t* program;
-    ebpf_program_data_t* program_data;
-    void* context;
+    const ebpf_program_data_t* program_data;
     ebpf_program_test_run_options_t* options;
     uint8_t required_irql;
     bool canceled;
@@ -2197,6 +2249,7 @@ _ebpf_program_test_run_work_item(_In_ cxplat_preemptible_work_item_t* work_item,
     bool irql_raised = false;
     bool thread_affinity_set = false;
     bool state_stored = false;
+    void* program_context = NULL;
 
     result = ebpf_set_current_thread_affinity((uintptr_t)1 << options->cpu, &old_thread_affinity);
     if (result != EBPF_SUCCESS) {
@@ -2208,6 +2261,14 @@ _ebpf_program_test_run_work_item(_In_ cxplat_preemptible_work_item_t* work_item,
 
     old_irql = ebpf_raise_irql(context->required_irql);
     irql_raised = true;
+
+    // Convert the input buffer to a program type specific context structure.
+    result = context->program_data->context_create(
+        options->data_in, options->data_size_in, options->context_in, options->context_size_in, &program_context);
+    if (result != EBPF_SUCCESS) {
+        result = EBPF_INVALID_ARGUMENT;
+        goto Done;
+    }
 
     ebpf_epoch_enter(&epoch_state);
     in_epoch = true;
@@ -2249,7 +2310,7 @@ _ebpf_program_test_run_work_item(_In_ cxplat_preemptible_work_item_t* work_item,
             }
             ebpf_epoch_enter(&epoch_state);
         }
-        ebpf_program_invoke(context->program, context->context, &return_value, &execution_context_state);
+        ebpf_program_invoke(context->program, program_context, &return_value, &execution_context_state);
     }
     end_time = ebpf_query_time_since_boot(false);
 
@@ -2268,6 +2329,15 @@ Done:
         ebpf_epoch_exit(&epoch_state);
     }
 
+    if (context->program_data && context->program_data->context_destroy != NULL && program_context != NULL) {
+        context->program_data->context_destroy(
+            program_context,
+            options->data_out,
+            &options->data_size_out,
+            options->context_out,
+            &options->context_size_out);
+    }
+
     if (irql_raised) {
         ebpf_lower_irql(old_irql);
     }
@@ -2276,14 +2346,6 @@ Done:
         ebpf_restore_current_thread_affinity(old_thread_affinity);
     }
 
-    if (context->program_data && context->program_data->context_destroy != NULL && context->context != NULL) {
-        context->program_data->context_destroy(
-            context->context,
-            options->data_out,
-            &options->data_size_out,
-            options->context_out,
-            &options->context_size_out);
-    }
     context->completion_callback(
         result, context->program, context->options, context->completion_context, context->async_context);
     ebpf_program_dereference_providers((ebpf_program_t*)context->program);
@@ -2311,9 +2373,8 @@ ebpf_program_execute_test_run(
 
     ebpf_result_t return_value = EBPF_SUCCESS;
     ebpf_program_test_run_context_t* test_run_context = NULL;
-    void* context = NULL;
     cxplat_preemptible_work_item_t* work_item = NULL;
-    ebpf_program_data_t* program_data = NULL;
+    const ebpf_program_data_t* program_data = NULL;
     bool provider_data_referenced = false;
 
     // Prevent the provider from detaching while the program is running.
@@ -2328,17 +2389,9 @@ ebpf_program_execute_test_run(
     }
     provider_data_referenced = true;
 
-    program_data = (ebpf_program_data_t*)program->info_extension_provider_data->data;
+    program_data = program->extension_program_data;
 
     if (program_data->context_create == NULL || program_data->context_destroy == NULL) {
-        return_value = EBPF_INVALID_ARGUMENT;
-        goto Exit;
-    }
-
-    // Convert the input buffer to a program type specific context structure.
-    return_value = program_data->context_create(
-        options->data_in, options->data_size_in, options->context_in, options->context_size_in, &context);
-    if (return_value != 0) {
         return_value = EBPF_INVALID_ARGUMENT;
         goto Exit;
     }
@@ -2353,7 +2406,6 @@ ebpf_program_execute_test_run(
     test_run_context->program = program;
     test_run_context->program_data = program_data;
     test_run_context->required_irql = program_data->required_irql;
-    test_run_context->context = context;
     test_run_context->options = options;
     test_run_context->async_context = async_context;
     test_run_context->completion_context = completion_context;
@@ -2376,15 +2428,9 @@ ebpf_program_execute_test_run(
     test_run_context = NULL;
     // This thread no longer owns the reference to the provider data.
     provider_data_referenced = false;
-    // This thread no longer owns the BPF context.
-    context = NULL;
     return_value = EBPF_PENDING;
 
 Exit:
-    if (program_data && program_data->context_destroy != NULL && context != NULL) {
-        program_data->context_destroy(
-            context, options->data_out, &options->data_size_out, options->context_out, &options->context_size_out);
-    }
     ebpf_free(test_run_context);
 
     if (provider_data_referenced) {
