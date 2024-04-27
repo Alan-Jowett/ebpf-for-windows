@@ -54,11 +54,6 @@ typedef struct _section_offset_to_map
     string map_name;
 } section_offset_to_map_t;
 
-struct _thread_local_storage_cache
-{
-    ~_thread_local_storage_cache() { ebpf_clear_thread_local_storage(); }
-};
-
 static ebpf_pin_type_t
 _get_pin_type_for_btf_map(const libbtf::btf_type_data& btf_data, libbtf::btf_type_id id)
 {
@@ -182,6 +177,31 @@ _parse_btf_map_info_and_populate_cache(const ELFIO::elfio& reader, const vector<
             pin_type);
     }
 
+    // Cache unnamed maps.
+    for (auto& map : map_data) {
+        if (map.name.empty()) {
+            uint32_t idx = (uint32_t)btf_map_name_to_index[map.name];
+            auto& btf_map_descriptor = btf_map_descriptors[idx];
+            // We temporarily stored BTF type ids in the descriptor's fd fields.
+            int btf_type_id = btf_map_descriptor.original_fd;
+            int btf_inner_type_id = btf_map_descriptor.inner_map_fd;
+
+            auto pin_type = _get_pin_type_for_btf_map(btf_data.value(), btf_type_id);
+            cache_map_handle(
+                ebpf_handle_invalid,
+                map_idx_to_original_fd(idx),
+                btf_type_id,
+                btf_map_descriptor.type,
+                btf_map_descriptor.key_size,
+                btf_map_descriptor.value_size,
+                btf_map_descriptor.max_entries,
+                (uint32_t)ebpf_fd_invalid,
+                btf_inner_type_id,
+                MAXSIZE_T,
+                pin_type);
+        }
+    }
+
     // Resolve inner_map_fd for each map.
     btf_map_descriptors.clear();
     g_ebpf_platform_windows.resolve_inner_map_references(btf_map_descriptors);
@@ -212,22 +232,47 @@ _get_map_names(
         _parse_btf_map_info_and_populate_cache(reader, map_names);
     }
 
-    if (get_map_descriptor_size() != map_names.size()) {
-        throw std::runtime_error(string("Map name not found for some maps."));
+    // Verify that returned map descriptors are a superset of map names referenced in the symbol section.
+    // Get all map descriptors.
+    auto map_descriptors = get_all_map_descriptors();
+
+    // For each map in map_names (from the symbol table), verify that the map is present in map_descriptors (from the
+    // BTF data).
+    for (const auto& map_name : map_names) {
+        bool found = false;
+        for (const auto& map_descriptor : map_descriptors) {
+            if (map_name.section_offset == map_descriptor.section_offset) {
+                found = true;
+                break;
+            }
+        }
+
+        if (!found) {
+            throw std::runtime_error(string("Map ") + map_name.map_name + " not found.");
+        }
     }
 }
 
 static void
 _get_program_and_map_names(
-    _In_ const string& path,
+    std::variant<std::string, std::vector<uint8_t>>& file_or_buffer,
     _Inout_ vector<section_program_map_t>& section_to_program_map,
     _Inout_ vector<section_offset_to_map_t>& map_names) noexcept(false)
 {
     ELFIO::elfio reader;
     size_t symbols_count = 0;
 
-    if (!reader.load(path)) {
-        throw std::runtime_error(string("Can't process ELF file ") + path);
+    if (std::holds_alternative<std::string>(file_or_buffer)) {
+        if (!reader.load(std::get<std::string>(file_or_buffer))) {
+            throw std::runtime_error("Can't process ELF file " + std::get<std::string>(file_or_buffer));
+        }
+    } else {
+        std::stringstream buffer_stream(std::string(
+            std::get<std::vector<uint8_t>>(file_or_buffer).begin(),
+            std::get<std::vector<uint8_t>>(file_or_buffer).end()));
+        if (!reader.load(buffer_stream)) {
+            throw std::runtime_error("Can't process ELF file from memory");
+        }
     }
 
     ELFIO::const_symbol_section_accessor symbols{reader, reader.sections[".symtab"]};
@@ -281,7 +326,7 @@ _get_program_and_map_names(
 
 _Must_inspect_result_ ebpf_result_t
 load_byte_code(
-    _In_z_ const char* filename,
+    std::variant<std::string, std::vector<uint8_t>>& file_or_buffer,
     _In_opt_z_ const char* section_name,
     _In_ const ebpf_verifier_options_t* verifier_options,
     _In_z_ const char* pin_root_path,
@@ -299,13 +344,25 @@ load_byte_code(
 
     try {
         const ebpf_platform_t* platform = &g_ebpf_platform_windows;
-        std::string file_name(filename);
         std::string section_name_string;
         if (section_name != nullptr) {
             section_name_string = std::string(section_name);
         }
 
-        auto raw_programs = read_elf(file_name, section_name_string, verifier_options, platform);
+        std::vector<raw_program> raw_programs;
+
+        // If file_or_buffer is a string, it is a file name.
+        if (std::holds_alternative<std::string>(file_or_buffer)) {
+            raw_programs =
+                read_elf(std::get<std::string>(file_or_buffer), section_name_string, verifier_options, platform);
+        } else {
+            std::stringstream buffer_stream;
+            // If file_or_buffer is a vector, it is a buffer.
+            auto& buffer = std::get<std::vector<uint8_t>>(file_or_buffer);
+            buffer_stream = std::stringstream(std::string(buffer.begin(), buffer.end()));
+            raw_programs = read_elf(buffer_stream, "memory", section_name_string, verifier_options, platform);
+        }
+
         if (raw_programs.size() == 0) {
             result = EBPF_ELF_PARSING_FAILED;
             goto Exit;
@@ -387,9 +444,10 @@ load_byte_code(
             section_to_program_map.emplace_back(iterator->section_name, std::string());
         }
 
-        _get_program_and_map_names(file_name, section_to_program_map, map_names);
+        _get_program_and_map_names(file_or_buffer, section_to_program_map, map_names);
 
         auto map_descriptors = get_all_map_descriptors();
+        size_t anonymous_map_count = 0;
         for (const auto& descriptor : map_descriptors) {
             bool found = false;
             int index;
@@ -399,6 +457,15 @@ load_byte_code(
                     break;
                 }
             }
+
+            // Handle anonymous maps.
+            if (descriptor.section_offset == MAXSIZE_T) {
+                std::string name = "__anonymous_map_" + std::to_string(++anonymous_map_count);
+                index = static_cast<int>(map_names.size());
+                map_names.push_back({descriptor.section_offset, name});
+                found = true;
+            }
+
             if (!found) {
                 result = EBPF_ELF_PARSING_FAILED;
                 goto Exit;
@@ -507,11 +574,12 @@ ebpf_api_elf_enumerate_sections(
     ebpf_verifier_options_t verifier_options{false, false, false, false, true};
     const ebpf_platform_t* platform = &g_ebpf_platform_windows;
     std::ostringstream str;
-    struct _thread_local_storage_cache tls_cache;
 
     *infos = nullptr;
     *error_message = nullptr;
     ebpf_section_info_t* info = nullptr;
+
+    ebpf_clear_thread_local_storage();
 
     try {
         auto raw_programs = read_elf(file, section ? std::string(section) : std::string(), &verifier_options, platform);
@@ -577,10 +645,11 @@ ebpf_api_elf_disassemble_section(
     const ebpf_platform_t* platform = &g_ebpf_platform_windows;
     std::ostringstream error;
     std::ostringstream output;
-    struct _thread_local_storage_cache tls_cache;
 
     *disassembly = nullptr;
     *error_message = nullptr;
+
+    ebpf_clear_thread_local_storage();
 
     try {
         auto raw_programs = read_elf(file, section, &verifier_options, platform);
@@ -621,7 +690,6 @@ _ebpf_api_elf_verify_section_from_stream(
 {
     std::ostringstream error;
     std::ostringstream output;
-    struct _thread_local_storage_cache tls_cache;
     *report = nullptr;
     *error_message = nullptr;
 
@@ -722,9 +790,14 @@ static _Success_(return == 0) uint32_t _verify_section_from_string(
     }
 
     auto stream = std::stringstream(data);
-    struct _thread_local_storage_cache tls_cache;
+
+    // Clear thread local storage before calling into the verifier.
+    // Note that TLS should be cleared here *before* calling into the verifier, not after.
+    // Post verification, bpf2c relies on the TLS cache to compute program info hash.
+    ebpf_clear_thread_local_storage();
+
     set_global_program_and_attach_type(program_type, nullptr);
-    set_verification_in_progress(true);
+    _verification_in_progress_helper helper;
     return _ebpf_api_elf_verify_section_from_stream(stream, name, section, verbose, report, error_message, stats);
 }
 

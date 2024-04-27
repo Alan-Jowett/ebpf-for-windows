@@ -116,6 +116,13 @@ typedef std::unique_ptr<ebpf_link_t, ebpf_object_deleter<ebpf_link_t>> link_ptr;
 
 static const uint32_t _test_map_size = 512;
 
+typedef enum _map_behavior_on_max_entries
+{
+    MAP_BEHAVIOR_FAIL,
+    MAP_BEHAVIOR_REPLACE,
+    MAP_BEHAVIOR_INSERT,
+} map_behavior_on_max_entries_t;
+
 static void
 _test_crud_operations(ebpf_map_type_t map_type)
 {
@@ -123,49 +130,48 @@ _test_crud_operations(ebpf_map_type_t map_type)
     core.initialize();
     bool is_array;
     bool supports_find_and_delete;
-    bool replace_on_full;
+    map_behavior_on_max_entries_t behavior_on_max_entries = MAP_BEHAVIOR_FAIL;
     bool run_at_dpc;
     ebpf_result_t error_on_full;
+    ebpf_result_t expected_result;
     switch (map_type) {
     case BPF_MAP_TYPE_HASH:
         is_array = false;
         supports_find_and_delete = true;
-        replace_on_full = false;
+        behavior_on_max_entries = MAP_BEHAVIOR_INSERT;
         run_at_dpc = false;
         error_on_full = EBPF_OUT_OF_SPACE;
         break;
     case BPF_MAP_TYPE_ARRAY:
         is_array = true;
         supports_find_and_delete = false;
-        replace_on_full = false;
         run_at_dpc = false;
         error_on_full = EBPF_INVALID_ARGUMENT;
         break;
     case BPF_MAP_TYPE_PERCPU_HASH:
         is_array = false;
         supports_find_and_delete = true;
-        replace_on_full = false;
+        behavior_on_max_entries = MAP_BEHAVIOR_INSERT;
         run_at_dpc = true;
         error_on_full = EBPF_OUT_OF_SPACE;
         break;
     case BPF_MAP_TYPE_PERCPU_ARRAY:
         is_array = true;
         supports_find_and_delete = false;
-        replace_on_full = false;
         run_at_dpc = false;
         error_on_full = EBPF_INVALID_ARGUMENT;
         break;
     case BPF_MAP_TYPE_LRU_HASH:
         is_array = false;
         supports_find_and_delete = true;
-        replace_on_full = true;
+        behavior_on_max_entries = MAP_BEHAVIOR_REPLACE;
         run_at_dpc = false;
         error_on_full = EBPF_OUT_OF_SPACE;
         break;
     case BPF_MAP_TYPE_LRU_PERCPU_HASH:
         is_array = false;
         supports_find_and_delete = true;
-        replace_on_full = true;
+        behavior_on_max_entries = MAP_BEHAVIOR_REPLACE;
         run_at_dpc = true;
         error_on_full = EBPF_OUT_OF_SPACE;
         break;
@@ -212,19 +218,25 @@ _test_crud_operations(ebpf_map_type_t map_type)
             value.size(),
             value.data(),
             EBPF_ANY,
-            0) == (replace_on_full ? EBPF_SUCCESS : error_on_full));
+            0) == ((behavior_on_max_entries != MAP_BEHAVIOR_FAIL) ? EBPF_SUCCESS : error_on_full));
 
-    if (!replace_on_full) {
-        ebpf_result_t expected_result = is_array ? EBPF_INVALID_ARGUMENT : EBPF_KEY_NOT_FOUND;
+    if (behavior_on_max_entries != MAP_BEHAVIOR_REPLACE) {
+        expected_result = (behavior_on_max_entries == MAP_BEHAVIOR_INSERT)
+                              ? EBPF_SUCCESS
+                              : (is_array ? EBPF_INVALID_ARGUMENT : EBPF_KEY_NOT_FOUND);
         REQUIRE(
             ebpf_map_delete_entry(map.get(), sizeof(bad_key), reinterpret_cast<const uint8_t*>(&bad_key), 0) ==
             expected_result);
     }
 
+    // Now the map has `_test_map_size` entries.
+
     for (uint32_t key = 0; key < _test_map_size; key++) {
-        ebpf_result_t expected_result;
-        if (replace_on_full) {
+        if (behavior_on_max_entries == MAP_BEHAVIOR_REPLACE) {
+            // If map behavior is MAP_BEHAVIOR_REPLACE, then 0th entry would have been evicted.
             expected_result = key == 0 ? EBPF_OBJECT_NOT_FOUND : EBPF_SUCCESS;
+        } else if (behavior_on_max_entries == MAP_BEHAVIOR_INSERT) {
+            expected_result = EBPF_SUCCESS;
         } else {
             expected_result = key == _test_map_size ? EBPF_OBJECT_NOT_FOUND : EBPF_SUCCESS;
         }
@@ -252,12 +264,62 @@ _test_crud_operations(ebpf_map_type_t map_type)
         keys.insert(previous_key);
     }
     REQUIRE(keys.size() == _test_map_size);
+
     REQUIRE(
         ebpf_map_next_key(
             map.get(),
             sizeof(previous_key),
             reinterpret_cast<const uint8_t*>(&previous_key),
             reinterpret_cast<uint8_t*>(&next_key)) == EBPF_NO_MORE_KEYS);
+
+    std::vector<size_t> batch_test_sizes = {
+        1,
+        17,
+        _test_map_size / 4,
+        _test_map_size,
+        _test_map_size * 2,
+    };
+    for (size_t batch_count : batch_test_sizes) {
+
+        keys.clear();
+        size_t effective_key_size = ebpf_map_get_definition(map.get())->key_size;
+        size_t effective_value_size = ebpf_map_get_definition(map.get())->value_size;
+        std::vector<uint8_t> batch_data(batch_count * (effective_key_size + effective_value_size));
+        ebpf_result_t return_value = EBPF_SUCCESS;
+
+        for (uint32_t index = 0; return_value == EBPF_SUCCESS; index++) {
+            size_t batch_data_size = batch_data.size();
+            return_value = ebpf_map_get_next_key_and_value_batch(
+                map.get(),
+                sizeof(previous_key),
+                index == 0 ? nullptr : reinterpret_cast<uint8_t*>(&previous_key),
+                &batch_data_size,
+                batch_data.data(),
+                0);
+
+            if (return_value == EBPF_NO_MORE_KEYS) {
+                break;
+            }
+
+            REQUIRE(return_value == EBPF_SUCCESS);
+
+            REQUIRE(batch_data_size <= batch_data.size());
+            size_t returned_batch_count = batch_data_size / (effective_key_size + effective_value_size);
+
+            // Verify that all keys are returned.
+            for (uint32_t batch_index = 0; batch_index < returned_batch_count; batch_index++) {
+                uint32_t current_key = *reinterpret_cast<uint32_t*>(
+                    &batch_data[batch_index * (effective_key_size + effective_value_size)]);
+                uint64_t current_value = *reinterpret_cast<uint64_t*>(
+                    &batch_data[batch_index * (effective_key_size + effective_value_size) + effective_key_size]);
+                keys.insert(current_key);
+                REQUIRE(current_value == current_key * current_key);
+            }
+            previous_key = *reinterpret_cast<uint32_t*>(
+                &batch_data[(returned_batch_count - 1) * (effective_key_size + effective_value_size)]);
+        }
+        REQUIRE(keys.size() == _test_map_size);
+    }
 
     for (const auto key : keys) {
         REQUIRE(
@@ -337,15 +399,6 @@ TEST_CASE("map_crud_operations_lpm_trie_32", "[execution_context]")
         uint32_t prefix_length;
         uint8_t value[4];
     } lpm_trie_key_t;
-    ebpf_map_definition_in_memory_t map_definition{BPF_MAP_TYPE_LPM_TRIE, sizeof(lpm_trie_key_t), max_string, 10};
-    map_ptr map;
-    {
-        ebpf_map_t* local_map;
-        cxplat_utf8_string_t map_name = {0};
-        REQUIRE(
-            ebpf_map_create(&map_name, &map_definition, (uintptr_t)ebpf_handle_invalid, &local_map) == EBPF_SUCCESS);
-        map.reset(local_map);
-    }
 
     std::vector<std::pair<lpm_trie_key_t, const char*>> keys{
         {{24, 192, 168, 15, 0}, "192.168.15.0/24"},
@@ -370,6 +423,18 @@ TEST_CASE("map_crud_operations_lpm_trie_32", "[execution_context]")
         {{32, 10, 11, 10, 10}, "10.0.0.0/8"},
         {{32, 11, 0, 0, 0}, "0.0.0.0/0"},
     };
+
+    uint32_t max_entries = static_cast<uint32_t>(keys.size());
+    ebpf_map_definition_in_memory_t map_definition{
+        BPF_MAP_TYPE_LPM_TRIE, sizeof(lpm_trie_key_t), max_string, max_entries};
+    map_ptr map;
+    {
+        ebpf_map_t* local_map;
+        cxplat_utf8_string_t map_name = {0};
+        REQUIRE(
+            ebpf_map_create(&map_name, &map_definition, (uintptr_t)ebpf_handle_invalid, &local_map) == EBPF_SUCCESS);
+        map.reset(local_map);
+    }
 
     for (auto& [key, value] : keys) {
         std::string local_value = value;
@@ -397,6 +462,20 @@ TEST_CASE("map_crud_operations_lpm_trie_32", "[execution_context]")
                 EBPF_MAP_FLAG_HELPER) == EBPF_SUCCESS);
         REQUIRE(std::string(value) == result);
     }
+
+    // Add a new entry to the map, it should succeed.
+    lpm_trie_key_t new_key = {32, 192, 168, 15, 1};
+    std::string new_value = "19.168.15.1/32";
+    new_value.resize(max_string);
+    REQUIRE(
+        ebpf_map_update_entry(
+            map.get(),
+            0,
+            reinterpret_cast<const uint8_t*>(&new_key),
+            0,
+            reinterpret_cast<const uint8_t*>(new_value.c_str()),
+            EBPF_ANY,
+            EBPF_MAP_FLAG_HELPER) == EBPF_SUCCESS);
 }
 
 void
@@ -421,16 +500,6 @@ TEST_CASE("map_crud_operations_lpm_trie_128", "[execution_context]")
         uint32_t prefix_length;
         uint8_t value[16];
     } lpm_trie_key_t;
-
-    ebpf_map_definition_in_memory_t map_definition{BPF_MAP_TYPE_LPM_TRIE, sizeof(lpm_trie_key_t), max_string, 10};
-    map_ptr map;
-    {
-        ebpf_map_t* local_map;
-        cxplat_utf8_string_t map_name = {0};
-        REQUIRE(
-            ebpf_map_create(&map_name, &map_definition, (uintptr_t)ebpf_handle_invalid, &local_map) == EBPF_SUCCESS);
-        map.reset(local_map);
-    }
 
     std::vector<std::pair<lpm_trie_key_t, const char*>> keys{
         {{96}, "CC/96"},
@@ -458,6 +527,19 @@ TEST_CASE("map_crud_operations_lpm_trie_128", "[execution_context]")
             generate_prefix(keys[index].first.prefix_length, values[index], keys[index].first.value);
         }
     }
+
+    uint32_t max_entries = static_cast<uint32_t>(keys.size());
+    ebpf_map_definition_in_memory_t map_definition{
+        BPF_MAP_TYPE_LPM_TRIE, sizeof(lpm_trie_key_t), max_string, max_entries};
+    map_ptr map;
+    {
+        ebpf_map_t* local_map;
+        cxplat_utf8_string_t map_name = {0};
+        REQUIRE(
+            ebpf_map_create(&map_name, &map_definition, (uintptr_t)ebpf_handle_invalid, &local_map) == EBPF_SUCCESS);
+        map.reset(local_map);
+    }
+
     std::vector<std::pair<lpm_trie_key_t, std::string>> tests{
         {{96}, "CC/96"},
         {{96}, "CD/96"},
@@ -512,6 +594,19 @@ TEST_CASE("map_crud_operations_lpm_trie_128", "[execution_context]")
                 EBPF_MAP_FLAG_HELPER) == EBPF_SUCCESS);
         REQUIRE(std::string(value) == result);
     }
+
+    // Add a new entry to the map, it should succeed.
+    lpm_trie_key_t new_key = {{32}, "BB/32"};
+    std::string new_value = "BB/32";
+    REQUIRE(
+        ebpf_map_update_entry(
+            map.get(),
+            0,
+            reinterpret_cast<const uint8_t*>(&new_key),
+            0,
+            reinterpret_cast<const uint8_t*>(new_value.c_str()),
+            EBPF_ANY,
+            EBPF_MAP_FLAG_HELPER) == EBPF_SUCCESS);
 }
 
 TEST_CASE("map_crud_operations_queue", "[execution_context]")
@@ -712,7 +807,9 @@ TEST_CASE("program", "[execution_context]")
     uint32_t test_function_ids[] = {(EBPF_MAX_GENERAL_HELPER_FUNCTION + 1)};
     const void* helper_functions[] = {(void*)function_pointer1};
     ebpf_helper_function_addresses_t helper_function_addresses = {
-        EBPF_COUNT_OF(helper_functions), (uint64_t*)helper_functions};
+        {EBPF_HELPER_FUNCTION_ADDRESSES_CURRENT_VERSION, EBPF_HELPER_FUNCTION_ADDRESSES_CURRENT_VERSION_SIZE},
+        EBPF_COUNT_OF(helper_functions),
+        (uint64_t*)helper_functions};
 
     {
         ebpf_trampoline_table_t* local_table = nullptr;
@@ -1196,6 +1293,25 @@ extern bool _ebpf_platform_code_integrity_enabled;
     std::map<std::string, ebpf_handle_t> map_handles;                                 \
     create_various_objects(program_handles, map_handles);
 
+#if defined(CONFIG_BPF_JIT_DISABLED) || defined(CONFIG_BPF_INTERPRETER_DISABLED)
+void
+test_blocked_by_policy(ebpf_operation_id_t operation)
+{
+    NEGATIVE_TEST_PROLOG();
+
+    ebpf_result_t expected_result = EBPF_BLOCKED_BY_POLICY;
+
+    std::vector<uint8_t> request(sizeof(ebpf_operation_header_t));
+    std::vector<uint8_t> reply(sizeof(ebpf_operation_header_t));
+
+    REQUIRE(invoke_protocol(operation, request, reply) == expected_result);
+
+    // Use a request buffer larger than ebpf_operation_header_t, and try again.
+    request.resize(request.size() + 10);
+    REQUIRE(invoke_protocol(operation, request, reply) == expected_result);
+}
+#endif
+
 #if !defined(CONFIG_BPF_JIT_DISABLED)
 // These tests exist to verify ebpf_core's parsing of messages.
 // See libbpf_test.cpp for invalid parameter but correctly formed message cases.
@@ -1267,7 +1383,17 @@ TEST_CASE("EBPF_OPERATION_RESOLVE_MAP", "[execution_context][negative]")
     resolve_map_request->program_handle = program_handles[0];
     REQUIRE(invoke_protocol(EBPF_OPERATION_RESOLVE_MAP, request, reply) == EBPF_INVALID_ARGUMENT);
 }
-#endif
+#else
+TEST_CASE("EBPF_OPERATION_RESOLVE_HELPER", "[execution_context][negative]")
+{
+    test_blocked_by_policy(EBPF_OPERATION_RESOLVE_HELPER);
+}
+
+TEST_CASE("EBPF_OPERATION_RESOLVE_MAP", "[execution_context][negative]")
+{
+    test_blocked_by_policy(EBPF_OPERATION_RESOLVE_MAP);
+}
+#endif // !defined(CONFIG_BPF_JIT_DISABLED)
 
 #if !defined(CONFIG_BPF_JIT_DISABLED) || !defined(CONFIG_BPF_INTERPRETER_DISABLED)
 TEST_CASE("EBPF_OPERATION_CREATE_PROGRAM", "[execution_context][negative]")
@@ -1324,7 +1450,12 @@ TEST_CASE("EBPF_OPERATION_CREATE_PROGRAM", "[execution_context][negative]")
     create_program_request->program_name_offset = EBPF_OFFSET_OF(ebpf_operation_create_program_request_t, data);
     REQUIRE(invoke_protocol(EBPF_OPERATION_CREATE_PROGRAM, request, reply) == EBPF_INVALID_ARGUMENT);
 }
-#endif
+#else
+TEST_CASE("EBPF_OPERATION_CREATE_PROGRAM", "[execution_context][negative]")
+{
+    test_blocked_by_policy(EBPF_OPERATION_CREATE_PROGRAM);
+}
+#endif // !defined(CONFIG_BPF_JIT_DISABLED) || !defined(CONFIG_BPF_INTERPRETER_DISABLED)
 
 TEST_CASE("EBPF_OPERATION_CREATE_MAP", "[execution_context][negative]")
 {
@@ -1416,7 +1547,12 @@ TEST_CASE("EBPF_OPERATION_LOAD_CODE", "[execution_context][negative]")
     }
     _ebpf_platform_code_integrity_enabled = false;
 }
-#endif
+#else
+TEST_CASE("EBPF_OPERATION_LOAD_CODE", "[execution_context][negative]")
+{
+    test_blocked_by_policy(EBPF_OPERATION_LOAD_CODE);
+}
+#endif // !defined(CONFIG_BPF_JIT_DISABLED) || !defined(CONFIG_BPF_INTERPRETER_DISABLED)
 
 TEST_CASE("EBPF_OPERATION_LOAD_NATIVE_MODULE", "[execution_context][negative]")
 {
@@ -1688,6 +1824,11 @@ TEST_CASE("EBPF_OPERATION_GET_EC_FUNCTION", "[execution_context][negative]")
     request.function = static_cast<ebpf_ec_function_t>(EBPF_EC_FUNCTION_LOG + 1);
     // Wrong EC function.
     REQUIRE(invoke_protocol(EBPF_OPERATION_GET_EC_FUNCTION, request, reply) == EBPF_INVALID_ARGUMENT);
+}
+#else
+TEST_CASE("EBPF_OPERATION_GET_EC_FUNCTION", "[execution_context][negative]")
+{
+    test_blocked_by_policy(EBPF_OPERATION_GET_EC_FUNCTION);
 }
 #endif
 

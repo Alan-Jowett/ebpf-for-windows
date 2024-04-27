@@ -33,19 +33,19 @@ jobs:
 
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@eb238b55efaa70779f274895e782ed17c84f2895 # v2.6.1
+        uses: step-security/harden-runner@63c24ba6bd7ba022e95695ff85de572c04a18142 # v2.7.0
         with:
           disable-sudo: true
           egress-policy: block
           allowed-endpoints: >
             api.github.com:443
             api.osv.dev:443
-            bestpractices.coreinfrastructure.org:443
+            www.bestpractices.dev:443
             github.com:443
 
       - name: "Checkout code"
         if: github.ref_name == 'main'
-        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+        uses: actions/checkout@1d96c772d19495a3b5c517cd2bc0cb401ea0529f
         with:
           persist-credentials: false
 
@@ -67,7 +67,7 @@ jobs:
       # Upload the results as artifacts (optional).
       - name: "Upload artifact"
         if: github.ref_name == 'main'
-        uses: actions/upload-artifact@1eb3cb2b3e0f29609092a73eb033bb759a334595
+        uses: actions/upload-artifact@1746f4ab65b179e0ea60a494b83293b640dd5bba
         with:
           name: SARIF file
           path: results.sarif

@@ -14,6 +14,10 @@ on:
       result_artifact:
         required: true
         type: string
+      platform:
+        required: false
+        type: string
+        default: "Windows 2019"
     secrets:
       AZURE_CLIENT_ID:
         required: true
@@ -29,8 +33,13 @@ jobs:
   upload_results:
     runs-on: ubuntu-latest
     steps:
+    - name: Harden Runner
+      uses: step-security/harden-runner@63c24ba6bd7ba022e95695ff85de572c04a18142 # v2.7.0
+      with:
+        egress-policy: audit
+
     - name: Download performance result artifacts
-      uses: actions/download-artifact@6b208ae046db98c579e8a3aa621ab581ff575935
+      uses: actions/download-artifact@8caf195ad4b1dee92908e23f56eeb0696f1dd42d
       with:
         name: Test-Logs-${{inputs.result_artifact}}
         path: ${{github.workspace}}/results_artifact
@@ -52,17 +61,17 @@ jobs:
         # Compare hash of downloaded script.
         sha256sum process_results.py | grep dc616f27b6d345e8086de451ffd3f73cc71b5d51d18894ce08c02db56d67e0f4 -q || exit 1
         # Run script to convert CSV to SQL.
-        python3 ./process_results.py --csv-directory ${{github.workspace}}/results/${{github.sha}} --sql-script-file ${{github.workspace}}/results/upload.sql --commit_id ${{github.sha}} --platform "Windows 2019" --repository ${{github.repository}}
+        python3 ./process_results.py --csv-directory ${{github.workspace}}/results/${{github.sha}} --sql-script-file ${{github.workspace}}/results/upload.sql --commit_id ${{github.sha}} --platform "${{inputs.platform}}" --repository ${{github.repository}}
 
     # Grab the output from the results directory and upload it as an artifact to debug failures.
     - name: Upload data as artifacts for debugging
-      uses: actions/upload-artifact@1eb3cb2b3e0f29609092a73eb033bb759a334595
+      uses: actions/upload-artifact@1746f4ab65b179e0ea60a494b83293b640dd5bba
       with:
         name: Test-Results-${{inputs.result_artifact}}
         path: ${{github.workspace}}/results
 
     - name: Log into Azure
-      uses: azure/login@v1
+      uses: azure/login@8c334a195cbb38e46038007b304988d888bf676a
       with:
         client-id: ${{ secrets.AZURE_CLIENT_ID }}
         tenant-id: ${{ secrets.AZURE_TENANT_ID }}

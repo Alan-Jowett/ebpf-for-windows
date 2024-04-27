@@ -48,6 +48,8 @@ jobs:
     if: github.event_name == 'schedule' || github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch'
     uses: ./.github/workflows/reusable-build.yml
     with:
+      ref: ${{ github.ref }}
+      repository: ${{ github.repository }}
       build_artifact: Build-x64
       generate_release_package: true
       build_msi: true
@@ -61,6 +63,8 @@ jobs:
     if: github.event_name == 'schedule' || github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch'
     uses: ./.github/workflows/reusable-build.yml
     with:
+      ref: ${{ github.ref }}
+      repository: ${{ github.repository }}
       build_artifact: Build-x64-native-only
       build_msi: true
       build_nuget: true
@@ -102,6 +106,24 @@ jobs:
       capture_etw: true
       leak_detection: true
 
+  # Run the unit tests for NativeOnly build in GitHub.
+  unit_tests_native_only:
+    # Always run this job.
+    needs: regular_native-only
+    uses: ./.github/workflows/reusable-test.yml
+    with:
+      name: unit_tests
+      pre_test: appverif -enable Exceptions Handles Locks Memory SRWLock Threadpool TLS DangerousAPIs DirtyStacks TimeRollOver -for unit_tests.exe
+      # Exclude [processes] test that CodeCoverage can't work with.
+      test_command: .\unit_tests.exe -d yes ~[processes]
+      build_artifact: Build-x64-native-only
+      environment: windows-2022
+      code_coverage: true
+      gather_dumps: true
+      capture_etw: true
+      leak_detection: true
+      configurations: '["NativeOnlyDebug", "NativeOnlyRelease"]'
+
   # Run the netebpfext unit tests in GitHub.
   netebpf_ext_unit_tests:
     # Always run this job.
@@ -142,8 +164,8 @@ jobs:
     if: github.event_name == 'schedule' || github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch'
     uses: ./.github/workflows/reusable-test.yml
     with:
-      pre_test: Invoke-WebRequest https://github.com/Alan-Jowett/bpf_conformance/releases/download/v0.0.5/bpf_conformance_runner.exe -OutFile bpf_conformance_runner.exe
-      test_command: .\bpf_conformance_runner.exe --test_file_directory %SOURCE_ROOT%\external\ebpf-verifier\external\bpf_conformance\tests --cpu_version v3 --exclude_regex lock* --plugin_path bpf2c_plugin.exe --debug true --plugin_options "--include %SOURCE_ROOT%\include"
+      pre_test: Invoke-WebRequest https://github.com/Alan-Jowett/bpf_conformance/releases/download/v0.0.6/bpf_conformance_runner.exe -OutFile bpf_conformance_runner.exe
+      test_command: .\bpf_conformance_runner.exe --test_file_directory %SOURCE_ROOT%\external\ebpf-verifier\external\bpf_conformance\tests --cpu_version v4 --exclude_regex local --plugin_path bpf2c_plugin.exe --debug true --plugin_options "--include %SOURCE_ROOT%\include"
       name: bpf2c_conformance
       build_artifact: Build-x64
       environment: windows-2022
@@ -229,6 +251,25 @@ jobs:
       code_coverage: false
       configurations: '["NativeOnlyDebug", "NativeOnlyRelease"]'
 
+  # Run the regression driver tests on self-hosted runners (only for 2022).
+  regression_driver_ws2022:
+    # Always run this job.
+    # Only run this on repos that have self-host runners.
+    needs: regular
+    if: github.repository == 'microsoft/ebpf-for-windows' && (github.event_name == 'schedule' || github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch')
+    uses: ./.github/workflows/reusable-test.yml
+    with:
+      pre_test: .\setup_ebpf_cicd_tests.ps1 -KmTracing $true -KmTraceType "file" -TestMode "Regression" -RegressionArtifactsVersion "0.15.1"
+      test_command: .\execute_ebpf_cicd_tests.ps1 -TestMode "Regression"
+      post_test: .\cleanup_ebpf_cicd_tests.ps1 -KmTracing $true
+      name: regression_driver_ws2022
+      build_artifact: Build-x64
+      environment: ebpf_cicd_tests_ws2022
+      # driver test copies dumps to testlog folder.
+      gather_dumps: false
+      # driver tests manually gather code coverage
+      code_coverage: false
+
   ossar:
     # Always run this job.
     needs: regular
@@ -245,6 +286,8 @@ jobs:
     if: github.event_name == 'schedule' || github.event_name == 'pull_request' || github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch'
     uses: ./.github/workflows/reusable-build.yml
     with:
+      ref: ${{ github.ref }}
+      repository: ${{ github.repository }}
       build_artifact: Build-x64-Analyze
       # Analysis on external projects is conditional, as on small CI/CD VMs the compiler can run OOM
       build_options: /p:Analysis='True' /p:AnalysisOnExternal='False'
@@ -255,6 +298,8 @@ jobs:
     if: github.event_name == 'schedule' || github.event_name == 'pull_request' || github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch'
     uses: ./.github/workflows/reusable-build.yml
     with:
+      ref: ${{ github.ref }}
+      repository: ${{ github.repository }}
       build_artifact: Build-x64-Sanitize
       build_options: /p:AddressSanitizer='True'
 
@@ -453,6 +498,8 @@ jobs:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     uses: ./.github/workflows/reusable-build.yml
     with:
+      ref: ${{ github.ref }}
+      repository: ${{ github.repository }}
       build_artifact: Build-x64-CodeQl
       build_codeql: true
 
@@ -550,6 +597,16 @@ jobs:
       environment: ebpf_cicd_perf_ws2022
       configurations: '["Release"]'
 
+  netperf:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/netperf.yml
+    with:
+      sha: ${{ github.sha }}
+      ref: ${{ github.ref }}
+      pull_request: ${{ github.event.pull_request.number }}
+    secrets:
+      NET_PERF_TRIGGER: ${{ secrets.NET_PERF_TRIGGER }}
+
   upload_perf_results:
     needs: performance
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
@@ -557,6 +614,32 @@ jobs:
     with:
       name: upload_perf_results
       result_artifact: km_performance-x64-Release
+    secrets:
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+  upload_netperf_results_azure_2022:
+    needs: netperf
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/upload-perf-results.yml
+    with:
+      name: upload_netperf_results_azure_2022
+      result_artifact: netperf_azure_2022_x64
+      platform: Azure Windows 2022
+    secrets:
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+  upload_netperf_results_lab_2022:
+    needs: netperf
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/upload-perf-results.yml
+    with:
+      name: upload_netperf_results_lab_2022
+      result_artifact: netperf_lab_2022_x64
+      platform: Lab Windows 2022
     secrets:
       AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
