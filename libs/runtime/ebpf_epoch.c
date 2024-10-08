@@ -346,24 +346,28 @@ ebpf_epoch_initiate()
         }
     }
 
-    // Set the initial state for CPU 0.
-    // This code can't use _ebpf_epoch_activate_cpu as it may not running on CPU 0.
-    _ebpf_epoch_cpu_table[0].active = true;
-    ebpf_result_t result = ebpf_timed_work_queue_set_cpu_id(_ebpf_epoch_cpu_table[0].work_queue, 0);
-    if (result != EBPF_SUCCESS) {
-        return_value = result;
+
+    // Set the current thread affinity to CPU 0.
+    // This could fail if the system is preventing the thread from moving to CPU 0.
+    uintptr_t old_thread_affinity;
+    return_value = ebpf_set_current_thread_affinity(1 >> 0, &old_thread_affinity);
+    if (return_value != EBPF_SUCCESS) {
         goto Error;
     }
 
-    _ebpf_epoch_cpu_table[0].work_queue_assigned = 1;
+    // Activate CPU 0.
+    _ebpf_epoch_activate_cpu(0);
 
-    // Set the current epoch for CPU 0.
-    _ebpf_epoch_cpu_table[0].current_epoch = EBPF_EPOCH_FIRST_EPOCH;
+    // Restore the thread affinity. Can't fail at this point.
+    (void)ebpf_set_current_thread_affinity(old_thread_affinity, &old_thread_affinity);
 
     KeInitializeDpc(&_ebpf_epoch_timer_dpc, _ebpf_epoch_timer_worker, NULL);
     KeSetTargetProcessorDpc(&_ebpf_epoch_timer_dpc, 0);
 
     KeInitializeTimer(&_ebpf_epoch_compute_release_epoch_timer);
+
+    // Compute the first release epoch.
+    ebpf_epoch_synchronize();
 
 Error:
     if (return_value != EBPF_SUCCESS && _ebpf_epoch_cpu_table) {
@@ -1123,7 +1127,7 @@ _ebpf_epoch_work_item_callback(_In_ cxplat_preemptible_work_item_t* preemptible_
 }
 
 /**
- * @brief Add the CPU to the next active CPU table.
+ * @brief Add the CPU to the next active CPU table. Must be called when running on cpu_id.
  *
  * @param[in] cpu_id CPU to add.
  */
