@@ -346,7 +346,6 @@ ebpf_epoch_initiate()
         }
     }
 
-
     // Set the current thread affinity to CPU 0.
     // This could fail if the system is preventing the thread from moving to CPU 0.
     uintptr_t old_thread_affinity;
