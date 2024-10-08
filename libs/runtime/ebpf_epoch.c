@@ -847,7 +847,7 @@ _ebpf_epoch_messenger_propose_release_epoch(
     int64_t minimum_epoch = message->message.propose_epoch.proposed_release_epoch;
 
     // Walk over each thread_entry in the epoch_state_list and compute the minimum epoch.
-    for (ebpf_list_entry_t* entry = &cpu_entry->epoch_state_list; entry != &cpu_entry->epoch_state_list;
+    for (ebpf_list_entry_t* entry = cpu_entry->epoch_state_list.Flink; entry != &cpu_entry->epoch_state_list;
          entry = entry->Flink) {
         epoch_state = CONTAINING_RECORD(entry, ebpf_epoch_state_t, epoch_list_entry);
         minimum_epoch = min(minimum_epoch, epoch_state->epoch);
