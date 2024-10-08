@@ -354,8 +354,12 @@ ebpf_epoch_initiate()
         goto Error;
     }
 
+    KIRQL old_irql = KeRaiseIrqlToDpcLevel();
+
     // Activate CPU 0.
     _ebpf_epoch_activate_cpu(0);
+
+    KeLowerIrql(old_irql);
 
     // Restore the thread affinity. Can't fail at this point.
     (void)ebpf_set_current_thread_affinity(old_thread_affinity, &old_thread_affinity);
