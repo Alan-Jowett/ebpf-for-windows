@@ -733,19 +733,23 @@ run_epoch_test_script(const std::vector<std::string>& script)
 
             REQUIRE(steps.find(tokens[0]) != steps.end());
 
-            switch (tokens.size()) {
-            case 1:
-                std::get<std::function<void()>>(steps[tokens[0]])();
-                break;
-            case 2:
-                std::get<std::function<void(size_t)>>(steps[tokens[0]])(std::stoi(tokens[1]));
-                break;
-            case 3: {
-                bool success = tokens[2] == "signalled";
-                std::get<std::function<void(size_t, bool)>>(steps[tokens[0]])(std::stoi(tokens[1]), success);
-            } break;
-            default:
-                REQUIRE(!("Invalid step:" + step).size());
+            try {
+                switch (tokens.size()) {
+                case 1:
+                    std::get<std::function<void()>>(steps[tokens[0]])();
+                    break;
+                case 2:
+                    std::get<std::function<void(size_t)>>(steps[tokens[0]])(std::stoi(tokens[1]));
+                    break;
+                case 3: {
+                    bool success = tokens[2] == "signalled";
+                    std::get<std::function<void(size_t, bool)>>(steps[tokens[0]])(std::stoi(tokens[1]), success);
+                } break;
+                default:
+                    REQUIRE(!("Invalid step:" + step).size());
+                }
+            } catch (const std::exception& e) {
+                REQUIRE(!("Failed to execute step: " + step + " with error: " + e.what()).size());
             }
         }
         std::get<std::function<void()>>(steps["cleanup"])();

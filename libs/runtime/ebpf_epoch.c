@@ -833,8 +833,10 @@ _ebpf_epoch_messenger_propose_release_epoch(
     }
     // Other CPUs update the current epoch.
     else {
-        // If the epoch was unknown, then update the freed_epoch for all items in the free list now that we know the
-        // current epoch. This occurs when the CPU is activated and continues until the first epoch is proposed.
+        // When a CPU transitions from inactive to activating, it sets the current_epoch to EBPF_EPOCH_UNKNOWN_EPOCH.
+        // If the epoch was EBPF_EPOCH_UNKNOWN_EPOCH (i.e. the CPU was activating when this memory was queued), then
+        // update the freed_epoch for all items in the free list now that we know the current epoch. This occurs when
+        // the CPU is activated and continues until the first epoch is proposed.
         if (cpu_entry->current_epoch == EBPF_EPOCH_UNKNOWN_EPOCH) {
             for (ebpf_list_entry_t* entry = cpu_entry->free_list.Flink; entry != &cpu_entry->free_list;
                  entry = entry->Flink) {
@@ -917,6 +919,8 @@ _ebpf_epoch_messenger_commit_release_epoch(
     _ebpf_epoch_send_message_async(message, next_cpu);
 
     // Wait for all the CPUs to transition to an active state.
+    // If CPUs are activating, then it is not possible to determine what epoch they are in
+    // and memory cannot be released.
     if (other_cpus_are_activating || this_cpu_is_activating) {
         // One or more CPUs are still activating. Rearm the timer and wait for the next message.
         _ebpf_epoch_arm_timer_if_needed(cpu_entry);
@@ -1176,6 +1180,8 @@ _IRQL_requires_(DISPATCH_LEVEL) static void _ebpf_epoch_deactivate_cpu(uint32_t 
 {
     EBPF_LOG_ENTRY();
     ebpf_assert(cpu_id == ebpf_get_current_cpu());
+    // Deactivate the CPU 0 is not allowed.
+    ebpf_assert(cpu_id != 0);
     ebpf_assert(ebpf_list_is_empty(&_ebpf_epoch_cpu_table[cpu_id].epoch_state_list));
     ebpf_assert(ebpf_list_is_empty(&_ebpf_epoch_cpu_table[cpu_id].free_list));
 
@@ -1200,6 +1206,9 @@ _ebpf_epoch_next_active_cpu(uint32_t cpu_id)
 {
     uint32_t next_active_cpu;
     ebpf_lock_state_t state = ebpf_lock_lock(&_ebpf_epoch_active_cpu_list_lock);
+
+    // Prevent an infinite loop by making sure that CPU 0 is always active.
+    ebpf_assert(_ebpf_epoch_cpu_table[cpu_id].active);
 
     for (next_active_cpu = cpu_id + 1; next_active_cpu < _ebpf_epoch_cpu_count; next_active_cpu++) {
         if (_ebpf_epoch_cpu_table[next_active_cpu].active) {
