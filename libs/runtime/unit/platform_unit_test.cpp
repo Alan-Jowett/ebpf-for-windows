@@ -33,6 +33,7 @@
 #include <numeric>
 #include <sddl.h>
 #include <thread>
+#include <variant>
 #include <vector>
 
 extern ebpf_helper_function_prototype_t* ebpf_core_helper_function_prototype;
@@ -73,11 +74,27 @@ typedef class _signal
         std::unique_lock l(lock);
         condition_variable.wait(l, [&]() { return signaled; });
     }
+
+    bool
+    wait_for(std::chrono::milliseconds timeout)
+    {
+        std::unique_lock l(lock);
+        return condition_variable.wait_for(l, timeout, [&]() { return signaled; });
+    }
+
     void
     signal()
     {
         std::unique_lock l(lock);
         signaled = true;
+        condition_variable.notify_all();
+    }
+
+    void
+    reset()
+    {
+        std::unique_lock l(lock);
+        signaled = false;
         condition_variable.notify_all();
     }
 
@@ -155,7 +172,12 @@ typedef class _ebpf_epoch_scope
     /**
      * @brief Construct a new ebpf epoch scope object and enter epoch.
      */
-    _ebpf_epoch_scope() : in_epoch(false) { enter(); }
+    _ebpf_epoch_scope(bool enter_on_construct = true) : in_epoch(false)
+    {
+        if (enter_on_construct) {
+            enter();
+        }
+    }
 
     /**
      * @brief Leave epoch if entered.
@@ -605,6 +627,208 @@ TEST_CASE("epoch_test_stale_items", "[platform]")
         }
         REQUIRE(ebpf_epoch_is_free_list_empty(0));
         REQUIRE(ebpf_epoch_is_free_list_empty(1));
+    }
+}
+typedef struct _work_item_context
+{
+    _work_item_context() : signal() {}
+    signal_t signal;
+    const static void
+    invoke(void* context)
+    {
+        _work_item_context* work_item_context = reinterpret_cast<_work_item_context*>(context);
+        work_item_context->signal.signal();
+    }
+} work_item_context_t;
+
+typedef std::unique_ptr<ebpf_epoch_work_item_t, decltype(&ebpf_epoch_cancel_work_item)> work_item_ptr;
+
+struct scoped_cpu_affinity
+{
+    scoped_cpu_affinity(uint32_t i) : old_affinity_mask(0)
+    {
+        (void)ebpf_set_current_thread_affinity(1ull << i, &old_affinity_mask);
+    }
+    ~scoped_cpu_affinity() { ebpf_restore_current_thread_affinity(old_affinity_mask); }
+    uintptr_t old_affinity_mask;
+};
+
+TEST_CASE("epoch_work_item_test", "[platform]")
+{
+    using namespace std::chrono_literals;
+    typedef std::vector<std::string> script_t;
+
+    /*
+     * This test verifies that work items scheduled in an epoch are executed only after all epochs are exited.
+     */
+    _test_helper test_helper;
+    test_helper.initialize();
+    // Add scope to ensure that epoch state is cleaned up before test_helper.
+    {
+
+        std::vector<work_item_context_t> work_item_contexts(2);
+        std::vector<ebpf_epoch_scope_t> epoch_states = {false, false};
+        std::vector<work_item_ptr> work_items;
+        // Start on CPU 0 as default.
+        scoped_cpu_affinity affinity_scope(0);
+
+        typedef std::variant<std::function<void()>, std::function<void(size_t)>, std::function<void(size_t, bool)>>
+            step_t;
+
+        std::map<std::string, step_t> steps;
+
+        // Define possible steps the script can take.
+
+        // Initialize the state.
+        steps["setup"] = [&] {
+            work_items.clear();
+            for (auto i = 0; i < 2; i++) {
+                work_item_contexts[i].signal.reset();
+                auto work_item = ebpf_epoch_allocate_work_item(&work_item_contexts[i], work_item_context_t::invoke);
+                work_items.push_back(work_item_ptr(work_item, ebpf_epoch_cancel_work_item));
+            }
+        };
+
+        // Switch to running on CPU N
+        steps["switch_cpu"] = [&](size_t i) {
+            uintptr_t old_affinity;
+            (void)ebpf_set_current_thread_affinity(1ull << i, &old_affinity);
+        };
+
+        // Enter epoch for location N
+        steps["enter_epoch"] = [&](size_t i) { epoch_states[i].enter(); };
+
+        // Exit epoch for location N
+        steps["exit_epoch"] = [&](size_t i) { epoch_states[i].exit(); };
+
+        // Submit work item N
+        steps["schedule"] = [&](size_t i) { ebpf_epoch_schedule_work_item(work_items[i].release()); };
+
+        // Wait for work item N to complete with success or timeout.
+        steps["wait"] = [&](size_t i, bool expect_success) {
+            if (expect_success) {
+                work_item_contexts[i].signal.wait();
+            } else {
+                REQUIRE(!work_item_contexts[i].signal.wait_for(1s));
+            }
+        };
+
+        // Explicitly cleanup all state.
+        steps["cleanup"] = [&] {
+            for (auto i = 0; i < work_items.size(); i++) {
+                work_items[i].reset();
+            }
+        };
+
+        steps["synchronize"] = [&] { ebpf_epoch_synchronize(); };
+
+        auto execute_script = [&](const script_t& script) {
+            size_t i = 1;
+            std::get<std::function<void()>>(steps["setup"])();
+            for (const auto& step : script) {
+                std::cout << i++ << " : " << step << std::endl;
+                std::vector<std::string> tokens;
+                std::istringstream iss(step);
+                for (std::string token; std::getline(iss, token, ',');) {
+                    tokens.push_back(token);
+                }
+
+                REQUIRE(steps.find(tokens[0]) != steps.end());
+
+                switch (tokens.size()) {
+                case 1:
+                    std::get<std::function<void()>>(steps[tokens[0]])();
+                    break;
+                case 2:
+                    std::get<std::function<void(size_t)>>(steps[tokens[0]])(std::stoi(tokens[1]));
+                    break;
+                case 3: {
+                    bool success = tokens[2] == "signalled";
+                    std::get<std::function<void(size_t, bool)>>(steps[tokens[0]])(std::stoi(tokens[1]), success);
+                } break;
+                default:
+                    REQUIRE(!("Invalid step:" + step).size());
+                }
+            }
+            std::get<std::function<void()>>(steps["cleanup"])();
+        };
+
+        std::map<std::string, script_t> test_scripts;
+
+        test_scripts["single epoch"] = {
+            "enter_epoch,0",
+            "schedule,0",
+            "wait,0,not_signalled",
+            "exit_epoch,0",
+            "synchronize",
+            "wait,0,signalled",
+        };
+
+        if (ebpf_get_cpu_count() > 1) {
+            test_scripts["cross cpu exit"] = {
+                "enter_epoch,0",
+                "schedule,0",
+                "wait,0,not_signalled",
+                "switch_cpu,1",
+                "exit_epoch,0",
+                "synchronize",
+                "wait,0,signalled",
+            };
+        }
+
+        test_scripts["nested epoch"] = {
+            "enter_epoch,0",
+            "schedule,0",
+            "wait,0,not_signalled",
+            "enter_epoch,1",
+            "schedule,1",
+            "wait,0,not_signalled",
+            "wait,1,not_signalled",
+            "exit_epoch,1",
+            "wait,0,not_signalled",
+            "wait,1,not_signalled",
+            "exit_epoch,0",
+            "synchronize",
+            "wait,0,signalled",
+            "wait,1,signalled",
+        };
+
+        test_scripts["sequential non-overlapping epochs"] = {
+            "enter_epoch,0",
+            "schedule,0",
+            "wait,0,not_signalled",
+            "exit_epoch,0",
+            "synchronize",
+            "wait,0,signalled",
+            "enter_epoch,1",
+            "schedule,1",
+            "wait,1,not_signalled",
+            "exit_epoch,1",
+            "synchronize",
+            "wait,1,signalled",
+        };
+
+        test_scripts["sequential overlapping epochs"] = {
+            "enter_epoch,0",
+            "schedule,0",
+            "wait,0,not_signalled",
+            "enter_epoch,1",
+            "exit_epoch,0",
+            "schedule,1",
+            "wait,0,signalled",
+            "wait,1,not_signalled",
+            "exit_epoch,1",
+            "synchronize",
+            "wait,1,signalled",
+        };
+
+        for (auto script : test_scripts) {
+            std::cout << script.first << std::endl;
+            execute_script(script.second);
+        }
+
+        epoch_states.clear();
+        work_items.clear();
     }
 }
 
