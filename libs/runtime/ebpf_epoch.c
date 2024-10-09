@@ -1208,7 +1208,7 @@ _ebpf_epoch_next_active_cpu(uint32_t cpu_id)
     ebpf_lock_state_t state = ebpf_lock_lock(&_ebpf_epoch_active_cpu_list_lock);
 
     // Prevent an infinite loop by making sure that CPU 0 is always active.
-    ebpf_assert(_ebpf_epoch_cpu_table[cpu_id].active);
+    ebpf_assert(_ebpf_epoch_cpu_table[0].active);
 
     for (next_active_cpu = cpu_id + 1; next_active_cpu < _ebpf_epoch_cpu_count; next_active_cpu++) {
         if (_ebpf_epoch_cpu_table[next_active_cpu].active) {
