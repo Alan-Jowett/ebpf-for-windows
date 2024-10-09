@@ -1132,7 +1132,7 @@ _ebpf_epoch_work_item_callback(_In_ cxplat_preemptible_work_item_t* preemptible_
 /**
  * @brief Add the CPU to the next active CPU table. Must be called when running on cpu_id.
  *
- * @param[in] cpu_id CPU to add.
+ * @param[in] cpu_id CPU to add. Passed to avoid calling ebpf_get_current_cpu() again.
  */
 _IRQL_requires_(DISPATCH_LEVEL) static void _ebpf_epoch_activate_cpu(uint32_t cpu_id)
 {
@@ -1169,7 +1169,7 @@ _IRQL_requires_(DISPATCH_LEVEL) static void _ebpf_epoch_activate_cpu(uint32_t cp
 /**
  * @brief Remove the CPU from the next active CPU table.
  *
- * @param[in] cpu_id CPU to remove.
+ * @param[in] cpu_id CPU to remove. Passed to avoid calling ebpf_get_current_cpu() again.
  */
 _IRQL_requires_(DISPATCH_LEVEL) static void _ebpf_epoch_deactivate_cpu(uint32_t cpu_id)
 {
@@ -1191,7 +1191,7 @@ _IRQL_requires_(DISPATCH_LEVEL) static void _ebpf_epoch_deactivate_cpu(uint32_t 
 /**
  * @brief Given the current CPU, return the next active CPU.
  *
- * @param[in] cpu_id The current CPU.
+ * @param[in] cpu_id The current CPU. Passed to avoid calling ebpf_get_current_cpu() again.
  * @return The next active CPU.
  */
 uint32_t
