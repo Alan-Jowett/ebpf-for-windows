@@ -172,7 +172,7 @@ typedef class _ebpf_epoch_scope
     /**
      * @brief Construct a new ebpf epoch scope object and enter epoch.
      */
-    _ebpf_epoch_scope(bool enter_on_construct = true) : in_epoch(false)
+    _ebpf_epoch_scope(bool enter_on_construct = true) : in_epoch(false), epoch_state{}
     {
         if (enter_on_construct) {
             enter();
@@ -217,8 +217,8 @@ typedef class _ebpf_epoch_scope
     }
 
   private:
-    ebpf_epoch_state_t epoch_state;
-    bool in_epoch;
+    ebpf_epoch_state_t epoch_state{};
+    bool in_epoch = false;
 } ebpf_epoch_scope_t;
 
 TEST_CASE("hash_table_test", "[platform]")
