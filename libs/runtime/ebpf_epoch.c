@@ -47,12 +47,14 @@
 #define EBPF_NANO_SECONDS_PER_FILETIME_TICK 100
 
 /**
- * @brief A sentinel value used to indicate that the epoch is unknown.
+ * @brief A sentinel value used to indicate that the epoch is unknown. This is used to indicate that the CPU is in the
+ * process of activating.
  */
 #define EBPF_EPOCH_UNKNOWN_EPOCH 0
 
 /**
  * @brief The first valid epoch value.
+ * Epoch values start at 1 and increments when _ebpf_epoch_messenger_propose_release_epoch is called.
  */
 #define EBPF_EPOCH_FIRST_EPOCH 1
 
@@ -80,6 +82,7 @@ typedef __declspec(align(EBPF_CACHE_LINE_SIZE)) struct _ebpf_epoch_cpu_entry
     unsigned int
         active : 1; ///< CPU is active in epoch computation. Only accessed under _ebpf_epoch_active_cpu_list_lock.
     unsigned int work_queue_assigned : 1; ///< Work queue is assigned to this CPU.
+    unsigned int reserved : 59;           ///< Reserved for future use.
     ebpf_timed_work_queue_t* work_queue;  ///< Work queue used to schedule work items.
 } ebpf_epoch_cpu_entry_t;
 
