@@ -70,16 +70,17 @@
  */
 typedef __declspec(align(EBPF_CACHE_LINE_SIZE)) struct _ebpf_epoch_cpu_entry
 {
-    LIST_ENTRY epoch_state_list;           ///< Per-CPU list of thread entries.
-    ebpf_list_entry_t free_list;           ///< Per-CPU free list.
-    int64_t current_epoch;                 ///< The current epoch for this CPU.
-    int64_t released_epoch;                ///< The newest epoch that can be released.
-    int timer_armed : 1;                   ///< Set if the flush timer is armed.
-    int rundown_in_progress : 1;           ///< Set if rundown is in progress.
-    int epoch_computation_in_progress : 1; ///< Set if epoch computation is in progress.
-    int active : 1; ///< CPU is active in epoch computation. Only accessed under _ebpf_epoch_cpu_active_lock.
-    int work_queue_assigned : 1;         ///< Work queue is assigned to this CPU.
-    ebpf_timed_work_queue_t* work_queue; ///< Work queue used to schedule work items.
+    LIST_ENTRY epoch_state_list;                    ///< Per-CPU list of thread entries.
+    ebpf_list_entry_t free_list;                    ///< Per-CPU free list.
+    int64_t current_epoch;                          ///< The current epoch for this CPU.
+    int64_t released_epoch;                         ///< The newest epoch that can be released.
+    unsigned int timer_armed : 1;                   ///< Set if the flush timer is armed.
+    unsigned int rundown_in_progress : 1;           ///< Set if rundown is in progress.
+    unsigned int epoch_computation_in_progress : 1; ///< Set if epoch computation is in progress.
+    unsigned int
+        active : 1; ///< CPU is active in epoch computation. Only accessed under _ebpf_epoch_active_cpu_list_lock.
+    unsigned int work_queue_assigned : 1; ///< Work queue is assigned to this CPU.
+    ebpf_timed_work_queue_t* work_queue;  ///< Work queue used to schedule work items.
 } ebpf_epoch_cpu_entry_t;
 
 static_assert(
@@ -88,7 +89,7 @@ static_assert(
 /**
  * @brief Lock to ensure a consistent view of the active CPUs.
  */
-static ebpf_lock_t _ebpf_epoch_cpu_active_lock; ///< Lock to protect the active CPU list.
+static ebpf_lock_t _ebpf_epoch_active_cpu_list_lock; ///< Lock to protect the active CPU list.
 
 /**
  * @brief Table of per-CPU state.
@@ -321,7 +322,7 @@ ebpf_epoch_initiate()
         goto Error;
     }
 
-    ebpf_lock_create(&_ebpf_epoch_cpu_active_lock);
+    ebpf_lock_create(&_ebpf_epoch_active_cpu_list_lock);
 
     ebpf_assert(EBPF_CACHE_ALIGN_POINTER(_ebpf_epoch_cpu_table) == _ebpf_epoch_cpu_table);
 
@@ -362,7 +363,7 @@ ebpf_epoch_initiate()
     KeLowerIrql(old_irql);
 
     // Restore the thread affinity. Can't fail at this point.
-    (void)ebpf_set_current_thread_affinity(old_thread_affinity, &old_thread_affinity);
+    ebpf_restore_current_thread_affinity(old_thread_affinity);
 
     KeInitializeDpc(&_ebpf_epoch_timer_dpc, _ebpf_epoch_timer_worker, NULL);
     KeSetTargetProcessorDpc(&_ebpf_epoch_timer_dpc, 0);
@@ -1141,7 +1142,7 @@ _IRQL_requires_(DISPATCH_LEVEL) static void _ebpf_epoch_activate_cpu(uint32_t cp
     EBPF_LOG_MESSAGE_UINT64(EBPF_TRACELOG_LEVEL_INFO, EBPF_TRACELOG_KEYWORD_EPOCH, "Activating CPU", cpu_id);
 
     ebpf_epoch_cpu_entry_t* cpu_entry = &_ebpf_epoch_cpu_table[cpu_id];
-    ebpf_lock_state_t state = ebpf_lock_lock(&_ebpf_epoch_cpu_active_lock);
+    ebpf_lock_state_t state = ebpf_lock_lock(&_ebpf_epoch_active_cpu_list_lock);
 
     ebpf_assert(!cpu_entry->active);
     ebpf_assert(ebpf_list_is_empty(&cpu_entry->free_list));
@@ -1162,7 +1163,7 @@ _IRQL_requires_(DISPATCH_LEVEL) static void _ebpf_epoch_activate_cpu(uint32_t cp
         cpu_entry->work_queue_assigned = 1;
     }
 
-    ebpf_lock_unlock(&_ebpf_epoch_cpu_active_lock, state);
+    ebpf_lock_unlock(&_ebpf_epoch_active_cpu_list_lock, state);
     EBPF_LOG_EXIT();
 }
 
@@ -1181,9 +1182,9 @@ _IRQL_requires_(DISPATCH_LEVEL) static void _ebpf_epoch_deactivate_cpu(uint32_t 
     EBPF_LOG_MESSAGE_UINT64(EBPF_TRACELOG_LEVEL_INFO, EBPF_TRACELOG_KEYWORD_EPOCH, "Deactivating CPU", cpu_id);
 
     ebpf_epoch_cpu_entry_t* cpu_entry = &_ebpf_epoch_cpu_table[cpu_id];
-    ebpf_lock_state_t state = ebpf_lock_lock(&_ebpf_epoch_cpu_active_lock);
+    ebpf_lock_state_t state = ebpf_lock_lock(&_ebpf_epoch_active_cpu_list_lock);
     cpu_entry->active = false;
-    ebpf_lock_unlock(&_ebpf_epoch_cpu_active_lock, state);
+    ebpf_lock_unlock(&_ebpf_epoch_active_cpu_list_lock, state);
 
     EBPF_LOG_EXIT();
 }
@@ -1198,7 +1199,7 @@ uint32_t
 _ebpf_epoch_next_active_cpu(uint32_t cpu_id)
 {
     uint32_t next_active_cpu;
-    ebpf_lock_state_t state = ebpf_lock_lock(&_ebpf_epoch_cpu_active_lock);
+    ebpf_lock_state_t state = ebpf_lock_lock(&_ebpf_epoch_active_cpu_list_lock);
 
     for (next_active_cpu = cpu_id + 1; next_active_cpu < _ebpf_epoch_cpu_count; next_active_cpu++) {
         if (_ebpf_epoch_cpu_table[next_active_cpu].active) {
@@ -1210,7 +1211,7 @@ _ebpf_epoch_next_active_cpu(uint32_t cpu_id)
         next_active_cpu = 0;
     }
 
-    ebpf_lock_unlock(&_ebpf_epoch_cpu_active_lock, state);
+    ebpf_lock_unlock(&_ebpf_epoch_active_cpu_list_lock, state);
 
     return next_active_cpu;
 }
