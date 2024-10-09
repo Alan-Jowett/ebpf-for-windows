@@ -653,7 +653,8 @@ struct scoped_cpu_affinity
     uintptr_t old_affinity_mask;
 };
 
-TEST_CASE("epoch_work_item_test", "[platform]")
+void
+run_epoch_test_script(const std::vector<std::string>& script)
 {
     using namespace std::chrono_literals;
     typedef std::vector<std::string> script_t;
@@ -722,114 +723,113 @@ TEST_CASE("epoch_work_item_test", "[platform]")
 
         steps["synchronize"] = [&] { ebpf_epoch_synchronize(); };
 
-        auto execute_script = [&](const script_t& script) {
-            size_t i = 1;
-            std::get<std::function<void()>>(steps["setup"])();
-            for (const auto& step : script) {
-                std::cout << i++ << " : " << step << std::endl;
-                std::vector<std::string> tokens;
-                std::istringstream iss(step);
-                for (std::string token; std::getline(iss, token, ',');) {
-                    tokens.push_back(token);
-                }
-
-                REQUIRE(steps.find(tokens[0]) != steps.end());
-
-                switch (tokens.size()) {
-                case 1:
-                    std::get<std::function<void()>>(steps[tokens[0]])();
-                    break;
-                case 2:
-                    std::get<std::function<void(size_t)>>(steps[tokens[0]])(std::stoi(tokens[1]));
-                    break;
-                case 3: {
-                    bool success = tokens[2] == "signalled";
-                    std::get<std::function<void(size_t, bool)>>(steps[tokens[0]])(std::stoi(tokens[1]), success);
-                } break;
-                default:
-                    REQUIRE(!("Invalid step:" + step).size());
-                }
+        std::get<std::function<void()>>(steps["setup"])();
+        for (const auto& step : script) {
+            std::vector<std::string> tokens;
+            std::istringstream iss(step);
+            for (std::string token; std::getline(iss, token, ',');) {
+                tokens.push_back(token);
             }
-            std::get<std::function<void()>>(steps["cleanup"])();
-        };
 
-        std::map<std::string, script_t> test_scripts;
+            REQUIRE(steps.find(tokens[0]) != steps.end());
 
-        test_scripts["single epoch"] = {
-            "enter_epoch,0",
-            "schedule,0",
-            "wait,0,not_signalled",
-            "exit_epoch,0",
-            "synchronize",
-            "wait,0,signalled",
-        };
-
-        if (ebpf_get_cpu_count() > 1) {
-            test_scripts["cross cpu exit"] = {
-                "enter_epoch,0",
-                "schedule,0",
-                "wait,0,not_signalled",
-                "switch_cpu,1",
-                "exit_epoch,0",
-                "synchronize",
-                "wait,0,signalled",
-            };
+            switch (tokens.size()) {
+            case 1:
+                std::get<std::function<void()>>(steps[tokens[0]])();
+                break;
+            case 2:
+                std::get<std::function<void(size_t)>>(steps[tokens[0]])(std::stoi(tokens[1]));
+                break;
+            case 3: {
+                bool success = tokens[2] == "signalled";
+                std::get<std::function<void(size_t, bool)>>(steps[tokens[0]])(std::stoi(tokens[1]), success);
+            } break;
+            default:
+                REQUIRE(!("Invalid step:" + step).size());
+            }
         }
-
-        test_scripts["nested epoch"] = {
-            "enter_epoch,0",
-            "schedule,0",
-            "wait,0,not_signalled",
-            "enter_epoch,1",
-            "schedule,1",
-            "wait,0,not_signalled",
-            "wait,1,not_signalled",
-            "exit_epoch,1",
-            "wait,0,not_signalled",
-            "wait,1,not_signalled",
-            "exit_epoch,0",
-            "synchronize",
-            "wait,0,signalled",
-            "wait,1,signalled",
-        };
-
-        test_scripts["sequential non-overlapping epochs"] = {
-            "enter_epoch,0",
-            "schedule,0",
-            "wait,0,not_signalled",
-            "exit_epoch,0",
-            "synchronize",
-            "wait,0,signalled",
-            "enter_epoch,1",
-            "schedule,1",
-            "wait,1,not_signalled",
-            "exit_epoch,1",
-            "synchronize",
-            "wait,1,signalled",
-        };
-
-        test_scripts["sequential overlapping epochs"] = {
-            "enter_epoch,0",
-            "schedule,0",
-            "wait,0,not_signalled",
-            "enter_epoch,1",
-            "exit_epoch,0",
-            "schedule,1",
-            "wait,0,signalled",
-            "wait,1,not_signalled",
-            "exit_epoch,1",
-            "synchronize",
-            "wait,1,signalled",
-        };
-
-        for (auto script : test_scripts) {
-            std::cout << script.first << std::endl;
-            execute_script(script.second);
-        }
-
-        epoch_states.clear();
-        work_items.clear();
+        std::get<std::function<void()>>(steps["cleanup"])();
     }
+}
+
+TEST_CASE("epoch_single_epoch", "[platform]")
+{
+    run_epoch_test_script({
+        "enter_epoch,0",
+        "schedule,0",
+        "wait,0,not_signalled",
+        "exit_epoch,0",
+        "synchronize",
+        "wait,0,signalled",
+    });
+}
+
+TEST_CASE("epoch_cross_cpu_exit", "[platform]")
+{
+    run_epoch_test_script({
+        "enter_epoch,0",
+        "schedule,0",
+        "wait,0,not_signalled",
+        "switch_cpu,1",
+        "exit_epoch,0",
+        "synchronize",
+        "wait,0,signalled",
+    });
+}
+
+TEST_CASE("epoch_nested_epoch", "[platform]")
+{
+    run_epoch_test_script({
+        "enter_epoch,0",
+        "schedule,0",
+        "wait,0,not_signalled",
+        "enter_epoch,1",
+        "schedule,1",
+        "wait,0,not_signalled",
+        "wait,1,not_signalled",
+        "exit_epoch,1",
+        "wait,0,not_signalled",
+        "wait,1,not_signalled",
+        "exit_epoch,0",
+        "synchronize",
+        "wait,0,signalled",
+        "wait,1,signalled",
+    });
+}
+
+TEST_CASE("epoch_sequential_non_overlapping", "[platform]")
+{
+    run_epoch_test_script({
+        "enter_epoch,0",
+        "schedule,0",
+        "wait,0,not_signalled",
+        "exit_epoch,0",
+        "synchronize",
+        "wait,0,signalled",
+        "enter_epoch,1",
+        "schedule,1",
+        "wait,1,not_signalled",
+        "exit_epoch,1",
+        "synchronize",
+        "wait,1,signalled",
+    });
+}
+
+TEST_CASE("epoch_sequential_overlapping_epochs", "[platform]")
+{
+    run_epoch_test_script({
+        "enter_epoch,0",
+        "schedule,0",
+        "wait,0,not_signalled",
+        "enter_epoch,1",
+        "exit_epoch,0",
+        "schedule,1",
+        "wait,0,signalled",
+        "wait,1,not_signalled",
+        "exit_epoch,1",
+        "synchronize",
+        "wait,1,signalled",
+    });
 }
 
 static auto provider_function = []() { return EBPF_SUCCESS; };
