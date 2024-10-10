@@ -675,7 +675,6 @@ _run_epoch_test_script(const std::vector<std::string>& script)
     test_helper.initialize();
     // Add scope to ensure that epoch state is cleaned up before test_helper.
     {
-
         std::vector<work_item_context_t> work_item_contexts(2);
         std::vector<ebpf_epoch_scope_t> epoch_states = {false, false};
         std::vector<work_item_ptr> work_items;

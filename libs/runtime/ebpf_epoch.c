@@ -1182,7 +1182,8 @@ _IRQL_requires_(DISPATCH_LEVEL) static void _ebpf_epoch_deactivate_cpu(uint32_t 
 {
     EBPF_LOG_ENTRY();
     ebpf_assert(cpu_id == ebpf_get_current_cpu());
-    // Deactivate the CPU 0 is not allowed.
+
+    // Deactivating CPU 0 is not allowed.
     ebpf_assert(cpu_id != 0);
     ebpf_assert(ebpf_list_is_empty(&_ebpf_epoch_cpu_table[cpu_id].epoch_state_list));
     ebpf_assert(ebpf_list_is_empty(&_ebpf_epoch_cpu_table[cpu_id].free_list));
