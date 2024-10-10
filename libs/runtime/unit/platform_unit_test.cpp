@@ -701,7 +701,7 @@ _run_epoch_test_script(const std::vector<std::string>& script)
         // Switch to running on CPU N
         steps["switch_cpu"] = [&](size_t i) {
             GROUP_AFFINITY old_affinity{};
-            (void)ebpf_set_current_thread_cpu_affinity(i, &old_affinity);
+            (void)ebpf_set_current_thread_cpu_affinity(static_cast<uint32_t>(i), &old_affinity);
         };
 
         // Enter epoch for location N
