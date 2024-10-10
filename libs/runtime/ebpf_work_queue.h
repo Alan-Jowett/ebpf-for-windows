@@ -51,7 +51,7 @@ extern "C"
     /**
      * @brief Set the CPU ID for the timed work queue.
      *
-     * @param[in] work_queue Work queue to set the CPU ID for.
+     * @param[in,out] work_queue Work queue to set the CPU ID for.
      * @param[in] cpu_id Which CPU to run the work queue on.
      * @retval EBPF_SUCCESS The operation was successful.
      * @retval EBPF_INVALID_ARGUMENT The CPU ID is invalid.
