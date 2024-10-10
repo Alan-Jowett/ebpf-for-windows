@@ -768,7 +768,7 @@ _run_epoch_test_script(const std::vector<std::string>& script)
             }
         }
 
-        // clean up the state.
+        // Clean up the state.
         std::get<std::function<void()>>(steps["clean up"])();
     }
 }
