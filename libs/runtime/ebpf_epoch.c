@@ -351,8 +351,8 @@ ebpf_epoch_initiate()
 
     // Set the current thread affinity to CPU 0.
     // This could fail if the system is preventing the thread from moving to CPU 0.
-    uintptr_t old_thread_affinity;
-    return_value = ebpf_set_current_thread_affinity(1 >> 0, &old_thread_affinity);
+    GROUP_AFFINITY old_thread_affinity;
+    return_value = ebpf_set_current_thread_cpu_affinity(0, &old_thread_affinity);
     if (return_value != EBPF_SUCCESS) {
         goto Error;
     }
@@ -365,7 +365,7 @@ ebpf_epoch_initiate()
     KeLowerIrql(old_irql);
 
     // Restore the thread affinity. Can't fail at this point.
-    ebpf_restore_current_thread_affinity(old_thread_affinity);
+    ebpf_restore_current_thread_cpu_affinity(&old_thread_affinity);
 
     KeInitializeDpc(&_ebpf_epoch_timer_dpc, _ebpf_epoch_timer_worker, NULL);
     KeSetTargetProcessorDpc(&_ebpf_epoch_timer_dpc, 0);

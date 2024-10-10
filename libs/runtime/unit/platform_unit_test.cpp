@@ -649,10 +649,10 @@ struct scoped_cpu_affinity
 {
     scoped_cpu_affinity(uint32_t i) : old_affinity_mask(0)
     {
-        REQUIRE(ebpf_set_current_thread_affinity(1ull << i, &old_affinity_mask) == EBPF_SUCCESS);
+        REQUIRE(ebpf_set_current_thread_cpu_affinity(i, &old_affinity_mask) == EBPF_SUCCESS);
     }
-    ~scoped_cpu_affinity() { ebpf_restore_current_thread_affinity(old_affinity_mask); }
-    uintptr_t old_affinity_mask;
+    ~scoped_cpu_affinity() { ebpf_restore_current_thread_cpu_affinity(&old_affinity_mask); }
+    GROUP_AFFINITY old_affinity_mask;
 };
 
 /**
