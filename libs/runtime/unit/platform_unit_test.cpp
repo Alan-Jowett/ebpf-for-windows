@@ -758,7 +758,7 @@ _run_epoch_test_script(const std::vector<std::string>& script)
                     std::get<std::function<void(size_t)>>(steps[tokens[0]])(std::stoi(tokens[1]));
                     break;
                 case 3: {
-                    bool success = tokens[2] == "signalled";
+                    bool success = tokens[2] == "signaled";
                     std::get<std::function<void(size_t, bool)>>(steps[tokens[0]])(std::stoi(tokens[1]), success);
                 } break;
                 default:
@@ -783,10 +783,10 @@ TEST_CASE("epoch_single_epoch", "[platform]")
     _run_epoch_test_script({
         "enter_epoch,0",
         "schedule,0",
-        "wait,0,not_signalled",
+        "wait,0,not_signaled",
         "exit_epoch,0",
         "synchronize",
-        "wait,0,signalled",
+        "wait,0,signaled",
     });
 }
 
@@ -799,11 +799,11 @@ TEST_CASE("epoch_cross_cpu_exit", "[platform]")
     _run_epoch_test_script({
         "enter_epoch,0",
         "schedule,0",
-        "wait,0,not_signalled",
+        "wait,0,not_signaled",
         "switch_cpu,1",
         "exit_epoch,0",
         "synchronize",
-        "wait,0,signalled",
+        "wait,0,signaled",
     });
 }
 
@@ -816,18 +816,18 @@ TEST_CASE("epoch_nested_epoch", "[platform]")
     _run_epoch_test_script({
         "enter_epoch,0",
         "schedule,0",
-        "wait,0,not_signalled",
+        "wait,0,not_signaled",
         "enter_epoch,1",
         "schedule,1",
-        "wait,0,not_signalled",
-        "wait,1,not_signalled",
+        "wait,0,not_signaled",
+        "wait,1,not_signaled",
         "exit_epoch,1",
-        "wait,0,not_signalled",
-        "wait,1,not_signalled",
+        "wait,0,not_signaled",
+        "wait,1,not_signaled",
         "exit_epoch,0",
         "synchronize",
-        "wait,0,signalled",
-        "wait,1,signalled",
+        "wait,0,signaled",
+        "wait,1,signaled",
     });
 }
 
@@ -841,16 +841,16 @@ TEST_CASE("epoch_sequential_non_overlapping", "[platform]")
     _run_epoch_test_script({
         "enter_epoch,0",
         "schedule,0",
-        "wait,0,not_signalled",
+        "wait,0,not_signaled",
         "exit_epoch,0",
         "synchronize",
-        "wait,0,signalled",
+        "wait,0,signaled",
         "enter_epoch,1",
         "schedule,1",
-        "wait,1,not_signalled",
+        "wait,1,not_signaled",
         "exit_epoch,1",
         "synchronize",
-        "wait,1,signalled",
+        "wait,1,signaled",
     });
 }
 
@@ -866,15 +866,15 @@ TEST_CASE("epoch_sequential_overlapping_epochs", "[platform]")
     _run_epoch_test_script({
         "enter_epoch,0",
         "schedule,0",
-        "wait,0,not_signalled",
+        "wait,0,not_signaled",
         "enter_epoch,1",
         "exit_epoch,0",
         "schedule,1",
-        "wait,0,signalled",
-        "wait,1,not_signalled",
+        "wait,0,signaled",
+        "wait,1,not_signaled",
         "exit_epoch,1",
         "synchronize",
-        "wait,1,signalled",
+        "wait,1,signaled",
     });
 }
 
