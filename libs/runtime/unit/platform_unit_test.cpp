@@ -647,7 +647,7 @@ typedef std::unique_ptr<ebpf_epoch_work_item_t, decltype(&ebpf_epoch_cancel_work
 
 struct scoped_cpu_affinity
 {
-    scoped_cpu_affinity(uint32_t i) : old_affinity_mask(0)
+    scoped_cpu_affinity(uint32_t i) : old_affinity_mask{}
     {
         REQUIRE(ebpf_set_current_thread_cpu_affinity(i, &old_affinity_mask) == EBPF_SUCCESS);
     }
@@ -700,8 +700,8 @@ _run_epoch_test_script(const std::vector<std::string>& script)
 
         // Switch to running on CPU N
         steps["switch_cpu"] = [&](size_t i) {
-            uintptr_t old_affinity;
-            (void)ebpf_set_current_thread_affinity(1ull << i, &old_affinity);
+            GROUP_AFFINITY old_affinity{};
+            (void)ebpf_set_current_thread_cpu_affinity(i, &old_affinity);
         };
 
         // Enter epoch for location N
@@ -722,8 +722,8 @@ _run_epoch_test_script(const std::vector<std::string>& script)
             }
         };
 
-        // Explicitly cleanup all state.
-        steps["cleanup"] = [&] {
+        // Explicitly clean up all state.
+        steps["clean up"] = [&] {
             for (auto i = 0; i < work_items.size(); i++) {
                 work_items[i].reset();
             }
@@ -768,8 +768,8 @@ _run_epoch_test_script(const std::vector<std::string>& script)
             }
         }
 
-        // Cleanup the state.
-        std::get<std::function<void()>>(steps["cleanup"])();
+        // clean up the state.
+        std::get<std::function<void()>>(steps["clean up"])();
     }
 }
 
