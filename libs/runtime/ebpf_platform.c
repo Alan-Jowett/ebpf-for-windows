@@ -59,12 +59,6 @@ ebpf_is_preemptible()
     return irql < DISPATCH_LEVEL;
 }
 
-uint32_t
-ebpf_get_current_cpu()
-{
-    return cxplat_get_current_processor_number();
-}
-
 uint64_t
 ebpf_get_current_thread_id()
 {
