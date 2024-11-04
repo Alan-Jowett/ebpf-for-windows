@@ -711,6 +711,9 @@ _run_epoch_test_script(const std::vector<std::string>& script)
             for (auto i = 0; i < 2; i++) {
                 work_item_contexts[i].signal.reset();
                 auto work_item = ebpf_epoch_allocate_work_item(&work_item_contexts[i], work_item_context_t::invoke);
+                if (!work_item) {
+                    FAIL("Failed to allocate work item.");
+                }
                 work_items.push_back(work_item_ptr(work_item, ebpf_epoch_cancel_work_item));
             }
         };
