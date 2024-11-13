@@ -4,6 +4,36 @@
   SPDX-License-Identifier: MIT
 -->
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="FuzzerDebug|x64">
+      <Configuration>FuzzerDebug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="NativeOnlyDebug|x64">
+      <Configuration>NativeOnlyDebug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="NativeOnlyRelease|x64">
+      <Configuration>NativeOnlyRelease</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <Target Name="SetVersion" BeforeTargets="PreBuildEvent">
+    <Exec Command='
+      echo #define EBPF_VERSION_MAJOR $(EbpfVersion_Major) &gt; $(OutDir)ebpf_version.h
+      echo #define EBPF_VERSION_MINOR $(EbpfVersion_Minor) &gt;&gt; $(OutDir)ebpf_version.h
+      echo #define EBPF_VERSION_REVISION $(EbpfVersion_Revision) &gt;&gt; $(OutDir)ebpf_version.h
+      echo #define EBPF_VERSION "$(EbpfVersion)" &gt;&gt; $(OutDir)ebpf_version.h
+    '/>
+  </Target>
   <ItemGroup>
     <CustomBuild Include="..\deploy-ebpf.ps1.in">
       <FileType>Document</FileType>
@@ -156,13 +186,6 @@ popd
       <DeploymentContent Condition="'$(Configuration)'=='Release'">true</DeploymentContent>
       <DeploymentContent Condition="'$(Configuration)'=='NativeOnlyRelease'">true</DeploymentContent>
     </CopyFileToFolders>
-    <CopyFileToFolders Include="..\Run-Self-Hosted-Runner-Test.ps1">
-      <DeploymentContent Condition="'$(Configuration)'=='Debug'">true</DeploymentContent>
-      <DeploymentContent Condition="'$(Configuration)'=='FuzzerDebug'">true</DeploymentContent>
-      <DeploymentContent Condition="'$(Configuration)'=='NativeOnlyDebug'">true</DeploymentContent>
-      <DeploymentContent Condition="'$(Configuration)'=='Release'">true</DeploymentContent>
-      <DeploymentContent Condition="'$(Configuration)'=='NativeOnlyRelease'">true</DeploymentContent>
-    </CopyFileToFolders>
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>16.0</VCProjectVersion>
@@ -252,6 +275,10 @@ popd
 powershell -NonInteractive -ExecutionPolicy Unrestricted $(SolutionDir)scripts\generate-commitid.ps1 $(SolutionDir)\include
 copy "$(VC_DebugCppRuntimeFilesPath_x64)\Microsoft.VC143.DebugCRT\*" "$(OutDir)"
 copy "$(UniversalDebugCRT_ExecutablePath_x64)\ucrtbased.dll" "$(OutDir)"</Command>
+      <Command Condition="'$(Platform)'=='ARM64'">powershell -NonInteractive -ExecutionPolicy Unrestricted $(SolutionDir)scripts\copy_pre_commit.ps1 $(SolutionDir)scripts\pre-commit
+powershell -NonInteractive -ExecutionPolicy Unrestricted $(SolutionDir)scripts\generate-commitid.ps1 $(SolutionDir)\include
+copy "$(VC_DebugCppRuntimeFilesPath_ARM64)\Microsoft.VC143.DebugCRT\*" "$(OutDir)"
+copy "$(UniversalDebugCRT_ExecutablePath_ARM64)\ucrtbased.dll" "$(OutDir)"</Command>
     </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='FuzzerDebug'">
@@ -268,6 +295,10 @@ copy "$(UniversalDebugCRT_ExecutablePath_x64)\ucrtbased.dll" "$(OutDir)"</Comman
 powershell -NonInteractive -ExecutionPolicy Unrestricted $(SolutionDir)scripts\generate-commitid.ps1 $(SolutionDir)\include
 copy "$(VC_DebugCppRuntimeFilesPath_x64)\Microsoft.VC143.DebugCRT\*" "$(OutDir)"
 copy "$(UniversalDebugCRT_ExecutablePath_x64)\ucrtbased.dll" "$(OutDir)"</Command>
+      <Command Condition="'$(Platform)'=='ARM64'">powershell -NonInteractive -ExecutionPolicy Unrestricted $(SolutionDir)scripts\copy_pre_commit.ps1 $(SolutionDir)scripts\pre-commit
+powershell -NonInteractive -ExecutionPolicy Unrestricted $(SolutionDir)scripts\generate-commitid.ps1 $(SolutionDir)\include
+copy "$(VC_DebugCppRuntimeFilesPath_ARM64)\Microsoft.VC143.DebugCRT\*" "$(OutDir)"
+copy "$(UniversalDebugCRT_ExecutablePath_ARM64)\ucrtbased.dll" "$(OutDir)"</Command>
     </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='NativeOnlyDebug'">
@@ -284,6 +315,10 @@ copy "$(UniversalDebugCRT_ExecutablePath_x64)\ucrtbased.dll" "$(OutDir)"</Comman
 powershell -NonInteractive -ExecutionPolicy Unrestricted $(SolutionDir)scripts\generate-commitid.ps1 $(SolutionDir)\include
 copy "$(VC_DebugCppRuntimeFilesPath_x64)\Microsoft.VC143.DebugCRT\*" "$(OutDir)"
 copy "$(UniversalDebugCRT_ExecutablePath_x64)\ucrtbased.dll" "$(OutDir)"</Command>
+      <Command Condition="'$(Platform)'=='ARM64'">powershell -NonInteractive -ExecutionPolicy Unrestricted $(SolutionDir)scripts\copy_pre_commit.ps1 $(SolutionDir)scripts\pre-commit
+powershell -NonInteractive -ExecutionPolicy Unrestricted $(SolutionDir)scripts\generate-commitid.ps1 $(SolutionDir)\include
+copy "$(VC_DebugCppRuntimeFilesPath_ARM64)\Microsoft.VC143.DebugCRT\*" "$(OutDir)"
+copy "$(UniversalDebugCRT_ExecutablePath_ARM64)\ucrtbased.dll" "$(OutDir)"</Command>
     </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Release'">
@@ -301,6 +336,9 @@ copy "$(UniversalDebugCRT_ExecutablePath_x64)\ucrtbased.dll" "$(OutDir)"</Comman
       <Command Condition="'$(Platform)'=='x64'">powershell -NonInteractive -ExecutionPolicy Unrestricted $(SolutionDir)scripts\copy_pre_commit.ps1 $(SolutionDir)scripts\pre-commit
 powershell -NonInteractive -ExecutionPolicy Unrestricted $(SolutionDir)scripts\generate-commitid.ps1 $(SolutionDir)\include
 copy "$(VC_CppRuntimeFilesPath_x64)\Microsoft.VC143.CRT" "$(OutDir)"</Command>
+      <Command Condition="'$(Platform)'=='ARM64'">powershell -NonInteractive -ExecutionPolicy Unrestricted $(SolutionDir)scripts\copy_pre_commit.ps1 $(SolutionDir)scripts\pre-commit
+powershell -NonInteractive -ExecutionPolicy Unrestricted $(SolutionDir)scripts\generate-commitid.ps1 $(SolutionDir)\include
+copy "$(VC_CppRuntimeFilesPath_ARM64)\Microsoft.VC143.CRT" "$(OutDir)"</Command>
     </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='NativeOnlyRelease'">
@@ -318,6 +356,9 @@ copy "$(VC_CppRuntimeFilesPath_x64)\Microsoft.VC143.CRT" "$(OutDir)"</Command>
       <Command Condition="'$(Platform)'=='x64'">powershell -NonInteractive -ExecutionPolicy Unrestricted $(SolutionDir)scripts\copy_pre_commit.ps1 $(SolutionDir)scripts\pre-commit
 powershell -NonInteractive -ExecutionPolicy Unrestricted $(SolutionDir)scripts\generate-commitid.ps1 $(SolutionDir)\include
 copy "$(VC_CppRuntimeFilesPath_x64)\Microsoft.VC143.CRT" "$(OutDir)"</Command>
+      <Command Condition="'$(Platform)'=='ARM64'">powershell -NonInteractive -ExecutionPolicy Unrestricted $(SolutionDir)scripts\copy_pre_commit.ps1 $(SolutionDir)scripts\pre-commit
+powershell -NonInteractive -ExecutionPolicy Unrestricted $(SolutionDir)scripts\generate-commitid.ps1 $(SolutionDir)\include
+copy "$(VC_CppRuntimeFilesPath_ARM64)\Microsoft.VC143.CRT" "$(OutDir)"</Command>
     </PreBuildEvent>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
