@@ -1556,6 +1556,11 @@ ebpf_program_invoke(
 
         if (current_program->parameters.code_type == EBPF_CODE_JIT ||
             current_program->parameters.code_type == EBPF_CODE_NATIVE) {
+            EBPF_LOG_MESSAGE_UTF8_STRING(
+                EBPF_TRACELOG_LEVEL_VERBOSE,
+                EBPF_TRACELOG_KEYWORD_PROGRAM,
+                "Tail call program",
+                &current_program->parameters.program_name);
             ebpf_program_entry_point_t function_pointer;
             function_pointer = (ebpf_program_entry_point_t)(current_program->code_or_vm.code.code_pointer);
             *result = (function_pointer)(context);
@@ -2384,7 +2389,7 @@ _ebpf_program_test_run_work_item(_In_ cxplat_preemptible_work_item_t* work_item,
     ebpf_result_t result;
     uint32_t return_value = 0;
     uint8_t old_irql = 0;
-    uintptr_t old_thread_affinity;
+    GROUP_AFFINITY old_thread_affinity;
     size_t batch_size = options->batch_size ? options->batch_size : 1024;
     ebpf_execution_context_state_t execution_context_state = {0};
     ebpf_epoch_state_t epoch_state = {0};
@@ -2395,7 +2400,7 @@ _ebpf_program_test_run_work_item(_In_ cxplat_preemptible_work_item_t* work_item,
     void* program_context = NULL;
     bool supports_context_header;
 
-    result = ebpf_set_current_thread_affinity((uintptr_t)1 << options->cpu, &old_thread_affinity);
+    result = ebpf_set_current_thread_cpu_affinity(options->cpu, &old_thread_affinity);
     if (result != EBPF_SUCCESS) {
         goto Done;
     }
@@ -2430,7 +2435,7 @@ _ebpf_program_test_run_work_item(_In_ cxplat_preemptible_work_item_t* work_item,
         state_stored = true;
     }
 
-    uint64_t start_time = ebpf_query_time_since_boot(false);
+    uint64_t start_time = ebpf_query_time_since_boot_precise(false);
     // Use a counter instead of performing a modulus operation to determine when to start a new epoch.
     // This is because the modulus operation is expensive and we want to minimize the overhead of
     // the test run.
@@ -2443,7 +2448,7 @@ _ebpf_program_test_run_work_item(_In_ cxplat_preemptible_work_item_t* work_item,
             ebpf_epoch_exit(&epoch_state);
             if (ebpf_should_yield_processor()) {
                 // Compute the elapsed time since the last yield.
-                end_time = ebpf_query_time_since_boot(false);
+                end_time = ebpf_query_time_since_boot_precise(false);
 
                 // Add the elapsed time to the cumulative time.
                 cumulative_time += end_time - start_time;
@@ -2455,7 +2460,7 @@ _ebpf_program_test_run_work_item(_In_ cxplat_preemptible_work_item_t* work_item,
                 old_irql = ebpf_raise_irql(context->required_irql);
 
                 // Reset the start time.
-                start_time = ebpf_query_time_since_boot(false);
+                start_time = ebpf_query_time_since_boot_precise(false);
             }
             ebpf_epoch_enter(&epoch_state);
         }
@@ -2465,7 +2470,7 @@ _ebpf_program_test_run_work_item(_In_ cxplat_preemptible_work_item_t* work_item,
             break;
         }
     }
-    end_time = ebpf_query_time_since_boot(false);
+    end_time = ebpf_query_time_since_boot_precise(false);
 
     cumulative_time += end_time - start_time;
 
@@ -2496,7 +2501,7 @@ Done:
     }
 
     if (thread_affinity_set) {
-        ebpf_restore_current_thread_affinity(old_thread_affinity);
+        ebpf_restore_current_thread_cpu_affinity(&old_thread_affinity);
     }
 
     context->completion_callback(

@@ -11,7 +11,7 @@ static uint32_t _ebpf_platform_maximum_processor_count = 0;
 
 static bool _ebpf_platform_is_cxplat_initialized = false;
 
-bool ebpf_processor_supports_sse42 = true;
+bool ebpf_processor_supports_sse42 = false;
 
 _Ret_range_(>, 0) uint32_t ebpf_get_cpu_count() { return _ebpf_platform_maximum_processor_count; }
 
@@ -52,10 +52,16 @@ _Requires_lock_held_(*lock) _Releases_lock_(*lock) _IRQL_requires_(DISPATCH_LEVE
     KeReleaseSpinLock(lock, state);
 }
 
-void
-ebpf_restore_current_thread_affinity(uintptr_t old_thread_affinity_mask)
+_Requires_lock_not_held_(*lock) _Acquires_lock_(*lock) _IRQL_requires_max_(DISPATCH_LEVEL)
+    _IRQL_requires_(DISPATCH_LEVEL) void ebpf_lock_lock_at_dispatch(_Inout_ ebpf_lock_t* lock)
 {
-    KeRevertToUserAffinityThreadEx(old_thread_affinity_mask);
+    KeAcquireSpinLockAtDpcLevel(lock);
+}
+
+_Requires_lock_held_(*lock) _Releases_lock_(*lock)
+    _IRQL_requires_(DISPATCH_LEVEL) void ebpf_lock_unlock_at_dispatch(_Inout_ ebpf_lock_t* lock)
+{
+    KeReleaseSpinLockFromDpcLevel(lock);
 }
 
 bool
@@ -68,7 +74,7 @@ ebpf_is_preemptible()
 uint32_t
 ebpf_get_current_cpu()
 {
-    return KeGetCurrentProcessorNumberEx(NULL);
+    return cxplat_get_current_processor_number();
 }
 
 uint64_t
@@ -215,7 +221,7 @@ ebpf_allocate_process_state()
 }
 
 uint64_t
-ebpf_query_time_since_boot(bool include_suspended_time)
+ebpf_query_time_since_boot_precise(bool include_suspended_time)
 {
     uint64_t qpc_time;
     if (include_suspended_time) {
@@ -228,6 +234,17 @@ ebpf_query_time_since_boot(bool include_suspended_time)
         // (Biased) Interrupt time is the total time since boot excluding time spent suspended.        //
         // https://docs.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/nf-wdm-kequeryinterrupttimeprecise
         return KeQueryInterruptTimePrecise(&qpc_time);
+    }
+}
+
+uint64_t
+ebpf_query_time_since_boot_approximate(bool include_suspend_time)
+{
+    if (include_suspend_time) {
+        ebpf_assert(!"Include suspend time not supported on this platform.");
+        return 0;
+    } else {
+        return KeQueryInterruptTime();
     }
 }
 
@@ -397,43 +414,36 @@ ebpf_log_function(_In_ void* context, _In_z_ const char* format_string, ...)
 }
 
 _Must_inspect_result_ ebpf_result_t
-ebpf_set_current_thread_affinity(uintptr_t new_thread_affinity_mask, _Out_ uintptr_t* old_thread_affinity_mask)
+ebpf_set_current_thread_cpu_affinity(uint32_t cpu_index, _Out_ GROUP_AFFINITY* old_cpu_affinity)
 {
     if (KeGetCurrentIrql() >= DISPATCH_LEVEL) {
         return EBPF_OPERATION_NOT_SUPPORTED;
     }
 
-    KAFFINITY old_affinity = KeSetSystemAffinityThreadEx(new_thread_affinity_mask);
-    *old_thread_affinity_mask = old_affinity;
-    return EBPF_SUCCESS;
-}
-
-_Must_inspect_result_ ebpf_result_t
-ebpf_allocate_non_preemptible_work_item(
-    _Outptr_ KDPC** dpc,
-    uint32_t cpu_id,
-    _In_ PKDEFERRED_ROUTINE work_item_routine,
-    _Inout_opt_ void* work_item_context)
-{
-    *dpc = ebpf_allocate(sizeof(KDPC));
-    if (*dpc == NULL) {
-        return EBPF_NO_MEMORY;
+    if (cpu_index >= ebpf_get_cpu_count()) {
+        return EBPF_INVALID_ARGUMENT;
     }
 
-    KeInitializeDpc(*dpc, work_item_routine, work_item_context);
-    KeSetTargetProcessorDpc(*dpc, (uint8_t)cpu_id);
+    PROCESSOR_NUMBER processor;
+    GROUP_AFFINITY new_affinity = {0};
+
+    NTSTATUS status = KeGetProcessorNumberFromIndex(cpu_index, &processor);
+    if (!NT_SUCCESS(status)) {
+        return EBPF_INVALID_ARGUMENT;
+    }
+
+    new_affinity.Group = processor.Group;
+    new_affinity.Mask = AFFINITY_MASK(processor.Number);
+
+    KeSetSystemGroupAffinityThread(&new_affinity, old_cpu_affinity);
+
     return EBPF_SUCCESS;
 }
 
 void
-ebpf_free_non_preemptible_work_item(_In_opt_ _Frees_ptr_opt_ KDPC* dpc)
+ebpf_restore_current_thread_cpu_affinity(_In_ GROUP_AFFINITY* old_cpu_affinity)
 {
-    if (!dpc) {
-        return;
-    }
-
-    KeRemoveQueueDpc(dpc);
-    ebpf_free(dpc);
+    KeRevertToUserGroupAffinityThread(old_cpu_affinity);
 }
 
 typedef struct _ebpf_timer_work_item
@@ -525,10 +535,12 @@ ebpf_platform_initiate()
     ebpf_result_t result = ebpf_result_from_cxplat_status(cxplat_initialize());
     _ebpf_platform_is_cxplat_initialized = (result == EBPF_SUCCESS);
     ebpf_initialize_cpu_count();
+#if defined(_M_X64)
     // Check if processor supports SSE4.2
     int cpu_info[4] = {0};
     __cpuid(cpu_info, CPU_INFO_PROCESSOR_INFO_FUNCTION);
     ebpf_processor_supports_sse42 = (cpu_info[CPU_INFO_SSE42_BYTE_OFFSET] & (1 << CPU_INFO_SSE32_BIT_OFFSET)) != 0;
+#endif
 
     return result;
 }

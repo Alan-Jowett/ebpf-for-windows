@@ -140,6 +140,18 @@ typedef uint8_t* ebpf_lru_entry_t;
 #define EBPF_LRU_ENTRY_KEY_PTR(map, entry) \
     ((uint8_t*)(((uint8_t*)entry) + EBPF_LRU_ENTRY_KEY_OFFSET(map->partition_count)))
 
+#define EBPF_LOG_MAP_OPERATION(flags, operation, map, key)                                            \
+    if (((flags) & EBPF_MAP_FLAG_HELPER) && (map)->ebpf_map_definition.key_size != 0) {               \
+        EBPF_LOG_MESSAGE_UTF8_STRING(                                                                 \
+            EBPF_TRACELOG_LEVEL_VERBOSE, EBPF_TRACELOG_KEYWORD_MAP, "Map "##operation, &(map)->name); \
+        EBPF_LOG_MESSAGE_BINARY(                                                                      \
+            EBPF_TRACELOG_LEVEL_VERBOSE,                                                              \
+            EBPF_TRACELOG_KEYWORD_MAP,                                                                \
+            "Key",                                                                                    \
+            (key),                                                                                    \
+            (map)->ebpf_map_definition.key_size);                                                     \
+    }
+
 /**
  * @brief The partition of the LRU map key history.
  */
@@ -153,6 +165,8 @@ __declspec(align(EBPF_CACHE_LINE_SIZE)) typedef struct _ebpf_lru_partition
     size_t hot_list_size;      //< Current size of the hot list.
     size_t hot_list_limit;     //< Maximum size of the hot list.
 } ebpf_lru_partition_t;
+
+static_assert(sizeof(ebpf_lru_partition_t) % EBPF_CACHE_LINE_SIZE == 0, "ebpf_core_lru_map_t is not cache aligned.");
 
 /**
  * @brief The map definition for an LRU map.
@@ -464,10 +478,32 @@ _find_array_map_entry(
     key_value = *(uint32_t*)key;
 
     if (key_value >= map->ebpf_map_definition.max_entries) {
-        return EBPF_INVALID_ARGUMENT;
+        return EBPF_OBJECT_NOT_FOUND;
     }
 
     *data = &map->data[key_value * map->ebpf_map_definition.value_size];
+
+    return EBPF_SUCCESS;
+}
+
+static ebpf_result_t
+_find_array_map_entry_with_reference(
+    _Inout_ ebpf_core_map_t* map, _In_opt_ const uint8_t* key, bool delete_on_success, _Outptr_ uint8_t** data)
+{
+    ebpf_assert(map->ebpf_map_definition.value_size == sizeof(ebpf_id_t));
+
+    ebpf_result_t result = _find_array_map_entry(map, key, delete_on_success, data);
+
+    if (result != EBPF_SUCCESS) {
+        return result;
+    }
+
+    ebpf_id_t* id = (ebpf_id_t*)(*data);
+    if (id != NULL && *id == 0) {
+        // Turn zero ID into EBPF_OBJECT_NOT_FOUND.
+        *data = NULL;
+        return EBPF_OBJECT_NOT_FOUND;
+    }
 
     return EBPF_SUCCESS;
 }
@@ -950,7 +986,7 @@ _create_hash_map_internal(
     ebpf_core_map_t* local_map = NULL;
     *map = NULL;
 
-    local_map = ebpf_epoch_allocate_with_tag(map_struct_size, EBPF_POOL_TAG_MAP);
+    local_map = ebpf_epoch_allocate_cache_aligned_with_tag(map_struct_size, EBPF_POOL_TAG_MAP);
     if (local_map == NULL) {
         retval = EBPF_NO_MEMORY;
         goto Done;
@@ -988,7 +1024,7 @@ Done:
         if (local_map && local_map->data) {
             ebpf_hash_table_destroy((ebpf_hash_table_t*)local_map->data);
         }
-        ebpf_epoch_free(local_map);
+        ebpf_epoch_free_cache_aligned(local_map);
         local_map = NULL;
     }
     return retval;
@@ -1010,7 +1046,7 @@ static void
 _delete_hash_map(_In_ _Post_invalid_ ebpf_core_map_t* map)
 {
     ebpf_hash_table_destroy((ebpf_hash_table_t*)map->data);
-    ebpf_epoch_free(map);
+    ebpf_epoch_free_cache_aligned(map);
 }
 
 static void
@@ -1143,10 +1179,9 @@ _Requires_lock_held_(map->partitions[partition].lock) static void _merge_hot_int
 static void
 _insert_into_hot_list(_Inout_ ebpf_core_lru_map_t* map, size_t partition, _Inout_ ebpf_lru_entry_t* entry)
 {
-    bool lock_held = false;
-
     ebpf_lru_key_state_t key_state = _get_key_state(map, partition, entry);
     ebpf_lock_state_t state = 0;
+    bool is_preemptible = ebpf_is_preemptible();
 
     switch (key_state) {
     case EBPF_LRU_KEY_UNINITIALIZED:
@@ -1159,15 +1194,18 @@ _insert_into_hot_list(_Inout_ ebpf_core_lru_map_t* map, size_t partition, _Inout
         return;
     }
 
-    state = ebpf_lock_lock(&map->partitions[partition].lock);
-    lock_held = true;
+    if (!is_preemptible) {
+        ebpf_lock_lock_at_dispatch(&map->partitions[partition].lock);
+    } else {
+        state = ebpf_lock_lock(&map->partitions[partition].lock);
+    }
 
     key_state = _get_key_state(map, partition, entry);
 
     switch (key_state) {
     case EBPF_LRU_KEY_UNINITIALIZED:
         EBPF_LRU_ENTRY_GENERATION_PTR(map, entry)[partition] = map->partitions[partition].current_generation;
-        EBPF_LRU_ENTRY_LAST_USED_TIME_PTR(map, entry)[partition] = ebpf_query_time_since_boot(false);
+        EBPF_LRU_ENTRY_LAST_USED_TIME_PTR(map, entry)[partition] = ebpf_query_time_since_boot_approximate(false);
         ebpf_list_insert_tail(
             &map->partitions[partition].hot_list, &EBPF_LRU_ENTRY_LIST_ENTRY_PTR(map, entry)[partition]);
         map->partitions[partition].hot_list_size++;
@@ -1175,7 +1213,7 @@ _insert_into_hot_list(_Inout_ ebpf_core_lru_map_t* map, size_t partition, _Inout
     case EBPF_LRU_KEY_COLD:
         // Remove from cold list.
         EBPF_LRU_ENTRY_GENERATION_PTR(map, entry)[partition] = map->partitions[partition].current_generation;
-        EBPF_LRU_ENTRY_LAST_USED_TIME_PTR(map, entry)[partition] = ebpf_query_time_since_boot(false);
+        EBPF_LRU_ENTRY_LAST_USED_TIME_PTR(map, entry)[partition] = ebpf_query_time_since_boot_approximate(false);
         ebpf_list_remove_entry(&EBPF_LRU_ENTRY_LIST_ENTRY_PTR(map, entry)[partition]);
         ebpf_list_insert_tail(
             &map->partitions[partition].hot_list, &EBPF_LRU_ENTRY_LIST_ENTRY_PTR(map, entry)[partition]);
@@ -1189,7 +1227,9 @@ _insert_into_hot_list(_Inout_ ebpf_core_lru_map_t* map, size_t partition, _Inout
 
     _merge_hot_into_cold_list_if_needed(map, partition);
 
-    if (lock_held) {
+    if (!is_preemptible) {
+        ebpf_lock_unlock_at_dispatch(&map->partitions[partition].lock);
+    } else {
         ebpf_lock_unlock(&map->partitions[partition].lock, state);
     }
 }
@@ -1217,7 +1257,7 @@ _initialize_lru_entry(
     // Only insert into the current partition's hot list.
     ebpf_lock_state_t state = ebpf_lock_lock(&map->partitions[partition].lock);
     EBPF_LRU_ENTRY_GENERATION_PTR(map, entry)[partition] = map->partitions[partition].current_generation;
-    EBPF_LRU_ENTRY_LAST_USED_TIME_PTR(map, entry)[partition] = ebpf_query_time_since_boot(false);
+    EBPF_LRU_ENTRY_LAST_USED_TIME_PTR(map, entry)[partition] = ebpf_query_time_since_boot_approximate(false);
     ebpf_list_insert_tail(&map->partitions[partition].hot_list, &EBPF_LRU_ENTRY_LIST_ENTRY_PTR(map, entry)[partition]);
     map->partitions[partition].hot_list_size++;
 
@@ -1370,7 +1410,7 @@ Exit:
         if (lru_map && lru_map->core_map.data) {
             ebpf_hash_table_destroy((ebpf_hash_table_t*)lru_map->core_map.data);
         }
-        ebpf_epoch_free(lru_map);
+        ebpf_epoch_free_cache_aligned(lru_map);
         lru_map = NULL;
     }
 
@@ -1382,7 +1422,7 @@ _delete_lru_hash_map(_In_ _Post_invalid_ ebpf_core_map_t* map)
 {
     ebpf_core_lru_map_t* lru_map = EBPF_FROM_FIELD(ebpf_core_lru_map_t, core_map, map);
     ebpf_hash_table_destroy((ebpf_hash_table_t*)lru_map->core_map.data);
-    ebpf_epoch_free(map);
+    ebpf_epoch_free_cache_aligned(map);
 }
 
 static ebpf_result_t
@@ -2233,7 +2273,7 @@ const ebpf_map_metadata_table_t ebpf_map_metadata_tables[] = {
         .create_map = _create_object_array_map,
         .delete_map = _delete_program_array_map,
         .associate_program = _associate_program_with_prog_array_map,
-        .find_entry = _find_array_map_entry,
+        .find_entry = _find_array_map_entry_with_reference,
         .get_object_from_entry = _get_object_from_array_map_entry,
         .update_entry_with_handle = _update_prog_array_map_entry_with_handle,
         .delete_entry = _delete_program_array_map_entry,
@@ -2275,7 +2315,7 @@ const ebpf_map_metadata_table_t ebpf_map_metadata_tables[] = {
         .map_type = BPF_MAP_TYPE_ARRAY_OF_MAPS,
         .create_map = _create_object_array_map,
         .delete_map = _delete_map_array_map,
-        .find_entry = _find_array_map_entry,
+        .find_entry = _find_array_map_entry_with_reference,
         .get_object_from_entry = _get_object_from_array_map_entry,
         .update_entry_with_handle = _update_map_array_map_entry_with_handle,
         .delete_entry = _delete_map_array_map_entry,
@@ -2447,6 +2487,7 @@ ebpf_map_find_entry(
 {
     // High volume call - Skip entry/exit logging.
     uint8_t* return_value = NULL;
+
     if (!(flags & EBPF_MAP_FLAG_HELPER) && (key_size != map->ebpf_map_definition.key_size)) {
         EBPF_LOG_MESSAGE_UINT64_UINT64(
             EBPF_TRACELOG_LEVEL_ERROR,
@@ -2485,6 +2526,8 @@ ebpf_map_find_entry(
                 EBPF_TRACELOG_LEVEL_ERROR, EBPF_TRACELOG_KEYWORD_MAP, "Find not supported on BPF_MAP_TYPE_PROG_ARRAY");
             return EBPF_INVALID_ARGUMENT;
         }
+
+        EBPF_LOG_MAP_OPERATION(flags, "lookup", map, key);
 
         ebpf_core_object_t* object = ebpf_map_metadata_tables[type].get_object_from_entry(map, key);
         if (object) {
@@ -2605,6 +2648,8 @@ ebpf_map_update_entry(
         return EBPF_OPERATION_NOT_SUPPORTED;
     }
 
+    EBPF_LOG_MAP_OPERATION(flags, "update", map, key);
+
     if ((flags & EBPF_MAP_FLAG_HELPER) &&
         ebpf_map_metadata_tables[map->ebpf_map_definition.type].update_entry_per_cpu) {
         result = ebpf_map_metadata_tables[map->ebpf_map_definition.type].update_entry_per_cpu(map, key, value, option);
@@ -2667,6 +2712,8 @@ ebpf_map_delete_entry(_In_ ebpf_map_t* map, size_t key_size, _In_reads_(key_size
             map->ebpf_map_definition.type);
         return EBPF_OPERATION_NOT_SUPPORTED;
     }
+
+    EBPF_LOG_MAP_OPERATION(flags, "delete", map, key);
 
     ebpf_result_t result = ebpf_map_metadata_tables[map->ebpf_map_definition.type].delete_entry(map, key);
     return result;
@@ -2881,10 +2928,12 @@ ebpf_map_get_next_key_and_value_batch(
 
         memcpy(key_and_value + output_length + key_size, next_value, value_size);
 
-        if (flags & EBPF_MAP_FIND_FLAG_DELETE) {
-            // If the caller requested deletion, delete the entry.
+        if ((flags & EBPF_MAP_FIND_FLAG_DELETE) && (previous_key != NULL)) {
+            // If the caller requested deletion, delete the previous entry.
             result = ebpf_map_metadata_tables[map->ebpf_map_definition.type].delete_entry(map, previous_key);
             if (result != EBPF_SUCCESS) {
+                EBPF_LOG_MESSAGE_UINT64(
+                    EBPF_TRACELOG_LEVEL_ERROR, EBPF_TRACELOG_KEYWORD_MAP, "Failed to delete entry", result);
                 break;
             }
         }
@@ -2901,6 +2950,17 @@ ebpf_map_get_next_key_and_value_batch(
     }
 
     *key_and_value_length = output_length;
+
+    if ((flags & EBPF_MAP_FIND_FLAG_DELETE) && (previous_key != NULL) && (output_length != 0)) {
+        // If the caller requested deletion, delete the last entry.
+        ebpf_result_t delete_result =
+            ebpf_map_metadata_tables[map->ebpf_map_definition.type].delete_entry(map, previous_key);
+        if (delete_result != EBPF_SUCCESS) {
+            EBPF_LOG_MESSAGE_UINT64(
+                EBPF_TRACELOG_LEVEL_ERROR, EBPF_TRACELOG_KEYWORD_MAP, "Failed to delete last entry", delete_result);
+            result = delete_result;
+        }
+    }
 
     return result;
 }

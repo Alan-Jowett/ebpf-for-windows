@@ -29,6 +29,10 @@ extern "C"
 #define EBPF_INLINE_HINT
 #endif
 
+#if !defined(AFFINITY_MASK)
+#define AFFINITY_MASK(n) ((ULONG_PTR)(1) << (n))
+#endif
+
 #define EBPF_UTF8_STRING_FROM_CONST_STRING(x) \
     {                                         \
         ((uint8_t*)(x)), sizeof((x)) - 1      \
@@ -220,6 +224,22 @@ extern "C"
         _Inout_ ebpf_lock_t* lock, _IRQL_restores_ ebpf_lock_state_t state);
 
     /**
+     * @brief Acquire exclusive access to the lock.
+     * @param[in, out] lock Pointer to memory location that contains the lock.
+     * @returns The previous lock_state required for unlock.
+     */
+    _Requires_lock_not_held_(*lock) _Acquires_lock_(*lock) _IRQL_requires_(DISPATCH_LEVEL)
+        _IRQL_requires_max_(DISPATCH_LEVEL) void ebpf_lock_lock_at_dispatch(_Inout_ ebpf_lock_t* lock);
+
+    /**
+     * @brief Release exclusive access to the lock.
+     * @param[in, out] lock Pointer to memory location that contains the lock.
+     * @param[in] state The state returned from ebpf_lock_lock.
+     */
+    _Requires_lock_held_(*lock) _Releases_lock_(*lock)
+        _IRQL_requires_(DISPATCH_LEVEL) void ebpf_lock_unlock_at_dispatch(_Inout_ ebpf_lock_t* lock);
+
+    /**
      * @brief Raise the IRQL to new_irql.
      *
      * @param[in] new_irql The new IRQL.
@@ -260,6 +280,7 @@ extern "C"
      *   running on. Only valid if ebpf_is_preemptible() == true.
      * @retval Zero based index of CPUs.
      */
+    EBPF_INLINE_HINT
     uint32_t
     ebpf_get_current_cpu();
 
@@ -270,33 +291,6 @@ extern "C"
      */
     uint64_t
     ebpf_get_current_thread_id();
-
-    /**
-     * @brief Create a non-preemptible work item.
-     *
-     * @param[out] work_item Pointer to memory that will contain the pointer to
-     *  the non-preemptible work item on success.
-     * @param[in] cpu_id Associate the work item with this CPU.
-     * @param[in] work_item_routine Routine to execute as a work item.
-     * @param[in, out] work_item_context Context to pass to the routine.
-     * @retval EBPF_SUCCESS The operation was successful.
-     * @retval EBPF_NO_MEMORY Unable to allocate resources for this
-     *  work item.
-     */
-    _Must_inspect_result_ ebpf_result_t
-    ebpf_allocate_non_preemptible_work_item(
-        _Outptr_ KDPC** work_item,
-        uint32_t cpu_id,
-        _In_ PKDEFERRED_ROUTINE work_item_routine,
-        _Inout_opt_ void* work_item_context);
-
-    /**
-     * @brief Free a non-preemptible work item.
-     *
-     * @param[in] work_item Pointer to the work item to free.
-     */
-    void
-    ebpf_free_non_preemptible_work_item(_In_opt_ _Frees_ptr_opt_ KDPC* work_item);
 
     /**
      * @brief Create a preemptible work item.
@@ -660,13 +654,39 @@ extern "C"
      */
     EBPF_INLINE_HINT
     uint64_t
-    ebpf_query_time_since_boot(bool include_suspended_time);
+    ebpf_query_time_since_boot_precise(bool include_suspended_time);
 
+    /**
+     * @brief Return time elapsed since boot in units of 100 nanoseconds.
+     * This function is faster than ebpf_query_time_since_boot_precise() but may not
+     * be as accurate.
+     *
+     * @param[in] include_suspended_time Include time the system spent in a suspended state.
+     *
+     * @return Time elapsed since boot in 100 nanosecond units.
+     */
+    EBPF_INLINE_HINT
+    uint64_t
+    ebpf_query_time_since_boot_approximate(bool include_suspended_time);
+
+    /**
+     * @brief Affinitize the current thread to a specific CPU by index and return the old affinity.
+     *
+     * @param[in] cpu_index The index of the CPU to affinitize to.
+     * @param[out] old_cpu_affinity The old CPU affinity.
+     * @retval EBPF_SUCCESS The operation was successful.
+     * @retval EBPF_INVALID_ARGUMENT The CPU index is invalid.
+     */
     _Must_inspect_result_ ebpf_result_t
-    ebpf_set_current_thread_affinity(uintptr_t new_thread_affinity_mask, _Out_ uintptr_t* old_thread_affinity_mask);
+    ebpf_set_current_thread_cpu_affinity(uint32_t cpu_index, _Out_ GROUP_AFFINITY* old_cpu_affinity);
 
+    /**
+     * @brief Restore the CPU affinity of the current thread to the previous affinity.
+     *
+     * @param[in] old_cpu_affinity The previous CPU affinity.
+     */
     void
-    ebpf_restore_current_thread_affinity(uintptr_t old_thread_affinity_mask);
+    ebpf_restore_current_thread_cpu_affinity(_In_ GROUP_AFFINITY* old_cpu_affinity);
 
     typedef _Return_type_success_(return >= 0) LONG NTSTATUS;
 
