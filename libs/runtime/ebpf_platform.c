@@ -43,12 +43,12 @@ _Requires_lock_not_held_(*lock) _Acquires_lock_(*lock) _IRQL_requires_max_(DISPA
 ebpf_lock_state_t
 ebpf_lock_lock(_Inout_ ebpf_lock_t* lock)
 {
-    KIRQL old_irql = KeGetCurrentIrql();
+    cxplat_irql_t old_irql = cxplat_get_current_irql();
 
     if (old_irql < DISPATCH_LEVEL) {
-        old_irql = KeAcquireSpinLockRaiseToDpc(lock);
+        old_irql = cxplat_acquire_spin_lock((cxplat_spin_lock_t*)lock);
     } else {
-        KeAcquireSpinLockAtDpcLevel(lock);
+        cxplat_acquire_spin_lock_at_dpc_level((cxplat_spin_lock_t*)lock);
     }
     return old_irql;
 }
@@ -59,9 +59,9 @@ _Requires_lock_held_(*lock) _Releases_lock_(*lock) _IRQL_requires_(DISPATCH_LEVE
     _Inout_ ebpf_lock_t* lock, _IRQL_restores_ ebpf_lock_state_t state)
 {
     if (state < DISPATCH_LEVEL) {
-        KeReleaseSpinLock(lock, state);
+        cxplat_release_spin_lock((cxplat_spin_lock_t*)lock, state);
     } else {
-        KeReleaseSpinLockFromDpcLevel(lock);
+        cxplat_release_spin_lock_from_dpc_level((cxplat_spin_lock_t*)lock);
     }
 }
 #pragma warning(pop)
