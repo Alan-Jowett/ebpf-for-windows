@@ -55,8 +55,6 @@ extern "C"
     typedef uintptr_t ebpf_lock_t;
     typedef uint8_t ebpf_lock_state_t;
 
-    typedef struct _ebpf_process_state ebpf_process_state_t;
-
     // A self-relative security descriptor.
     typedef struct _SECURITY_DESCRIPTOR ebpf_security_descriptor_t;
     typedef struct _GENERIC_MAPPING ebpf_security_generic_mapping_t;
@@ -225,21 +223,6 @@ extern "C"
     EBPF_INLINE_HINT
     _Requires_lock_held_(*lock) _Releases_lock_(*lock) _IRQL_requires_(DISPATCH_LEVEL) void ebpf_lock_unlock(
         _Inout_ ebpf_lock_t* lock, _IRQL_restores_ ebpf_lock_state_t state);
-
-    /**
-     * @brief Raise the IRQL to new_irql.
-     *
-     * @param[in] new_irql The new IRQL.
-     * @return The previous IRQL.
-     */
-    _IRQL_requires_max_(HIGH_LEVEL) _IRQL_raises_(new_irql) _IRQL_saves_ uint8_t ebpf_raise_irql(uint8_t new_irql);
-
-    /**
-     * @brief Lower the IRQL to old_irql.
-     *
-     * @param[in] old_irql The old IRQL.
-     */
-    _IRQL_requires_max_(HIGH_LEVEL) void ebpf_lower_irql(_In_ _Notliteral_ _IRQL_restores_ uint8_t old_irql);
 
     /**
      * @brief Query the platform for the total number of CPUs.
@@ -701,48 +684,6 @@ extern "C"
     uint32_t
     ebpf_platform_thread_id();
 
-    /**
-     * @brief Allocate memory for process state. Caller needs to call ebpf_free()
-     *  to free the memory.
-     *
-     * @return Pointer to the process state.
-     */
-    _Ret_maybenull_ ebpf_process_state_t*
-    ebpf_allocate_process_state();
-
-    /**
-     * @brief Get a handle to the current process.
-     *
-     * @return Handle to the current process.
-     */
-    intptr_t
-    ebpf_platform_reference_process();
-
-    /**
-     * @brief Dereference a handle to a process.
-     *
-     * @param[in] process_handle to the process.
-     */
-    void
-    ebpf_platform_dereference_process(intptr_t process_handle);
-
-    /**
-     * @brief Attach to the specified process.
-     *
-     * @param[in] handle to the process.
-     * @param[in,out] state Pointer to the process state.
-     */
-    void
-    ebpf_platform_attach_process(intptr_t process_handle, _Inout_ ebpf_process_state_t* state);
-
-    /**
-     * @brief Detach from the current process.
-     *
-     * @param[in] state Pointer to the process state.
-     */
-    void
-    ebpf_platform_detach_process(_In_ ebpf_process_state_t* state);
-
     TRACELOGGING_DECLARE_PROVIDER(ebpf_tracelog_provider);
 
     typedef struct _ebpf_cryptographic_hash ebpf_cryptographic_hash_t;
@@ -847,55 +788,6 @@ extern "C"
      */
     void
     ebpf_get_execution_context_state(_Out_ ebpf_execution_context_state_t* state);
-
-    /**
-     * @brief Create a semaphore.
-     *
-     * @param[out] semaphore Pointer to the memory that contains the semaphore.
-     * @param[in] initial_count Initial count of the semaphore.
-     * @param[in] maximum_count Maximum count of the semaphore.
-     * @retval EBPF_SUCCESS The hash object was created.
-     * @retval EBPF_NO_MEMORY Unable to allocate resources for the semaphore.
-     */
-    _Must_inspect_result_ ebpf_result_t
-    ebpf_semaphore_create(_Outptr_ KSEMAPHORE** semaphore, int initial_count, int maximum_count);
-
-    /**
-     * @brief Destroy a semaphore.
-     *
-     * @param[in] semaphore Semaphore to destroy.
-     */
-    void
-    ebpf_semaphore_destroy(_Frees_ptr_opt_ KSEMAPHORE* semaphore);
-
-    /**
-     * @brief Wait on a semaphore.
-     *
-     * @param[in] semaphore Semaphore to wait on.
-     */
-    void
-    ebpf_semaphore_wait(_In_ KSEMAPHORE* semaphore);
-
-    /**
-     * @brief Release a semaphore.
-     *
-     * @param[in] semaphore Semaphore to release.
-     */
-    void
-    ebpf_semaphore_release(_In_ KSEMAPHORE* semaphore);
-
-    /**
-     * @brief Enter a critical region. This will defer execution of kernel APCs
-     * until ebpf_leave_critical_region is called.
-     */
-    void
-    ebpf_enter_critical_region();
-
-    /**
-     * @brief Leave a critical region. This will resume execution of kernel APCs.
-     */
-    void
-    ebpf_leave_critical_region();
 
     /**
      * @brief Convert the provided UTF-8 string into a UTF-16LE string.

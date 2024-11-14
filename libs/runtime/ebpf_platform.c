@@ -18,18 +18,13 @@ _Ret_range_(>, 0) uint32_t ebpf_get_cpu_count() { return _ebpf_platform_maximum_
 void
 ebpf_initialize_cpu_count()
 {
-    _ebpf_platform_maximum_processor_count = KeQueryMaximumProcessorCountEx(ALL_PROCESSOR_GROUPS);
+    _ebpf_platform_maximum_processor_count = cxplat_get_maximum_processor_count();
 }
-
-typedef struct _ebpf_process_state
-{
-    KAPC_STATE state;
-} ebpf_process_state_t;
 
 void
 ebpf_lock_create(_Out_ ebpf_lock_t* lock)
 {
-    KeInitializeSpinLock((PKSPIN_LOCK)lock);
+    *lock = 0;
 }
 
 void
@@ -69,7 +64,7 @@ _Requires_lock_held_(*lock) _Releases_lock_(*lock) _IRQL_requires_(DISPATCH_LEVE
 bool
 ebpf_is_preemptible()
 {
-    KIRQL irql = KeGetCurrentIrql();
+    cxplat_irql_t irql = cxplat_get_current_irql();
     return irql < DISPATCH_LEVEL;
 }
 
@@ -107,23 +102,11 @@ ebpf_platform_thread_id()
     return (uint32_t)(uintptr_t)PsGetCurrentThreadId();
 }
 
-_IRQL_requires_max_(HIGH_LEVEL) _IRQL_raises_(new_irql) _IRQL_saves_ uint8_t ebpf_raise_irql(uint8_t new_irql)
-{
-    KIRQL old_irql;
-    KeRaiseIrql(new_irql, &old_irql);
-    return old_irql;
-}
-
-_IRQL_requires_max_(HIGH_LEVEL) void ebpf_lower_irql(_In_ _Notliteral_ _IRQL_restores_ uint8_t old_irql)
-{
-    KeLowerIrql(old_irql);
-}
-
 bool
 ebpf_should_yield_processor()
 {
     // Don't yield if we are at passive level as the scheduler can preempt us.
-    if (KeGetCurrentIrql() == PASSIVE_LEVEL) {
+    if (cxplat_get_current_irql() == PASSIVE_LEVEL) {
         return false;
     }
 
@@ -134,92 +117,12 @@ ebpf_should_yield_processor()
 void
 ebpf_get_execution_context_state(_Out_ ebpf_execution_context_state_t* state)
 {
-    state->current_irql = KeGetCurrentIrql();
+    state->current_irql = cxplat_get_current_irql();
     if (state->current_irql == DISPATCH_LEVEL) {
         state->id.cpu = ebpf_get_current_cpu();
     } else {
         state->id.thread = ebpf_get_current_thread_id();
     }
-}
-
-#pragma region semaphores
-
-_Must_inspect_result_ ebpf_result_t
-ebpf_semaphore_create(_Outptr_ KSEMAPHORE** semaphore, int initial_count, int maximum_count)
-{
-    *semaphore = (KSEMAPHORE*)ebpf_allocate(sizeof(KSEMAPHORE));
-    if (*semaphore == NULL) {
-        return EBPF_NO_MEMORY;
-    }
-
-    KeInitializeSemaphore(*semaphore, initial_count, maximum_count);
-    return EBPF_SUCCESS;
-}
-
-void
-ebpf_semaphore_wait(_In_ KSEMAPHORE* semaphore)
-{
-    KeWaitForSingleObject(semaphore, Executive, KernelMode, FALSE, NULL);
-}
-
-void
-ebpf_semaphore_release(_In_ KSEMAPHORE* semaphore)
-{
-    KeReleaseSemaphore(semaphore, 0, 1, FALSE);
-}
-
-void
-ebpf_semaphore_destroy(_Frees_ptr_opt_ KSEMAPHORE* semaphore)
-{
-    ebpf_free(semaphore);
-}
-
-#pragma endregion semaphores
-
-void
-ebpf_enter_critical_region()
-{
-    KeEnterCriticalRegion();
-}
-
-void
-ebpf_leave_critical_region()
-{
-    KeLeaveCriticalRegion();
-}
-
-intptr_t
-ebpf_platform_reference_process()
-{
-    PEPROCESS process = PsGetCurrentProcess();
-    ObReferenceObject(process);
-    return (intptr_t)process;
-}
-
-void
-ebpf_platform_dereference_process(intptr_t process_handle)
-{
-    ObDereferenceObject((PEPROCESS)process_handle);
-}
-
-void
-ebpf_platform_attach_process(intptr_t process_handle, _Inout_ ebpf_process_state_t* state)
-{
-    KeStackAttachProcess((PEPROCESS)process_handle, &state->state);
-}
-
-void
-ebpf_platform_detach_process(_In_ ebpf_process_state_t* state)
-{
-    KeUnstackDetachProcess(&state->state);
-}
-
-_Ret_maybenull_ ebpf_process_state_t*
-ebpf_allocate_process_state()
-{
-    // Skipping fault injection as call to ebpf_allocate() covers it.
-    ebpf_process_state_t* state = (ebpf_process_state_t*)ebpf_allocate(sizeof(ebpf_process_state_t));
-    return state;
 }
 
 MDL*
@@ -390,7 +293,7 @@ ebpf_log_function(_In_ void* context, _In_z_ const char* format_string, ...)
 _Must_inspect_result_ ebpf_result_t
 ebpf_set_current_thread_cpu_affinity(uint32_t cpu_index, _Out_ GROUP_AFFINITY* old_cpu_affinity)
 {
-    if (KeGetCurrentIrql() >= DISPATCH_LEVEL) {
+    if (cxplat_get_current_irql() >= DISPATCH_LEVEL) {
         return EBPF_OPERATION_NOT_SUPPORTED;
     }
 

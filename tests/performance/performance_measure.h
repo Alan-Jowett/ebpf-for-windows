@@ -63,7 +63,7 @@ template <typename T> class _performance_measure
                 WaitForSingleObject(start_event, INFINITE);
                 KIRQL old_irql = PASSIVE_LEVEL;
                 if (!preemptible) {
-                    old_irql = KeRaiseIrqlToDpcLevel();
+                    old_irql = cxplat_raise_irql(DISPATCH_LEVEL);
                 }
                 LARGE_INTEGER start_time;
                 LARGE_INTEGER end_time;
@@ -79,7 +79,7 @@ template <typename T> class _performance_measure
                         usersim_clear_affinity_and_priority_override();
                         usersim_set_affinity_and_priority_override(local_cpu_id);
                         if (!preemptible) {
-                            old_irql = KeRaiseIrqlToDpcLevel();
+                            old_irql = cxplat_raise_irql(DISPATCH_LEVEL);
                         }
                         QueryPerformanceCounter(&start_time);
                     }
