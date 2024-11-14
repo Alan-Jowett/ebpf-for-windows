@@ -18,18 +18,13 @@ _Ret_range_(>, 0) uint32_t ebpf_get_cpu_count() { return _ebpf_platform_maximum_
 void
 ebpf_initialize_cpu_count()
 {
-    _ebpf_platform_maximum_processor_count = KeQueryMaximumProcessorCountEx(ALL_PROCESSOR_GROUPS);
+    _ebpf_platform_maximum_processor_count = cxplat_get_maximum_processor_count();
 }
-
-typedef struct _ebpf_process_state
-{
-    KAPC_STATE state;
-} ebpf_process_state_t;
 
 void
 ebpf_lock_create(_Out_ ebpf_lock_t* lock)
 {
-    KeInitializeSpinLock((PKSPIN_LOCK)lock);
+    *lock = 0;
 }
 
 void
@@ -69,7 +64,7 @@ _Requires_lock_held_(*lock) _Releases_lock_(*lock) _IRQL_requires_(DISPATCH_LEVE
 bool
 ebpf_is_preemptible()
 {
-    KIRQL irql = KeGetCurrentIrql();
+    cxplat_irql_t irql = cxplat_get_current_irql();
     return irql < DISPATCH_LEVEL;
 }
 
@@ -141,7 +136,7 @@ bool
 ebpf_should_yield_processor()
 {
     // Don't yield if we are at passive level as the scheduler can preempt us.
-    if (KeGetCurrentIrql() == PASSIVE_LEVEL) {
+    if (cxplat_get_current_irql() == PASSIVE_LEVEL) {
         return false;
     }
 
@@ -152,7 +147,7 @@ ebpf_should_yield_processor()
 void
 ebpf_get_execution_context_state(_Out_ ebpf_execution_context_state_t* state)
 {
-    state->current_irql = KeGetCurrentIrql();
+    state->current_irql = cxplat_get_current_irql();
     if (state->current_irql == DISPATCH_LEVEL) {
         state->id.cpu = ebpf_get_current_cpu();
     } else {
@@ -408,7 +403,7 @@ ebpf_log_function(_In_ void* context, _In_z_ const char* format_string, ...)
 _Must_inspect_result_ ebpf_result_t
 ebpf_set_current_thread_cpu_affinity(uint32_t cpu_index, _Out_ GROUP_AFFINITY* old_cpu_affinity)
 {
-    if (KeGetCurrentIrql() >= DISPATCH_LEVEL) {
+    if (cxplat_get_current_irql() >= DISPATCH_LEVEL) {
         return EBPF_OPERATION_NOT_SUPPORTED;
     }
 
