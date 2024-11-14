@@ -38,6 +38,12 @@ extern "C"
 #define EBPF_NS_PER_FILETIME 100
 #define EBPF_FILETIME_PER_MS 10000
 
+    typedef enum _ebpf_code_integrity_state
+    {
+        EBPF_CODE_INTEGRITY_DEFAULT = 0,
+        EBPF_CODE_INTEGRITY_HYPERVISOR_KERNEL_MODE = 1
+    } ebpf_code_integrity_state_t;
+
     typedef struct _ebpf_timer_work_item ebpf_timer_work_item_t;
     typedef struct _ebpf_helper_function_prototype ebpf_helper_function_prototype_t;
 
