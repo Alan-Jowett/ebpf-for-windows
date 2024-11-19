@@ -207,13 +207,13 @@
     <FilesToPackage Include="$(TargetPath)" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\external\usersim\cxplat\src\cxplat_winuser\cxplat_winuser.vcxproj">
+    <ProjectReference Include="..\..\external\usersim\build\cxplat\src\cxplat_winuser\cxplat_winuser.vcxproj">
       <Project>{f2ca70ab-af9a-47d1-9da9-94d5ab573ac2}</Project>
     </ProjectReference>
-    <ProjectReference Include="..\..\external\usersim\src\usersim.vcxproj">
+    <ProjectReference Include="..\..\external\usersim\build\src\usersim.vcxproj">
       <Project>{030a7ac6-14dc-45cf-af34-891057ab1402}</Project>
     </ProjectReference>
-    <ProjectReference Include="..\..\external\usersim\usersim_dll_skeleton\usersim_dll_skeleton.vcxproj">
+    <ProjectReference Include="..\..\external\usersim\build\usersim_dll_skeleton\usersim_dll_skeleton.vcxproj">
       <Project>{1937db41-f3eb-4955-a636-6386dcb394f6}</Project>
     </ProjectReference>
     <ProjectReference Include="..\..\libs\execution_context\kernel\execution_context_kernel.vcxproj">

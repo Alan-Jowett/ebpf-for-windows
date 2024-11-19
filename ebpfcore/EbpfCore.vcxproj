@@ -164,7 +164,7 @@
     <FilesToPackage Include="$(TargetPath)" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\external\usersim\cxplat\src\cxplat_winkernel\cxplat_winkernel.vcxproj">
+    <ProjectReference Include="..\external\usersim\build\cxplat\src\cxplat_winkernel\cxplat_winkernel.vcxproj">
       <Project>{1ebe3966-7dc4-49b4-b840-3d33d63415ec}</Project>
     </ProjectReference>
     <ProjectReference Include="..\libs\execution_context\kernel\execution_context_kernel.vcxproj">

@@ -223,7 +223,7 @@ $(OutputPath)export_program_info.exe &gt; $(OutputPath)export_program_info.log
     <ClInclude Include="export_program_info.h" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\external\usersim\cxplat\src\cxplat_winuser\cxplat_winuser.vcxproj">
+    <ProjectReference Include="..\..\external\usersim\build\cxplat\src\cxplat_winuser\cxplat_winuser.vcxproj">
       <Project>{f2ca70ab-af9a-47d1-9da9-94d5ab573ac2}</Project>
     </ProjectReference>
     <ProjectReference Include="..\..\libs\shared\user\shared_user.vcxproj">

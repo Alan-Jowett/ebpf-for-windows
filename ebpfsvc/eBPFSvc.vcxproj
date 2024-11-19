@@ -143,7 +143,7 @@
     <ProjectReference Include="..\external\ebpf-verifier\build\ebpfverifier.vcxproj">
       <Project>{7d5b4e68-c0fa-3f86-9405-f6400219b440}</Project>
     </ProjectReference>
-    <ProjectReference Include="..\external\usersim\cxplat\src\cxplat_winuser\cxplat_winuser.vcxproj">
+    <ProjectReference Include="..\external\usersim\build\cxplat\src\cxplat_winuser\cxplat_winuser.vcxproj">
       <Project>{f2ca70ab-af9a-47d1-9da9-94d5ab573ac2}</Project>
     </ProjectReference>
     <ProjectReference Include="..\libs\api_common\api_common.vcxproj">

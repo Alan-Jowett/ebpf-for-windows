@@ -319,7 +319,7 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "ebpf_store_helper", "libs\s
 		{231EE32B-EBA4-4FE5-A55B-DB18F539D403} = {231EE32B-EBA4-4FE5-A55B-DB18F539D403}
 	EndProjectSection
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "usersim", "external\usersim\src\usersim.vcxproj", "{030A7AC6-14DC-45CF-AF34-891057AB1402}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "usersim", "external\usersim\build\src\usersim.vcxproj", "{030A7AC6-14DC-45CF-AF34-891057AB1402}"
 	ProjectSection(ProjectDependencies) = postProject
 		{231EE32B-EBA4-4FE5-A55B-DB18F539D403} = {231EE32B-EBA4-4FE5-A55B-DB18F539D403}
 	EndProjectSection
@@ -329,7 +329,7 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "libbtf", "external\ebpf-ver
 		{231EE32B-EBA4-4FE5-A55B-DB18F539D403} = {231EE32B-EBA4-4FE5-A55B-DB18F539D403}
 	EndProjectSection
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "usersim_dll_skeleton", "external\usersim\usersim_dll_skeleton\usersim_dll_skeleton.vcxproj", "{1937DB41-F3EB-4955-A636-6386DCB394F6}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "usersim_dll_skeleton", "external\usersim\build\usersim_dll_skeleton\usersim_dll_skeleton.vcxproj", "{1937DB41-F3EB-4955-A636-6386DCB394F6}"
 	ProjectSection(ProjectDependencies) = postProject
 		{231EE32B-EBA4-4FE5-A55B-DB18F539D403} = {231EE32B-EBA4-4FE5-A55B-DB18F539D403}
 	EndProjectSection
@@ -349,12 +349,12 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "shared_kernel", "libs\share
 		{231EE32B-EBA4-4FE5-A55B-DB18F539D403} = {231EE32B-EBA4-4FE5-A55B-DB18F539D403}
 	EndProjectSection
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "cxplat_winuser", "external\usersim\cxplat\src\cxplat_winuser\cxplat_winuser.vcxproj", "{F2CA70AB-AF9A-47D1-9DA9-94D5AB573AC2}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "cxplat_winuser", "external\usersim\build\cxplat\src\cxplat_winuser\cxplat_winuser.vcxproj", "{F2CA70AB-AF9A-47D1-9DA9-94D5AB573AC2}"
 	ProjectSection(ProjectDependencies) = postProject
 		{231EE32B-EBA4-4FE5-A55B-DB18F539D403} = {231EE32B-EBA4-4FE5-A55B-DB18F539D403}
 	EndProjectSection
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "cxplat_winkernel", "external\usersim\cxplat\src\cxplat_winkernel\cxplat_winkernel.vcxproj", "{1EBE3966-7DC4-49B4-B840-3D33D63415EC}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "cxplat_winkernel", "external\usersim\build\cxplat\src\cxplat_winkernel\cxplat_winkernel.vcxproj", "{1EBE3966-7DC4-49B4-B840-3D33D63415EC}"
 	ProjectSection(ProjectDependencies) = postProject
 		{231EE32B-EBA4-4FE5-A55B-DB18F539D403} = {231EE32B-EBA4-4FE5-A55B-DB18F539D403}
 	EndProjectSection

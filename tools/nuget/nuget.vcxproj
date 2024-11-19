@@ -187,7 +187,7 @@ popd $(OutDir)</Command>
     <ProjectReference Include="..\..\ebpfapi\ebpfapi.vcxproj">
       <Project>{75fe223a-3e45-4b0e-a2e8-04285e52e440}</Project>
     </ProjectReference>
-    <ProjectReference Include="..\..\external\usersim\src\usersim.vcxproj">
+    <ProjectReference Include="..\..\external\usersim\build\src\usersim.vcxproj">
       <Project>{030a7ac6-14dc-45cf-af34-891057ab1402}</Project>
     </ProjectReference>
     <ProjectReference Include="..\bpf2c\bpf2c.vcxproj">

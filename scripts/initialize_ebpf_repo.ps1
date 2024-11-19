@@ -22,6 +22,7 @@ $commands = @(
     "cmake $cmakeCommonArgs -S external\ebpf-verifier -B external\ebpf-verifier\build",
     "cmake $cmakeCommonArgs -S external\catch2 -B external\catch2\build -DBUILD_TESTING=OFF",
     "cmake $cmakeCommonArgs -S external\ubpf -B external\ubpf\build",
+    "cmake $cmmakeCommonArgs -S external\usersim -B external\usersim\build",
     "nuget restore ebpf-for-windows.sln"
 )
 

@@ -201,7 +201,7 @@
     <ProjectReference Include="..\external\ebpf-verifier\build\external\libbtf\libbtf\libbtf.vcxproj">
       <Project>{bc45d39c-f956-3951-bd46-44eae20ec7c9}</Project>
     </ProjectReference>
-    <ProjectReference Include="..\external\usersim\cxplat\src\cxplat_winuser\cxplat_winuser.vcxproj">
+    <ProjectReference Include="..\external\usersim\build\cxplat\src\cxplat_winuser\cxplat_winuser.vcxproj">
       <Project>{f2ca70ab-af9a-47d1-9da9-94d5ab573ac2}</Project>
     </ProjectReference>
     <ProjectReference Include="..\libs\api\api.vcxproj">
