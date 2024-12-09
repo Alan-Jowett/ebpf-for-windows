@@ -72,40 +72,83 @@ function Update-TemplateFile(
     [string]$version_number
 )
 {
-    # Read the contents of the file
-    $template_file_content = Get-Content $template_file_path
+    if ([string]::IsNullOrWhiteSpace($template_file_path) -or [string]::IsNullOrWhiteSpace($output_file_path)) {
+        throw "File paths cannot be empty"
+    }
+    if (-not ($version_number -match '^\d+\.\d+\.\d+\.\d+$')) {
+        throw "Invalid version format: $version_number"
+    }
+    if (-not (Test-Path $template_file_path)) {
+        throw "Template file not found: $template_file_path"
+    }
+    try {
+        # Create backup if output file exists
+        $backup_path = $null
+        if (Test-Path $output_file_path) {
+            $backup_path = "$output_file_path.bak"
+            Copy-Item $output_file_path $backup_path -Force
+        }
 
-    # Replace the version number in the file
-    $template_file_content = $template_file_content -replace "\$\(WDKVersion\)", $version_number
-
-    # Write the updated contents back to the file
-    Set-Content $output_file_path $template_file_content
-
-    # Print success message
-    Write-Output "Updated WDK version in $output_file_path to $version_number"
+        # Read the contents of the file
+        $template_file_content = Get-Content $template_file_path
+        # Replace the version number in the file
+        $template_file_content = $template_file_content -replace "\$\(WDKVersion\)", $version_number
+        # Write the updated contents back to the file
+        Set-Content $output_file_path $template_file_content
+        # Print success message
+        Write-Output "Updated WDK version in $output_file_path to $version_number"
+    } catch {
+        if ($backup_path -and (Test-Path $backup_path)) {
+            Copy-Item $backup_path $output_file_path -Force
+            Remove-Item $backup_path
+        }
+        throw "Failed to update template file: $_"
+    }
 }
 
-# Paths relative to the root of the repository
-$vs_files_to_update = @(
-    "wdk.props",
-    "tools\bpf2c\templates\kernel_mode_bpf2c.vcxproj",
-    "tools\bpf2c\templates\user_mode_bpf2c.vcxproj"
-)
+$files_updated = @()
 
-# Get the current WDK version
-$wdk_version_number = Get-PackageVersion "Microsoft.Windows.WDK.x64"
+try {
+    # Paths relative to the root of the repository
+    $vs_files_to_update = @(
+        "wdk.props",
+        "tools\bpf2c\templates\kernel_mode_bpf2c.vcxproj",
+        "tools\bpf2c\templates\user_mode_bpf2c.vcxproj"
+    )
 
-# Print the version number
-Write-Output "Found WDK version: $wdk_version_number"
+    # Get the current WDK version
+    $wdk_version_number = Get-PackageVersion "Microsoft.Windows.WDK.x64"
 
-# Replace version in each VS file
-foreach ($vs_file in $vs_files_to_update) {
-    Write-Host "Updating WDK version in $vs_file"
-    $vs_file = $PSScriptRoot + "\..\" + $vs_file
-    Update-VersionInVsFile $vs_file $wdk_version_number
+    # Print the version number
+    Write-Output "Found WDK version: $wdk_version_number"
+
+    # Replace version in each VS file
+    foreach ($vs_file in $vs_files_to_update) {
+        Write-Host "Updating WDK version in $vs_file"
+        $vs_file = $PSScriptRoot + "\..\" + $vs_file
+        Update-VersionInVsFile $vs_file $wdk_version_number
+        $files_updated += $vs_file
+    }
+
+    Update-TemplateFile -template_file_path "$PSScriptRoot\..\scripts\setup_build\packages.config.template" -output_file_path "$PSScriptRoot\..\scripts\setup_build\packages.config" -version_number $wdk_version_number
+    $files_updated += "$PSScriptRoot\..\scripts\setup_build\packages.config"
 }
+catch {
+    # Rollback all changes
+    for ($i = $files_updated.Length - 1; $i -ge 0; $i--) {
+        $file = $files_updated[$i]
+        if (Test-Path "$file.bak") {
+            # Rolling back changes
+            Write-Host "Rolling back changes in $file"
+            Copy-Item "$file.bak" $file -Force
+            Remove-Item "$file.bak"
+        }
+    }
 
-Update-TemplateFile -template_file_path "$PSScriptRoot\..\scripts\setup_build\packages.config.template" -output_file_path "$PSScriptRoot\..\scripts\setup_build\packages.config" -version_number $wdk_version_number
+    # Print error message
+    Write-Error $_
+    exit 1
+}
 
 # Print success message
 Write-Output "Updated WDK version in all files"
