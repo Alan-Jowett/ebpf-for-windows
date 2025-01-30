@@ -13,17 +13,59 @@ _get_hash(_Outptr_result_buffer_maybenull_(*size) const uint8_t** hash, _Out_ si
     *size = 0;
 }
 
+#pragma data_seg(push, "maps")
+static map_entry_t _maps[] = {
+    {NULL,
+     {
+         BPF_MAP_TYPE_ARRAY, // Type of map.
+         4,                  // Size in bytes of a map key.
+         4,                  // Size in bytes of a map value.
+         1,                  // Maximum number of entries allowed in the map.
+         0,                  // Inner map index.
+         LIBBPF_PIN_NONE,    // Pinning type for the map.
+         27,                 // Identifier for a map template.
+         0,                  // The id of the inner map template.
+     },
+     "cgroup_.rodata"},
+};
+#pragma data_seg(pop)
+
 static void
 _get_maps(_Outptr_result_buffer_maybenull_(*count) map_entry_t** maps, _Out_ size_t* count)
 {
-    *maps = NULL;
-    *count = 0;
+    *maps = _maps;
+    *count = 1;
+}
+
+const char cgroup__rodata_initial_data[] = {
+    29, 35, 232, 3};
+
+#pragma data_seg(push, "global_variables")
+static global_variable_section_t _global_variable_sections[] = {
+    {
+        .name = "cgroup_.rodata",
+        .size = 4,
+        .initial_data = &cgroup__rodata_initial_data,
+    },
+};
+#pragma data_seg(pop)
+
+static void
+_get_global_variable_sections(
+    _Outptr_result_buffer_maybenull_(*count) global_variable_section_t** global_variable_sections, _Out_ size_t* count)
+{
+    *global_variable_sections = _global_variable_sections;
+    *count = 1;
 }
 
 static GUID tcp_mt_connect4_program_type_guid = {
     0x92ec8e39, 0xaeec, 0x11ec, {0x9a, 0x30, 0x18, 0x60, 0x24, 0x89, 0xbe, 0xee}};
 static GUID tcp_mt_connect4_attach_type_guid = {
     0xa82e37b1, 0xaee7, 0x11ec, {0x9a, 0x30, 0x18, 0x60, 0x24, 0x89, 0xbe, 0xee}};
+static uint16_t tcp_mt_connect4_maps[] = {
+    0,
+};
+
 #pragma code_seg(push, "cgroup~1")
 static uint64_t
 tcp_mt_connect4(void* context)
@@ -57,7 +99,7 @@ tcp_mt_connect4(void* context)
     // EBPF_OP_MOV64_IMM pc=1 dst=r0 src=r0 offset=0 imm=1
 #line 27 "sample/cgroup_mt_connect4.c"
     r0 = IMMEDIATE(1);
-    // EBPF_OP_JNE_IMM pc=2 dst=r2 src=r0 offset=14 imm=6
+    // EBPF_OP_JNE_IMM pc=2 dst=r2 src=r0 offset=21 imm=6
 #line 27 "sample/cgroup_mt_connect4.c"
     if (r2 != IMMEDIATE(6)) {
 #line 27 "sample/cgroup_mt_connect4.c"
@@ -67,61 +109,80 @@ tcp_mt_connect4(void* context)
     // EBPF_OP_LDXH pc=3 dst=r2 src=r1 offset=40 imm=0
 #line 33 "sample/cgroup_mt_connect4.c"
     r2 = *(uint16_t*)(uintptr_t)(r1 + OFFSET(40));
-    // EBPF_OP_MOV64_IMM pc=4 dst=r3 src=r0 offset=0 imm=7459
+    // EBPF_OP_LDDW pc=4 dst=r3 src=r2 offset=0 imm=1
 #line 33 "sample/cgroup_mt_connect4.c"
-    r3 = IMMEDIATE(7459);
-    // EBPF_OP_JGT_REG pc=5 dst=r3 src=r2 offset=11 imm=0
+    r3 = POINTER(_global_variable_sections[0].address_of_map_value + 0);
+    // EBPF_OP_LDXH pc=6 dst=r3 src=r3 offset=0 imm=0
+#line 33 "sample/cgroup_mt_connect4.c"
+    r3 = *(uint16_t*)(uintptr_t)(r3 + OFFSET(0));
+    // EBPF_OP_BE pc=7 dst=r3 src=r0 offset=0 imm=16
+#line 33 "sample/cgroup_mt_connect4.c"
+    r3 = htobe16((uint16_t)r3);
+#line 33 "sample/cgroup_mt_connect4.c"
+    r3 &= UINT32_MAX;
+    // EBPF_OP_JGT_REG pc=8 dst=r3 src=r2 offset=15 imm=0
 #line 33 "sample/cgroup_mt_connect4.c"
     if (r3 > r2) {
 #line 33 "sample/cgroup_mt_connect4.c"
         goto label_1;
 #line 33 "sample/cgroup_mt_connect4.c"
     }
-    // EBPF_OP_MOV64_IMM pc=6 dst=r0 src=r0 offset=0 imm=0
+    // EBPF_OP_MOV64_IMM pc=9 dst=r0 src=r0 offset=0 imm=0
 #line 33 "sample/cgroup_mt_connect4.c"
     r0 = IMMEDIATE(0);
-    // EBPF_OP_MOV64_REG pc=7 dst=r3 src=r2 offset=0 imm=0
+    // EBPF_OP_MOV64_REG pc=10 dst=r3 src=r2 offset=0 imm=0
 #line 41 "sample/cgroup_mt_connect4.c"
     r3 = r2;
-    // EBPF_OP_BE pc=8 dst=r3 src=r0 offset=0 imm=16
+    // EBPF_OP_BE pc=11 dst=r3 src=r0 offset=0 imm=16
 #line 41 "sample/cgroup_mt_connect4.c"
     r3 = htobe16((uint16_t)r3);
 #line 41 "sample/cgroup_mt_connect4.c"
     r3 &= UINT32_MAX;
-    // EBPF_OP_MOV64_REG pc=9 dst=r4 src=r3 offset=0 imm=0
+    // EBPF_OP_MOV64_REG pc=12 dst=r4 src=r3 offset=0 imm=0
 #line 41 "sample/cgroup_mt_connect4.c"
     r4 = r3;
-    // EBPF_OP_MOD64_IMM pc=10 dst=r4 src=r0 offset=0 imm=3
+    // EBPF_OP_MOD64_IMM pc=13 dst=r4 src=r0 offset=0 imm=3
 #line 41 "sample/cgroup_mt_connect4.c"
     r4 = IMMEDIATE(3) ? (r4 % IMMEDIATE(3)) : r4;
-    // EBPF_OP_JEQ_IMM pc=11 dst=r4 src=r0 offset=5 imm=0
+    // EBPF_OP_JEQ_IMM pc=14 dst=r4 src=r0 offset=9 imm=0
 #line 41 "sample/cgroup_mt_connect4.c"
     if (r4 == IMMEDIATE(0)) {
 #line 41 "sample/cgroup_mt_connect4.c"
         goto label_1;
 #line 41 "sample/cgroup_mt_connect4.c"
     }
-    // EBPF_OP_AND64_IMM pc=12 dst=r3 src=r0 offset=0 imm=1
+    // EBPF_OP_AND64_IMM pc=15 dst=r3 src=r0 offset=0 imm=1
 #line 41 "sample/cgroup_mt_connect4.c"
     r3 &= IMMEDIATE(1);
-    // EBPF_OP_MOV64_IMM pc=13 dst=r0 src=r0 offset=0 imm=1
+    // EBPF_OP_MOV64_IMM pc=16 dst=r0 src=r0 offset=0 imm=1
 #line 41 "sample/cgroup_mt_connect4.c"
     r0 = IMMEDIATE(1);
-    // EBPF_OP_JEQ_IMM pc=14 dst=r3 src=r0 offset=2 imm=0
+    // EBPF_OP_JEQ_IMM pc=17 dst=r3 src=r0 offset=6 imm=0
 #line 46 "sample/cgroup_mt_connect4.c"
     if (r3 == IMMEDIATE(0)) {
 #line 46 "sample/cgroup_mt_connect4.c"
         goto label_1;
 #line 46 "sample/cgroup_mt_connect4.c"
     }
-    // EBPF_OP_ADD64_IMM pc=15 dst=r2 src=r0 offset=0 imm=-6141
+    // EBPF_OP_LDDW pc=18 dst=r3 src=r2 offset=0 imm=1
 #line 54 "sample/cgroup_mt_connect4.c"
-    r2 += IMMEDIATE(-6141);
-    // EBPF_OP_STXH pc=16 dst=r1 src=r2 offset=40 imm=0
+    r3 = POINTER(_global_variable_sections[0].address_of_map_value + 2);
+    // EBPF_OP_LDXH pc=20 dst=r3 src=r3 offset=0 imm=0
 #line 54 "sample/cgroup_mt_connect4.c"
-    *(uint16_t*)(uintptr_t)(r1 + OFFSET(40)) = (uint16_t)r2;
+    r3 = *(uint16_t*)(uintptr_t)(r3 + OFFSET(0));
+    // EBPF_OP_BE pc=21 dst=r3 src=r0 offset=0 imm=16
+#line 54 "sample/cgroup_mt_connect4.c"
+    r3 = htobe16((uint16_t)r3);
+#line 54 "sample/cgroup_mt_connect4.c"
+    r3 &= UINT32_MAX;
+    // EBPF_OP_ADD64_REG pc=22 dst=r3 src=r2 offset=0 imm=0
+#line 54 "sample/cgroup_mt_connect4.c"
+    r3 += r2;
+    // EBPF_OP_STXH pc=23 dst=r1 src=r3 offset=40 imm=0
+#line 54 "sample/cgroup_mt_connect4.c"
+    *(uint16_t*)(uintptr_t)(r1 + OFFSET(40)) = (uint16_t)r3;
 label_1:
-    // EBPF_OP_EXIT pc=17 dst=r0 src=r0 offset=0 imm=0
+    // EBPF_OP_EXIT pc=24 dst=r0 src=r0 offset=0 imm=0
 #line 58 "sample/cgroup_mt_connect4.c"
     return r0;
 #line 27 "sample/cgroup_mt_connect4.c"
@@ -137,11 +198,11 @@ static program_entry_t _programs[] = {
         "cgroup~1",
         "cgroup/connect4",
         "tcp_mt_connect4",
+        tcp_mt_connect4_maps,
+        1,
         NULL,
         0,
-        NULL,
-        0,
-        18,
+        25,
         &tcp_mt_connect4_program_type_guid,
         &tcp_mt_connect4_attach_type_guid,
     },
@@ -171,4 +232,11 @@ _get_map_initial_values(_Outptr_result_buffer_(*count) map_initial_values_t** ma
 }
 
 metadata_table_t cgroup_mt_connect4_metadata_table = {
-    sizeof(metadata_table_t), _get_programs, _get_maps, _get_hash, _get_version, _get_map_initial_values};
+    sizeof(metadata_table_t),
+    _get_programs,
+    _get_maps,
+    _get_hash,
+    _get_version,
+    _get_map_initial_values,
+    _get_global_variable_sections,
+};

@@ -37,7 +37,7 @@ static NTSTATUS
 _bpf2c_npi_client_detach_provider(_In_ void* client_binding_context);
 
 static const NPI_CLIENT_CHARACTERISTICS _bpf2c_npi_client_characteristics = {
-    0,                                  // Version
+    1,                                  // Version
     sizeof(NPI_CLIENT_CHARACTERISTICS), // Length
     _bpf2c_npi_client_attach_provider,
     _bpf2c_npi_client_detach_provider,
@@ -134,7 +134,10 @@ _bpf2c_npi_client_attach_provider(
     void* provider_dispatch_table = NULL;
 
     UNREFERENCED_PARAMETER(client_context);
-    UNREFERENCED_PARAMETER(provider_registration_instance);
+
+    if (provider_registration_instance->Version < 1) {
+        return STATUS_INVALID_PARAMETER;
+    }
 
     if (_bpf2c_nmr_provider_handle != NULL) {
         return STATUS_INVALID_PARAMETER;
@@ -196,6 +199,14 @@ _get_maps(_Outptr_result_buffer_maybenull_(*count) map_entry_t** maps, _Out_ siz
 {
     *maps = _maps;
     *count = 1;
+}
+
+static void
+_get_global_variable_sections(
+    _Outptr_result_buffer_maybenull_(*count) global_variable_section_t** global_variable_sections, _Out_ size_t* count)
+{
+    *global_variable_sections = NULL;
+    *count = 0;
 }
 
 static helper_function_entry_t BindMonitor_Callee0_helpers[] = {
@@ -6403,4 +6414,11 @@ _get_map_initial_values(_Outptr_result_buffer_(*count) map_initial_values_t** ma
 }
 
 metadata_table_t bindmonitor_mt_tailcall_metadata_table = {
-    sizeof(metadata_table_t), _get_programs, _get_maps, _get_hash, _get_version, _get_map_initial_values};
+    sizeof(metadata_table_t),
+    _get_programs,
+    _get_maps,
+    _get_hash,
+    _get_version,
+    _get_map_initial_values,
+    _get_global_variable_sections,
+};

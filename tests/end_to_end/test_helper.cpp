@@ -75,7 +75,7 @@ typedef struct _service_context
         _test_helper_client_detach_provider,
         nullptr,
         {
-            0,
+            1,
             sizeof(NPI_REGISTRATION_INSTANCE),
             &_bpf2c_npi_id,
             &module_id,

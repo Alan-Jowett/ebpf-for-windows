@@ -34,7 +34,7 @@ static NTSTATUS
 _bpf2c_npi_client_detach_provider(_In_ void* client_binding_context);
 
 static const NPI_CLIENT_CHARACTERISTICS _bpf2c_npi_client_characteristics = {
-    0,                                  // Version
+    1,                                  // Version
     sizeof(NPI_CLIENT_CHARACTERISTICS), // Length
     _bpf2c_npi_client_attach_provider,
     _bpf2c_npi_client_detach_provider,
@@ -131,7 +131,10 @@ _bpf2c_npi_client_attach_provider(
     void* provider_dispatch_table = NULL;
 
     UNREFERENCED_PARAMETER(client_context);
-    UNREFERENCED_PARAMETER(provider_registration_instance);
+
+    if (provider_registration_instance->Version < 1) {
+        return STATUS_INVALID_PARAMETER;
+    }
 
     if (_bpf2c_nmr_provider_handle != NULL) {
         return STATUS_INVALID_PARAMETER;

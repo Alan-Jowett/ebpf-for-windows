@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 // Do not alter this generated file.
-// This file was generated from bpf_call.o
+// This file was generated from global_vars.o
 
 #define NO_CRT
 #include "bpf2c.h"
@@ -15,7 +15,7 @@ DRIVER_INITIALIZE DriverEntry;
 DRIVER_UNLOAD DriverUnload;
 RTL_QUERY_REGISTRY_ROUTINE static _bpf2c_query_registry_routine;
 
-#define metadata_table bpf_call##_metadata_table
+#define metadata_table global_vars##_metadata_table
 
 static GUID _bpf2c_npi_id = {/* c847aac8-a6f2-4b53-aea3-f4a94b9a80cb */
                              0xc847aac8,
@@ -182,15 +182,39 @@ static map_entry_t _maps[] = {
     {NULL,
      {
          BPF_MAP_TYPE_ARRAY, // Type of map.
-         2,                  // Size in bytes of a map key.
+         4,                  // Size in bytes of a map key.
          4,                  // Size in bytes of a map value.
-         512,                // Maximum number of entries allowed in the map.
+         1,                  // Maximum number of entries allowed in the map.
          0,                  // Inner map index.
          LIBBPF_PIN_NONE,    // Pinning type for the map.
-         9,                  // Identifier for a map template.
+         26,                 // Identifier for a map template.
          0,                  // The id of the inner map template.
      },
-     "map"},
+     "global_.rodata"},
+    {NULL,
+     {
+         BPF_MAP_TYPE_ARRAY, // Type of map.
+         4,                  // Size in bytes of a map key.
+         8,                  // Size in bytes of a map value.
+         1,                  // Maximum number of entries allowed in the map.
+         0,                  // Inner map index.
+         LIBBPF_PIN_NONE,    // Pinning type for the map.
+         24,                 // Identifier for a map template.
+         0,                  // The id of the inner map template.
+     },
+     "global_.data"},
+    {NULL,
+     {
+         BPF_MAP_TYPE_ARRAY, // Type of map.
+         4,                  // Size in bytes of a map key.
+         4,                  // Size in bytes of a map value.
+         1,                  // Maximum number of entries allowed in the map.
+         0,                  // Inner map index.
+         LIBBPF_PIN_NONE,    // Pinning type for the map.
+         23,                 // Identifier for a map template.
+         0,                  // The id of the inner map template.
+     },
+     "global_.bss"},
 };
 #pragma data_seg(pop)
 
@@ -198,99 +222,124 @@ static void
 _get_maps(_Outptr_result_buffer_maybenull_(*count) map_entry_t** maps, _Out_ size_t* count)
 {
     *maps = _maps;
-    *count = 1;
+    *count = 3;
 }
+
+const char global__rodata_initial_data[] = {
+    10, 0, 0, 0};
+
+const char global__data_initial_data[] = {
+    20, 0, 0, 0, 40, 0, 0, 0};
+
+const char global__bss_initial_data[] = {
+    0, 0, 0, 0};
+
+#pragma data_seg(push, "global_variables")
+static global_variable_section_t _global_variable_sections[] = {
+    {
+        .name = "global_.rodata",
+        .size = 4,
+        .initial_data = &global__rodata_initial_data,
+    },
+    {
+        .name = "global_.data",
+        .size = 8,
+        .initial_data = &global__data_initial_data,
+    },
+    {
+        .name = "global_.bss",
+        .size = 4,
+        .initial_data = &global__bss_initial_data,
+    },
+};
+#pragma data_seg(pop)
 
 static void
 _get_global_variable_sections(
     _Outptr_result_buffer_maybenull_(*count) global_variable_section_t** global_variable_sections, _Out_ size_t* count)
 {
-    *global_variable_sections = NULL;
-    *count = 0;
+    *global_variable_sections = _global_variable_sections;
+    *count = 3;
 }
 
-static helper_function_entry_t func_helpers[] = {
-    {NULL, 2, "helper_id_2"},
-};
-
-static GUID func_program_type_guid = {0xf788ef4a, 0x207d, 0x4dc3, {0x85, 0xcf, 0x0f, 0x2e, 0xa1, 0x07, 0x21, 0x3c}};
-static GUID func_attach_type_guid = {0xf788ef4b, 0x207d, 0x4dc3, {0x85, 0xcf, 0x0f, 0x2e, 0xa1, 0x07, 0x21, 0x3c}};
-static uint16_t func_maps[] = {
+static GUID GlobalVariableTest_program_type_guid = {
+    0xf788ef4a, 0x207d, 0x4dc3, {0x85, 0xcf, 0x0f, 0x2e, 0xa1, 0x07, 0x21, 0x3c}};
+static GUID GlobalVariableTest_attach_type_guid = {
+    0xf788ef4b, 0x207d, 0x4dc3, {0x85, 0xcf, 0x0f, 0x2e, 0xa1, 0x07, 0x21, 0x3c}};
+static uint16_t GlobalVariableTest_maps[] = {
     0,
+    1,
+    2,
 };
 
 #pragma code_seg(push, "sample~1")
 static uint64_t
-func(void* context)
-#line 25 "sample/undocked/bpf_call.c"
+GlobalVariableTest(void* context)
+#line 26 "sample/undocked/global_vars.c"
 {
-#line 25 "sample/undocked/bpf_call.c"
+#line 26 "sample/undocked/global_vars.c"
     // Prologue.
-#line 25 "sample/undocked/bpf_call.c"
+#line 26 "sample/undocked/global_vars.c"
     uint64_t stack[(UBPF_STACK_SIZE + 7) / 8];
-#line 25 "sample/undocked/bpf_call.c"
+#line 26 "sample/undocked/global_vars.c"
     register uint64_t r0 = 0;
-#line 25 "sample/undocked/bpf_call.c"
+#line 26 "sample/undocked/global_vars.c"
     register uint64_t r1 = 0;
-#line 25 "sample/undocked/bpf_call.c"
+#line 26 "sample/undocked/global_vars.c"
     register uint64_t r2 = 0;
-#line 25 "sample/undocked/bpf_call.c"
+#line 26 "sample/undocked/global_vars.c"
     register uint64_t r3 = 0;
-#line 25 "sample/undocked/bpf_call.c"
-    register uint64_t r4 = 0;
-#line 25 "sample/undocked/bpf_call.c"
-    register uint64_t r5 = 0;
-#line 25 "sample/undocked/bpf_call.c"
+#line 26 "sample/undocked/global_vars.c"
     register uint64_t r10 = 0;
 
-#line 25 "sample/undocked/bpf_call.c"
+#line 26 "sample/undocked/global_vars.c"
     r1 = (uintptr_t)context;
-#line 25 "sample/undocked/bpf_call.c"
+#line 26 "sample/undocked/global_vars.c"
     r10 = (uintptr_t)((uint8_t*)stack + sizeof(stack));
 
-    // EBPF_OP_MOV64_IMM pc=0 dst=r1 src=r0 offset=0 imm=0
-#line 25 "sample/undocked/bpf_call.c"
-    r1 = IMMEDIATE(0);
-    // EBPF_OP_STXW pc=1 dst=r10 src=r1 offset=-4 imm=0
-#line 27 "sample/undocked/bpf_call.c"
-    *(uint32_t*)(uintptr_t)(r10 + OFFSET(-4)) = (uint32_t)r1;
-    // EBPF_OP_MOV64_IMM pc=2 dst=r1 src=r0 offset=0 imm=42
-#line 27 "sample/undocked/bpf_call.c"
-    r1 = IMMEDIATE(42);
-    // EBPF_OP_STXW pc=3 dst=r10 src=r1 offset=-8 imm=0
-#line 28 "sample/undocked/bpf_call.c"
-    *(uint32_t*)(uintptr_t)(r10 + OFFSET(-8)) = (uint32_t)r1;
-    // EBPF_OP_MOV64_REG pc=4 dst=r2 src=r10 offset=0 imm=0
-#line 28 "sample/undocked/bpf_call.c"
-    r2 = r10;
-    // EBPF_OP_ADD64_IMM pc=5 dst=r2 src=r0 offset=0 imm=-4
-#line 28 "sample/undocked/bpf_call.c"
-    r2 += IMMEDIATE(-4);
-    // EBPF_OP_MOV64_REG pc=6 dst=r3 src=r10 offset=0 imm=0
-#line 28 "sample/undocked/bpf_call.c"
-    r3 = r10;
-    // EBPF_OP_ADD64_IMM pc=7 dst=r3 src=r0 offset=0 imm=-8
-#line 28 "sample/undocked/bpf_call.c"
-    r3 += IMMEDIATE(-8);
-    // EBPF_OP_LDDW pc=8 dst=r1 src=r1 offset=0 imm=1
-#line 29 "sample/undocked/bpf_call.c"
-    r1 = POINTER(_maps[0].address);
-    // EBPF_OP_MOV64_IMM pc=10 dst=r4 src=r0 offset=0 imm=0
-#line 29 "sample/undocked/bpf_call.c"
-    r4 = IMMEDIATE(0);
-    // EBPF_OP_CALL pc=11 dst=r0 src=r0 offset=0 imm=2
-#line 29 "sample/undocked/bpf_call.c"
-    r0 = func_helpers[0].address(r1, r2, r3, r4, r5, context);
-#line 29 "sample/undocked/bpf_call.c"
-    if ((func_helpers[0].tail_call) && (r0 == 0)) {
-#line 29 "sample/undocked/bpf_call.c"
-        return 0;
-#line 29 "sample/undocked/bpf_call.c"
-    }
-    // EBPF_OP_EXIT pc=12 dst=r0 src=r0 offset=0 imm=0
-#line 30 "sample/undocked/bpf_call.c"
+    // EBPF_OP_LDDW pc=0 dst=r1 src=r2 offset=0 imm=3
+#line 26 "sample/undocked/global_vars.c"
+    r1 = POINTER(_global_variable_sections[0].address_of_map_value + 0);
+    // EBPF_OP_LDXW pc=2 dst=r1 src=r1 offset=0 imm=0
+#line 26 "sample/undocked/global_vars.c"
+    r1 = *(uint32_t*)(uintptr_t)(r1 + OFFSET(0));
+    // EBPF_OP_LDDW pc=3 dst=r2 src=r2 offset=0 imm=2
+#line 26 "sample/undocked/global_vars.c"
+    r2 = POINTER(_global_variable_sections[1].address_of_map_value + 0);
+    // EBPF_OP_LDXW pc=5 dst=r2 src=r2 offset=0 imm=0
+#line 26 "sample/undocked/global_vars.c"
+    r2 = *(uint32_t*)(uintptr_t)(r2 + OFFSET(0));
+    // EBPF_OP_ADD64_REG pc=6 dst=r2 src=r1 offset=0 imm=0
+#line 26 "sample/undocked/global_vars.c"
+    r2 += r1;
+    // EBPF_OP_LDDW pc=7 dst=r1 src=r2 offset=0 imm=1
+#line 26 "sample/undocked/global_vars.c"
+    r1 = POINTER(_global_variable_sections[2].address_of_map_value + 0);
+    // EBPF_OP_STXW pc=9 dst=r1 src=r2 offset=0 imm=0
+#line 26 "sample/undocked/global_vars.c"
+    *(uint32_t*)(uintptr_t)(r1 + OFFSET(0)) = (uint32_t)r2;
+    // EBPF_OP_LDDW pc=10 dst=r2 src=r2 offset=0 imm=2
+#line 27 "sample/undocked/global_vars.c"
+    r2 = POINTER(_global_variable_sections[1].address_of_map_value + 4);
+    // EBPF_OP_LDXW pc=12 dst=r2 src=r2 offset=0 imm=0
+#line 27 "sample/undocked/global_vars.c"
+    r2 = *(uint32_t*)(uintptr_t)(r2 + OFFSET(0));
+    // EBPF_OP_LDXW pc=13 dst=r3 src=r1 offset=0 imm=0
+#line 27 "sample/undocked/global_vars.c"
+    r3 = *(uint32_t*)(uintptr_t)(r1 + OFFSET(0));
+    // EBPF_OP_ADD64_REG pc=14 dst=r3 src=r2 offset=0 imm=0
+#line 27 "sample/undocked/global_vars.c"
+    r3 += r2;
+    // EBPF_OP_STXW pc=15 dst=r1 src=r3 offset=0 imm=0
+#line 27 "sample/undocked/global_vars.c"
+    *(uint32_t*)(uintptr_t)(r1 + OFFSET(0)) = (uint32_t)r3;
+    // EBPF_OP_MOV64_IMM pc=16 dst=r0 src=r0 offset=0 imm=0
+#line 28 "sample/undocked/global_vars.c"
+    r0 = IMMEDIATE(0);
+    // EBPF_OP_EXIT pc=17 dst=r0 src=r0 offset=0 imm=0
+#line 28 "sample/undocked/global_vars.c"
     return r0;
-#line 25 "sample/undocked/bpf_call.c"
+#line 26 "sample/undocked/global_vars.c"
 }
 #pragma code_seg(pop)
 #line __LINE__ __FILE__
@@ -299,17 +348,17 @@ func(void* context)
 static program_entry_t _programs[] = {
     {
         0,
-        func,
+        GlobalVariableTest,
         "sample~1",
         "sample_ext",
-        "func",
-        func_maps,
-        1,
-        func_helpers,
-        1,
-        13,
-        &func_program_type_guid,
-        &func_attach_type_guid,
+        "GlobalVariableTest",
+        GlobalVariableTest_maps,
+        3,
+        NULL,
+        0,
+        18,
+        &GlobalVariableTest_program_type_guid,
+        &GlobalVariableTest_attach_type_guid,
     },
 };
 #pragma data_seg(pop)
@@ -336,7 +385,7 @@ _get_map_initial_values(_Outptr_result_buffer_(*count) map_initial_values_t** ma
     *count = 0;
 }
 
-metadata_table_t bpf_call_metadata_table = {
+metadata_table_t global_vars_metadata_table = {
     sizeof(metadata_table_t),
     _get_programs,
     _get_maps,

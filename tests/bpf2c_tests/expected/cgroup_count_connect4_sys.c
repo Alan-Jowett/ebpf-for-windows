@@ -37,7 +37,7 @@ static NTSTATUS
 _bpf2c_npi_client_detach_provider(_In_ void* client_binding_context);
 
 static const NPI_CLIENT_CHARACTERISTICS _bpf2c_npi_client_characteristics = {
-    0,                                  // Version
+    1,                                  // Version
     sizeof(NPI_CLIENT_CHARACTERISTICS), // Length
     _bpf2c_npi_client_attach_provider,
     _bpf2c_npi_client_detach_provider,
@@ -134,7 +134,10 @@ _bpf2c_npi_client_attach_provider(
     void* provider_dispatch_table = NULL;
 
     UNREFERENCED_PARAMETER(client_context);
-    UNREFERENCED_PARAMETER(provider_registration_instance);
+
+    if (provider_registration_instance->Version < 1) {
+        return STATUS_INVALID_PARAMETER;
+    }
 
     if (_bpf2c_nmr_provider_handle != NULL) {
         return STATUS_INVALID_PARAMETER;
@@ -178,6 +181,18 @@ _get_hash(_Outptr_result_buffer_maybenull_(*size) const uint8_t** hash, _Out_ si
 static map_entry_t _maps[] = {
     {NULL,
      {
+         BPF_MAP_TYPE_ARRAY, // Type of map.
+         4,                  // Size in bytes of a map key.
+         2,                  // Size in bytes of a map value.
+         1,                  // Maximum number of entries allowed in the map.
+         0,                  // Inner map index.
+         LIBBPF_PIN_NONE,    // Pinning type for the map.
+         33,                 // Identifier for a map template.
+         0,                  // The id of the inner map template.
+     },
+     "cgroup_.rodata"},
+    {NULL,
+     {
          BPF_MAP_TYPE_HASH, // Type of map.
          2,                 // Size in bytes of a map key.
          8,                 // Size in bytes of a map value.
@@ -195,6 +210,27 @@ static void
 _get_maps(_Outptr_result_buffer_maybenull_(*count) map_entry_t** maps, _Out_ size_t* count)
 {
     *maps = _maps;
+    *count = 2;
+}
+
+const char cgroup__rodata_initial_data[] = {
+    29, 35};
+
+#pragma data_seg(push, "global_variables")
+static global_variable_section_t _global_variable_sections[] = {
+    {
+        .name = "cgroup_.rodata",
+        .size = 2,
+        .initial_data = &cgroup__rodata_initial_data,
+    },
+};
+#pragma data_seg(pop)
+
+static void
+_get_global_variable_sections(
+    _Outptr_result_buffer_maybenull_(*count) global_variable_section_t** global_variable_sections, _Out_ size_t* count)
+{
+    *global_variable_sections = _global_variable_sections;
     *count = 1;
 }
 
@@ -209,6 +245,7 @@ static GUID count_tcp_connect4_attach_type_guid = {
     0xa82e37b1, 0xaee7, 0x11ec, {0x9a, 0x30, 0x18, 0x60, 0x24, 0x89, 0xbe, 0xee}};
 static uint16_t count_tcp_connect4_maps[] = {
     0,
+    1,
 };
 
 #pragma code_seg(push, "cgroup~1")
@@ -246,39 +283,50 @@ count_tcp_connect4(void* context)
     // EBPF_OP_LDXW pc=1 dst=r2 src=r1 offset=44 imm=0
 #line 34 "sample/cgroup_count_connect4.c"
     r2 = *(uint32_t*)(uintptr_t)(r1 + OFFSET(44));
-    // EBPF_OP_JNE_IMM pc=2 dst=r2 src=r0 offset=25 imm=6
+    // EBPF_OP_JNE_IMM pc=2 dst=r2 src=r0 offset=29 imm=6
 #line 34 "sample/cgroup_count_connect4.c"
     if (r2 != IMMEDIATE(6)) {
 #line 34 "sample/cgroup_count_connect4.c"
         goto label_3;
 #line 34 "sample/cgroup_count_connect4.c"
     }
-    // EBPF_OP_LDXH pc=3 dst=r1 src=r1 offset=40 imm=0
+    // EBPF_OP_LDXH pc=3 dst=r2 src=r1 offset=40 imm=0
 #line 40 "sample/cgroup_count_connect4.c"
-    r1 = *(uint16_t*)(uintptr_t)(r1 + OFFSET(40));
-    // EBPF_OP_JNE_IMM pc=4 dst=r1 src=r0 offset=23 imm=7459
+    r2 = *(uint16_t*)(uintptr_t)(r1 + OFFSET(40));
+    // EBPF_OP_LDDW pc=4 dst=r1 src=r2 offset=0 imm=2
 #line 40 "sample/cgroup_count_connect4.c"
-    if (r1 != IMMEDIATE(7459)) {
+    r1 = POINTER(_global_variable_sections[0].address_of_map_value + 0);
+    // EBPF_OP_LDXH pc=6 dst=r3 src=r1 offset=0 imm=0
+#line 40 "sample/cgroup_count_connect4.c"
+    r3 = *(uint16_t*)(uintptr_t)(r1 + OFFSET(0));
+    // EBPF_OP_BE pc=7 dst=r3 src=r0 offset=0 imm=16
+#line 40 "sample/cgroup_count_connect4.c"
+    r3 = htobe16((uint16_t)r3);
+#line 40 "sample/cgroup_count_connect4.c"
+    r3 &= UINT32_MAX;
+    // EBPF_OP_JNE_REG pc=8 dst=r2 src=r3 offset=23 imm=0
+#line 40 "sample/cgroup_count_connect4.c"
+    if (r2 != r3) {
 #line 40 "sample/cgroup_count_connect4.c"
         goto label_3;
 #line 40 "sample/cgroup_count_connect4.c"
     }
-    // EBPF_OP_MOV64_IMM pc=5 dst=r1 src=r0 offset=0 imm=8989
-#line 40 "sample/cgroup_count_connect4.c"
-    r1 = IMMEDIATE(8989);
-    // EBPF_OP_STXH pc=6 dst=r10 src=r1 offset=-2 imm=0
+    // EBPF_OP_LDXH pc=9 dst=r1 src=r1 offset=0 imm=0
+#line 46 "sample/cgroup_count_connect4.c"
+    r1 = *(uint16_t*)(uintptr_t)(r1 + OFFSET(0));
+    // EBPF_OP_STXH pc=10 dst=r10 src=r1 offset=-2 imm=0
 #line 46 "sample/cgroup_count_connect4.c"
     *(uint16_t*)(uintptr_t)(r10 + OFFSET(-2)) = (uint16_t)r1;
-    // EBPF_OP_MOV64_REG pc=7 dst=r2 src=r10 offset=0 imm=0
+    // EBPF_OP_MOV64_REG pc=11 dst=r2 src=r10 offset=0 imm=0
 #line 46 "sample/cgroup_count_connect4.c"
     r2 = r10;
-    // EBPF_OP_ADD64_IMM pc=8 dst=r2 src=r0 offset=0 imm=-2
+    // EBPF_OP_ADD64_IMM pc=12 dst=r2 src=r0 offset=0 imm=-2
 #line 46 "sample/cgroup_count_connect4.c"
     r2 += IMMEDIATE(-2);
-    // EBPF_OP_LDDW pc=9 dst=r1 src=r1 offset=0 imm=1
+    // EBPF_OP_LDDW pc=13 dst=r1 src=r1 offset=0 imm=1
 #line 48 "sample/cgroup_count_connect4.c"
-    r1 = POINTER(_maps[0].address);
-    // EBPF_OP_CALL pc=11 dst=r0 src=r0 offset=0 imm=1
+    r1 = POINTER(_maps[1].address);
+    // EBPF_OP_CALL pc=15 dst=r0 src=r0 offset=0 imm=1
 #line 48 "sample/cgroup_count_connect4.c"
     r0 = count_tcp_connect4_helpers[0].address(r1, r2, r3, r4, r5, context);
 #line 48 "sample/cgroup_count_connect4.c"
@@ -287,38 +335,38 @@ count_tcp_connect4(void* context)
         return 0;
 #line 48 "sample/cgroup_count_connect4.c"
     }
-    // EBPF_OP_JNE_IMM pc=12 dst=r0 src=r0 offset=11 imm=0
+    // EBPF_OP_JNE_IMM pc=16 dst=r0 src=r0 offset=11 imm=0
 #line 49 "sample/cgroup_count_connect4.c"
     if (r0 != IMMEDIATE(0)) {
 #line 49 "sample/cgroup_count_connect4.c"
         goto label_1;
 #line 49 "sample/cgroup_count_connect4.c"
     }
-    // EBPF_OP_MOV64_IMM pc=13 dst=r1 src=r0 offset=0 imm=1
+    // EBPF_OP_MOV64_IMM pc=17 dst=r1 src=r0 offset=0 imm=1
 #line 49 "sample/cgroup_count_connect4.c"
     r1 = IMMEDIATE(1);
-    // EBPF_OP_STXDW pc=14 dst=r10 src=r1 offset=-16 imm=0
+    // EBPF_OP_STXDW pc=18 dst=r10 src=r1 offset=-16 imm=0
 #line 50 "sample/cgroup_count_connect4.c"
     *(uint64_t*)(uintptr_t)(r10 + OFFSET(-16)) = (uint64_t)r1;
-    // EBPF_OP_MOV64_REG pc=15 dst=r2 src=r10 offset=0 imm=0
+    // EBPF_OP_MOV64_REG pc=19 dst=r2 src=r10 offset=0 imm=0
 #line 50 "sample/cgroup_count_connect4.c"
     r2 = r10;
-    // EBPF_OP_ADD64_IMM pc=16 dst=r2 src=r0 offset=0 imm=-2
+    // EBPF_OP_ADD64_IMM pc=20 dst=r2 src=r0 offset=0 imm=-2
 #line 50 "sample/cgroup_count_connect4.c"
     r2 += IMMEDIATE(-2);
-    // EBPF_OP_MOV64_REG pc=17 dst=r3 src=r10 offset=0 imm=0
+    // EBPF_OP_MOV64_REG pc=21 dst=r3 src=r10 offset=0 imm=0
 #line 50 "sample/cgroup_count_connect4.c"
     r3 = r10;
-    // EBPF_OP_ADD64_IMM pc=18 dst=r3 src=r0 offset=0 imm=-16
+    // EBPF_OP_ADD64_IMM pc=22 dst=r3 src=r0 offset=0 imm=-16
 #line 50 "sample/cgroup_count_connect4.c"
     r3 += IMMEDIATE(-16);
-    // EBPF_OP_LDDW pc=19 dst=r1 src=r1 offset=0 imm=1
+    // EBPF_OP_LDDW pc=23 dst=r1 src=r1 offset=0 imm=1
 #line 51 "sample/cgroup_count_connect4.c"
-    r1 = POINTER(_maps[0].address);
-    // EBPF_OP_MOV64_IMM pc=21 dst=r4 src=r0 offset=0 imm=0
+    r1 = POINTER(_maps[1].address);
+    // EBPF_OP_MOV64_IMM pc=25 dst=r4 src=r0 offset=0 imm=0
 #line 51 "sample/cgroup_count_connect4.c"
     r4 = IMMEDIATE(0);
-    // EBPF_OP_CALL pc=22 dst=r0 src=r0 offset=0 imm=2
+    // EBPF_OP_CALL pc=26 dst=r0 src=r0 offset=0 imm=2
 #line 51 "sample/cgroup_count_connect4.c"
     r0 = count_tcp_connect4_helpers[1].address(r1, r2, r3, r4, r5, context);
 #line 51 "sample/cgroup_count_connect4.c"
@@ -327,25 +375,25 @@ count_tcp_connect4(void* context)
         return 0;
 #line 51 "sample/cgroup_count_connect4.c"
     }
-    // EBPF_OP_JA pc=23 dst=r0 src=r0 offset=3 imm=0
+    // EBPF_OP_JA pc=27 dst=r0 src=r0 offset=3 imm=0
 #line 51 "sample/cgroup_count_connect4.c"
     goto label_2;
 label_1:
-    // EBPF_OP_LDXDW pc=24 dst=r1 src=r0 offset=0 imm=0
+    // EBPF_OP_LDXDW pc=28 dst=r1 src=r0 offset=0 imm=0
 #line 53 "sample/cgroup_count_connect4.c"
     r1 = *(uint64_t*)(uintptr_t)(r0 + OFFSET(0));
-    // EBPF_OP_ADD64_IMM pc=25 dst=r1 src=r0 offset=0 imm=1
+    // EBPF_OP_ADD64_IMM pc=29 dst=r1 src=r0 offset=0 imm=1
 #line 53 "sample/cgroup_count_connect4.c"
     r1 += IMMEDIATE(1);
-    // EBPF_OP_STXDW pc=26 dst=r0 src=r1 offset=0 imm=0
+    // EBPF_OP_STXDW pc=30 dst=r0 src=r1 offset=0 imm=0
 #line 53 "sample/cgroup_count_connect4.c"
     *(uint64_t*)(uintptr_t)(r0 + OFFSET(0)) = (uint64_t)r1;
 label_2:
-    // EBPF_OP_MOV64_IMM pc=27 dst=r0 src=r0 offset=0 imm=0
+    // EBPF_OP_MOV64_IMM pc=31 dst=r0 src=r0 offset=0 imm=0
 #line 53 "sample/cgroup_count_connect4.c"
     r0 = IMMEDIATE(0);
 label_3:
-    // EBPF_OP_EXIT pc=28 dst=r0 src=r0 offset=0 imm=0
+    // EBPF_OP_EXIT pc=32 dst=r0 src=r0 offset=0 imm=0
 #line 62 "sample/cgroup_count_connect4.c"
     return r0;
 #line 31 "sample/cgroup_count_connect4.c"
@@ -362,10 +410,10 @@ static program_entry_t _programs[] = {
         "cgroup/connect4",
         "count_tcp_connect4",
         count_tcp_connect4_maps,
-        1,
+        2,
         count_tcp_connect4_helpers,
         2,
-        29,
+        33,
         &count_tcp_connect4_program_type_guid,
         &count_tcp_connect4_attach_type_guid,
     },
@@ -395,4 +443,11 @@ _get_map_initial_values(_Outptr_result_buffer_(*count) map_initial_values_t** ma
 }
 
 metadata_table_t cgroup_count_connect4_metadata_table = {
-    sizeof(metadata_table_t), _get_programs, _get_maps, _get_hash, _get_version, _get_map_initial_values};
+    sizeof(metadata_table_t),
+    _get_programs,
+    _get_maps,
+    _get_hash,
+    _get_version,
+    _get_map_initial_values,
+    _get_global_variable_sections,
+};

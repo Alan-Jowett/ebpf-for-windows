@@ -225,13 +225,13 @@ TEST_CASE("show sections bpf.sys", "[netsh][sections]")
     REQUIRE(result == NO_ERROR);
 
 #if defined(_M_X64) && defined(NDEBUG)
-    const int code_size = 1064;
+    const int code_size = 1080;
 #elif defined(_M_X64) && !defined(NDEBUG)
-    const int code_size = 1768;
+    const int code_size = 1800;
 #elif defined(_M_ARM64) && defined(NDEBUG)
-    const int code_size = 1120;
+    const int code_size = 1152;
 #elif defined(_M_ARM64) && !defined(NDEBUG)
-    const int code_size = 5984;
+    const int code_size = 6008;
 #else
 #error "Unsupported architecture"
 #endif
