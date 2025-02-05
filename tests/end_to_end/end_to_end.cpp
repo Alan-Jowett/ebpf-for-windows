@@ -1075,7 +1075,7 @@ map_test(ebpf_execution_type_t execution_type)
 }
 
 void
-global_var_test(ebpf_execution_type_t execution_type)
+global_variable_test(ebpf_execution_type_t execution_type)
 {
     _test_helper_end_to_end test_helper;
     test_helper.initialize();
@@ -1160,7 +1160,7 @@ DECLARE_ALL_TEST_CASES("negative_ring_buffer_test", "[end_to_end]", negative_rin
 DECLARE_ALL_TEST_CASES("utility-helpers", "[end_to_end]", _utility_helper_functions_test);
 DECLARE_ALL_TEST_CASES("map", "[end_to_end]", map_test);
 DECLARE_ALL_TEST_CASES("bad_map_name", "[end_to_end]", bad_map_name_um);
-DECLARE_ALL_TEST_CASES("global_var", "[end_to_end]", global_var_test);
+DECLARE_ALL_TEST_CASES("global_variable", "[end_to_end]", global_variable_test);
 
 TEST_CASE("enum programs", "[end_to_end]")
 {
