@@ -398,7 +398,6 @@ void
 droppacket_test(ebpf_execution_type_t execution_type)
 {
     _test_helper_end_to_end test_helper;
-
     test_helper.initialize();
 
     int result;

@@ -926,7 +926,6 @@ bpf_code_generator::extract_relocations_and_maps(_In_ const struct _ebpf_api_pro
                     // Relocation is for a different program.
                     continue;
                 }
-
                 current_program->output_instructions[(offset - current_program->offset_in_section) / sizeof(ebpf_inst)]
                     .relocation = unsafe_name;
 
