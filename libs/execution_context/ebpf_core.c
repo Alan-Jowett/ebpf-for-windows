@@ -570,13 +570,13 @@ ebpf_core_resolve_map_value_address(
         }
 
         return_value = ebpf_map_get_value_address(map, &map_addresses[map_index]);
-        if (return_value == EBPF_INVALID_ARGUMENT) {
-            // Expected to fail if the map is not an array map.
-            map_addresses[map_index] = 0;
-            return_value = EBPF_SUCCESS;
-        }
 
+        // First release the map reference, then check the return value.
         EBPF_OBJECT_RELEASE_REFERENCE((ebpf_core_object_t*)map);
+
+        if (return_value != EBPF_SUCCESS) {
+            goto Done;
+        }
     }
 
 Done:

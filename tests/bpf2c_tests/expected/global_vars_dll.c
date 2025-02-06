@@ -138,71 +138,71 @@ static uint16_t GlobalVariableTest_maps[] = {
 #pragma code_seg(push, "sample~1")
 static uint64_t
 GlobalVariableTest(void* context)
-#line 26 "sample/undocked/global_vars.c"
+#line 30 "sample/undocked/global_vars.c"
 {
-#line 26 "sample/undocked/global_vars.c"
+#line 30 "sample/undocked/global_vars.c"
     // Prologue.
-#line 26 "sample/undocked/global_vars.c"
+#line 30 "sample/undocked/global_vars.c"
     uint64_t stack[(UBPF_STACK_SIZE + 7) / 8];
-#line 26 "sample/undocked/global_vars.c"
+#line 30 "sample/undocked/global_vars.c"
     register uint64_t r0 = 0;
-#line 26 "sample/undocked/global_vars.c"
+#line 30 "sample/undocked/global_vars.c"
     register uint64_t r1 = 0;
-#line 26 "sample/undocked/global_vars.c"
+#line 30 "sample/undocked/global_vars.c"
     register uint64_t r2 = 0;
-#line 26 "sample/undocked/global_vars.c"
+#line 30 "sample/undocked/global_vars.c"
     register uint64_t r3 = 0;
-#line 26 "sample/undocked/global_vars.c"
+#line 30 "sample/undocked/global_vars.c"
     register uint64_t r10 = 0;
 
-#line 26 "sample/undocked/global_vars.c"
+#line 30 "sample/undocked/global_vars.c"
     r1 = (uintptr_t)context;
-#line 26 "sample/undocked/global_vars.c"
+#line 30 "sample/undocked/global_vars.c"
     r10 = (uintptr_t)((uint8_t*)stack + sizeof(stack));
 
     // EBPF_OP_LDDW pc=0 dst=r1 src=r2 offset=0 imm=3
-#line 26 "sample/undocked/global_vars.c"
+#line 30 "sample/undocked/global_vars.c"
     r1 = POINTER(_global_variable_sections[0].address_of_map_value + 0);
     // EBPF_OP_LDXW pc=2 dst=r1 src=r1 offset=0 imm=0
-#line 26 "sample/undocked/global_vars.c"
+#line 30 "sample/undocked/global_vars.c"
     r1 = *(uint32_t*)(uintptr_t)(r1 + OFFSET(0));
     // EBPF_OP_LDDW pc=3 dst=r2 src=r2 offset=0 imm=2
-#line 26 "sample/undocked/global_vars.c"
+#line 30 "sample/undocked/global_vars.c"
     r2 = POINTER(_global_variable_sections[1].address_of_map_value + 0);
     // EBPF_OP_LDXW pc=5 dst=r2 src=r2 offset=0 imm=0
-#line 26 "sample/undocked/global_vars.c"
+#line 30 "sample/undocked/global_vars.c"
     r2 = *(uint32_t*)(uintptr_t)(r2 + OFFSET(0));
     // EBPF_OP_ADD64_REG pc=6 dst=r2 src=r1 offset=0 imm=0
-#line 26 "sample/undocked/global_vars.c"
+#line 30 "sample/undocked/global_vars.c"
     r2 += r1;
     // EBPF_OP_LDDW pc=7 dst=r1 src=r2 offset=0 imm=1
-#line 26 "sample/undocked/global_vars.c"
+#line 30 "sample/undocked/global_vars.c"
     r1 = POINTER(_global_variable_sections[2].address_of_map_value + 0);
     // EBPF_OP_STXW pc=9 dst=r1 src=r2 offset=0 imm=0
-#line 26 "sample/undocked/global_vars.c"
+#line 30 "sample/undocked/global_vars.c"
     *(uint32_t*)(uintptr_t)(r1 + OFFSET(0)) = (uint32_t)r2;
     // EBPF_OP_LDDW pc=10 dst=r2 src=r2 offset=0 imm=2
-#line 27 "sample/undocked/global_vars.c"
+#line 31 "sample/undocked/global_vars.c"
     r2 = POINTER(_global_variable_sections[1].address_of_map_value + 4);
     // EBPF_OP_LDXW pc=12 dst=r2 src=r2 offset=0 imm=0
-#line 27 "sample/undocked/global_vars.c"
+#line 31 "sample/undocked/global_vars.c"
     r2 = *(uint32_t*)(uintptr_t)(r2 + OFFSET(0));
     // EBPF_OP_LDXW pc=13 dst=r3 src=r1 offset=0 imm=0
-#line 27 "sample/undocked/global_vars.c"
+#line 31 "sample/undocked/global_vars.c"
     r3 = *(uint32_t*)(uintptr_t)(r1 + OFFSET(0));
     // EBPF_OP_ADD64_REG pc=14 dst=r3 src=r2 offset=0 imm=0
-#line 27 "sample/undocked/global_vars.c"
+#line 31 "sample/undocked/global_vars.c"
     r3 += r2;
     // EBPF_OP_STXW pc=15 dst=r1 src=r3 offset=0 imm=0
-#line 27 "sample/undocked/global_vars.c"
+#line 31 "sample/undocked/global_vars.c"
     *(uint32_t*)(uintptr_t)(r1 + OFFSET(0)) = (uint32_t)r3;
     // EBPF_OP_MOV64_IMM pc=16 dst=r0 src=r0 offset=0 imm=0
-#line 28 "sample/undocked/global_vars.c"
+#line 32 "sample/undocked/global_vars.c"
     r0 = IMMEDIATE(0);
     // EBPF_OP_EXIT pc=17 dst=r0 src=r0 offset=0 imm=0
-#line 28 "sample/undocked/global_vars.c"
+#line 32 "sample/undocked/global_vars.c"
     return r0;
-#line 26 "sample/undocked/global_vars.c"
+#line 30 "sample/undocked/global_vars.c"
 }
 #pragma code_seg(pop)
 #line __LINE__ __FILE__
