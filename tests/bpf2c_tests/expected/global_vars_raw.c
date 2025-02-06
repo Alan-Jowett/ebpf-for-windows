@@ -61,14 +61,11 @@ _get_maps(_Outptr_result_buffer_maybenull_(*count) map_entry_t** maps, _Out_ siz
     *count = 3;
 }
 
-const char global__rodata_initial_data[] = {
-    10, 0, 0, 0};
+const char global__rodata_initial_data[] = {10, 0, 0, 0};
 
-const char global__data_initial_data[] = {
-    20, 0, 0, 0, 40, 0, 0, 0};
+const char global__data_initial_data[] = {20, 0, 0, 0, 40, 0, 0, 0};
 
-const char global__bss_initial_data[] = {
-    0, 0, 0, 0};
+const char global__bss_initial_data[] = {0, 0, 0, 0};
 
 #pragma data_seg(push, "global_variables")
 static global_variable_section_t _global_variable_sections[] = {

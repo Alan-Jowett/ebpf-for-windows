@@ -135,6 +135,8 @@ _bpf2c_npi_client_attach_provider(
 
     UNREFERENCED_PARAMETER(client_context);
 
+    // Don't attach to providers with version 0 as they don't correctly implement
+    // global variables and will cause the module to crash.
     if (provider_registration_instance->Version < 1) {
         return STATUS_INVALID_PARAMETER;
     }

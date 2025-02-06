@@ -1786,7 +1786,7 @@ bpf_code_generator::emit_c_code(std::ostream& output_stream)
         for (const auto& [name, entry] : global_variable_sections_by_index) {
             output_stream << "const char " << name.c_identifier() << "_initial_data[] = {";
             for (size_t i = 0; i < entry.initial_data.size(); i++) {
-                if (i % 16 == 0) {
+                if (i % 16 == 15) {
                     output_stream << std::endl << INDENT;
                 }
                 output_stream << std::to_string(entry.initial_data.at(i));
