@@ -958,7 +958,7 @@ _ebpf_native_set_initial_map_values(_Inout_ ebpf_native_module_t* module)
 }
 
 static ebpf_result_t
-_ebpf_native_resolve_map_value_addresses(_Inout_ ebpf_native_module_t* module)
+_ebpf_native_initialize_global_variables(_Inout_ ebpf_native_module_t* module)
 {
     EBPF_LOG_ENTRY();
     ebpf_result_t result = EBPF_SUCCESS;
@@ -1681,7 +1681,7 @@ ebpf_native_load_programs(
     }
 
     // Setup global variables.
-    result = _ebpf_native_resolve_map_value_addresses(module);
+    result = _ebpf_native_initialize_global_variables(module);
     if (result != EBPF_SUCCESS) {
         EBPF_LOG_MESSAGE_GUID(
             EBPF_TRACELOG_LEVEL_VERBOSE,

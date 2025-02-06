@@ -14,10 +14,14 @@
 #include "bpf_helpers.h"
 #include "sample_ext_helpers.h"
 
-static const volatile int global_var = 10;
-static volatile int global_var2 = 20;
-static volatile int global_var3;
-static volatile int global_var4 = 40;
+// Note:
+// .rodata section is read-only data section and has size of 4 bytes (int)
+// .data section is data section and has size of 8 bytes (2 * int)
+// .bss section is uninitialized data section and has size of 4 bytes (int)
+static const volatile int global_var = 10; // This is inserted into the .rodata section
+static volatile int global_var2 = 20;      // This is inserted into the .data section
+static volatile int global_var3;           // This is inserted into the .bss section
+static volatile int global_var4 = 40;      // This is also inserted into the .data section
 
 SEC("sample_ext")
 int

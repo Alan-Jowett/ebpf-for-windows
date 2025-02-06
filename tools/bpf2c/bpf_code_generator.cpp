@@ -705,6 +705,7 @@ _get_btf_global_var_map_name(
     std::string c_file_name_str = c_file_name.raw();
     // Truncate the name to at most 7 characters to match how libbpf handles map names for global variables.
     // See: https://github.com/libbpf/libbpf/blob/444f3c0e7a0fbfeeac4b3809a184c6640ce10306/src/libbpf.c#L1839C1-L1871C5
+    // The truncated name may result in a collision, but this is the behavior on which libbpf consumers rely.
     c_file_name_str.resize(min(c_file_name_str.size(), (size_t)7));
     return c_file_name_str + section_name.raw();
 }
@@ -1343,6 +1344,8 @@ bpf_code_generator::bpf_code_generator_program::encode_instructions(
                     "_global_variable_sections[{}].address_of_map_value + {}",
                     std::to_string(global_section->second.index),
                     std::to_string(imm));
+                // As an example, this produces the following line:
+                // r0 = POINTER(_global_variable_sections[1].address_of_map_value + 4);
                 output.lines.push_back(std::format("{} = POINTER({});", destination, source));
                 referenced_map_indices.insert(map_definitions[output.relocation].index);
             }
