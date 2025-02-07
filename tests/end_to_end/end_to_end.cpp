@@ -1087,7 +1087,7 @@ global_variable_test(ebpf_execution_type_t execution_type)
     bpf_link_ptr link;
 
     if (execution_type != EBPF_EXECUTION_NATIVE) {
-        // Skip this test JIT and interpret mode.
+        // Skip this test in JIT-compiled and interpreted mode.
         return;
     }
 
@@ -1171,7 +1171,7 @@ global_variable_and_map_test(ebpf_execution_type_t execution_type)
     bpf_link_ptr link;
 
     if (execution_type != EBPF_EXECUTION_NATIVE) {
-        // Skip this test JIT and interpret mode.
+        // Skip this test in JIT-compiled and interpreted mode.
         return;
     }
 

@@ -39,14 +39,14 @@ SEC("sample_ext")
 int
 GlobalVariableAndMapTest(sample_program_context_t* ctx)
 {
-    // Lookup the value in the map
+    // Look up the value in the map.
     uint32_t key = 0;
     some_config_struct_t* value = bpf_map_lookup_elem(&some_config_map, &key);
     if (!value) {
         return 1;
     }
 
-    // Update the global variable with the value from the map
+    // Update the global variable with the value from the map.
     memcpy((void*)&global_config, value, sizeof(some_config_struct_t));
 
     return 0;
