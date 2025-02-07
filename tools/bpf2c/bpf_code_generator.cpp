@@ -1315,7 +1315,7 @@ bpf_code_generator::bpf_code_generator_program::encode_instructions(
                 throw bpf_code_generator_exception("invalid operand", output.instruction_offset);
             }
             std::string destination = get_register_name(inst.dst);
-            if (output.relocation.empty()) {
+            if (inst.src == INST_LD_MODE_IMM) {
                 uint64_t imm = static_cast<uint32_t>(program_output[i].instruction.imm);
                 imm <<= 32;
                 imm |= static_cast<uint32_t>(output.instruction.imm);
