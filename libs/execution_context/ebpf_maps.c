@@ -1224,7 +1224,7 @@ _insert_into_hot_list(_Inout_ ebpf_core_lru_map_t* map, size_t partition, _Inout
     switch (key_state) {
     case EBPF_LRU_KEY_UNINITIALIZED:
         EBPF_LRU_ENTRY_GENERATION_PTR(map, entry)[partition] = map->partitions[partition].current_generation;
-        EBPF_LRU_ENTRY_LAST_USED_TIME_PTR(map, entry)[partition] = ebpf_query_time_since_boot_approximate(false);
+        EBPF_LRU_ENTRY_LAST_USED_TIME_PTR(map, entry)[partition] = cxplat_query_time_since_boot_approximate(false);
         ebpf_list_insert_tail(
             &map->partitions[partition].hot_list, &EBPF_LRU_ENTRY_LIST_ENTRY_PTR(map, entry)[partition]);
         map->partitions[partition].hot_list_size++;
@@ -1232,7 +1232,7 @@ _insert_into_hot_list(_Inout_ ebpf_core_lru_map_t* map, size_t partition, _Inout
     case EBPF_LRU_KEY_COLD:
         // Remove from cold list.
         EBPF_LRU_ENTRY_GENERATION_PTR(map, entry)[partition] = map->partitions[partition].current_generation;
-        EBPF_LRU_ENTRY_LAST_USED_TIME_PTR(map, entry)[partition] = ebpf_query_time_since_boot_approximate(false);
+        EBPF_LRU_ENTRY_LAST_USED_TIME_PTR(map, entry)[partition] = cxplat_query_time_since_boot_approximate(false);
         ebpf_list_remove_entry(&EBPF_LRU_ENTRY_LIST_ENTRY_PTR(map, entry)[partition]);
         ebpf_list_insert_tail(
             &map->partitions[partition].hot_list, &EBPF_LRU_ENTRY_LIST_ENTRY_PTR(map, entry)[partition]);
@@ -1271,7 +1271,7 @@ _initialize_lru_entry(
     // Only insert into the current partition's hot list.
     ebpf_lock_state_t state = ebpf_lock_lock(&map->partitions[partition].lock);
     EBPF_LRU_ENTRY_GENERATION_PTR(map, entry)[partition] = map->partitions[partition].current_generation;
-    EBPF_LRU_ENTRY_LAST_USED_TIME_PTR(map, entry)[partition] = ebpf_query_time_since_boot_approximate(false);
+    EBPF_LRU_ENTRY_LAST_USED_TIME_PTR(map, entry)[partition] = cxplat_query_time_since_boot_approximate(false);
     ebpf_list_insert_tail(&map->partitions[partition].hot_list, &EBPF_LRU_ENTRY_LIST_ENTRY_PTR(map, entry)[partition]);
     map->partitions[partition].hot_list_size++;
 
@@ -1979,9 +1979,14 @@ _next_lpm_map_key_and_value(
 {
     ebpf_core_lpm_map_t* trie_map = EBPF_FROM_FIELD(ebpf_core_lpm_map_t, core_map, map);
     ebpf_core_lpm_key_t* lpm_key = (ebpf_core_lpm_key_t*)next_key;
+    ebpf_core_lpm_key_t* previous_lpm_key = (ebpf_core_lpm_key_t*)previous_key;
 
     // Validate prefix length.
     if (!lpm_key || lpm_key->prefix_length > trie_map->max_prefix) {
+        return EBPF_INVALID_ARGUMENT;
+    }
+
+    if (previous_lpm_key && previous_lpm_key->prefix_length > trie_map->max_prefix) {
         return EBPF_INVALID_ARGUMENT;
     }
 
@@ -3032,4 +3037,16 @@ ebpf_map_get_next_key_and_value_batch(
     }
 
     return result;
+}
+
+_Must_inspect_result_ ebpf_result_t
+ebpf_map_get_value_address(_In_ const ebpf_map_t* map, _Out_ uintptr_t* value_address)
+{
+    if (map->ebpf_map_definition.type != BPF_MAP_TYPE_ARRAY) {
+        return EBPF_INVALID_ARGUMENT;
+    } else {
+        ebpf_core_map_t* core_map = (ebpf_core_map_t*)map;
+        *value_address = (uintptr_t)core_map->data;
+    }
+    return EBPF_SUCCESS;
 }
