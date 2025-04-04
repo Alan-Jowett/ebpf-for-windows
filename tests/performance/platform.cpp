@@ -231,7 +231,7 @@ _ebpf_hash_table_test_replace_value_overlap()
 void
 test_bpf_get_prandom_u32(bool preemptible)
 {
-    REQUIRE(ebpf_core_initiate() == EBPF_SUCCESS);
+    REQUIRE(ebpf_core_initiate(NULL) == EBPF_SUCCESS);
     size_t iterations = PERFORMANCE_MEASURE_ITERATION_COUNT;
     _performance_measure measure(__FUNCTION__, preemptible, _perf_bpf_get_prandom_u32, iterations);
     measure.run_test();
@@ -241,7 +241,7 @@ test_bpf_get_prandom_u32(bool preemptible)
 void
 test_bpf_ktime_get_boot_ns(bool preemptible)
 {
-    REQUIRE(ebpf_core_initiate() == EBPF_SUCCESS);
+    REQUIRE(ebpf_core_initiate(NULL) == EBPF_SUCCESS);
     size_t iterations = PERFORMANCE_MEASURE_ITERATION_COUNT;
     _performance_measure measure(__FUNCTION__, preemptible, _perf_bpf_ktime_get_boot_ns, iterations);
     measure.run_test();
@@ -251,7 +251,7 @@ test_bpf_ktime_get_boot_ns(bool preemptible)
 void
 test_bpf_ktime_get_ns(bool preemptible)
 {
-    REQUIRE(ebpf_core_initiate() == EBPF_SUCCESS);
+    REQUIRE(ebpf_core_initiate(NULL) == EBPF_SUCCESS);
     size_t iterations = PERFORMANCE_MEASURE_ITERATION_COUNT;
     _performance_measure measure(__FUNCTION__, preemptible, _perf_bpf_ktime_get_ns, iterations);
     measure.run_test();
@@ -261,7 +261,7 @@ test_bpf_ktime_get_ns(bool preemptible)
 void
 test_bpf_get_smp_processor_id(bool preemptible)
 {
-    REQUIRE(ebpf_core_initiate() == EBPF_SUCCESS);
+    REQUIRE(ebpf_core_initiate(NULL) == EBPF_SUCCESS);
     size_t iterations = PERFORMANCE_MEASURE_ITERATION_COUNT;
     _performance_measure measure(__FUNCTION__, preemptible, _perf_bpf_get_smp_processor_id, iterations);
     measure.run_test();
@@ -271,7 +271,7 @@ test_bpf_get_smp_processor_id(bool preemptible)
 void
 test_epoch_enter_exit(bool preemptible)
 {
-    REQUIRE(ebpf_core_initiate() == EBPF_SUCCESS);
+    REQUIRE(ebpf_core_initiate(NULL) == EBPF_SUCCESS);
     size_t iterations = PERFORMANCE_MEASURE_ITERATION_COUNT * 10;
     _performance_measure measure(__FUNCTION__, preemptible, _perf_epoch_enter_exit, iterations);
     measure.run_test();
@@ -281,7 +281,7 @@ test_epoch_enter_exit(bool preemptible)
 void
 test_epoch_enter_exit_alloc_free(bool preemptible)
 {
-    REQUIRE(ebpf_core_initiate() == EBPF_SUCCESS);
+    REQUIRE(ebpf_core_initiate(NULL) == EBPF_SUCCESS);
     size_t iterations = PERFORMANCE_MEASURE_ITERATION_COUNT * 10;
     _performance_measure measure(__FUNCTION__, preemptible, _perf_epoch_enter_alloc_free_exit, iterations);
     measure.run_test();

@@ -22,6 +22,13 @@ extern "C"
 
     typedef uint32_t(__stdcall* ebpf_hook_function)(uint8_t*);
 
+    typedef struct _ebpf_core_configuration
+    {
+        GUID program_information_npi_id;
+        GUID hook_extension_npi_id;
+        GUID native_extension_npi_id;
+    } ebpf_core_configuration_t;
+
     /**
      * @brief Initialize the eBPF core execution context.
      *
@@ -30,7 +37,7 @@ extern "C"
      *  operation.
      */
     _Must_inspect_result_ ebpf_result_t
-    ebpf_core_initiate();
+    ebpf_core_initiate(_In_opt_ ebpf_core_configuration_t* configuration);
 
     /**
      * @brief Uninitialize the eBPF core execution context.
@@ -291,6 +298,14 @@ extern "C"
         _In_reads_(count_of_maps) const ebpf_handle_t* map_handles,
         _Out_writes_(count_of_maps) uintptr_t* map_value_addresses);
 
+    GUID*
+    ebpf_core_get_program_information_npi_id();
+
+    GUID*
+    ebpf_core_get_hook_extension_npi_id();
+
+    GUID*
+    ebpf_core_get_native_extension_npi_id();
 #ifdef __cplusplus
 }
 #endif
