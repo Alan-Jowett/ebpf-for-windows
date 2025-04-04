@@ -127,7 +127,7 @@ class _ebpf_core_initializer
     void
     initialize()
     {
-        REQUIRE(ebpf_core_initiate() == EBPF_SUCCESS);
+        REQUIRE(ebpf_core_initiate(NULL) == EBPF_SUCCESS);
     }
     ~_ebpf_core_initializer() { ebpf_core_terminate(); }
 };

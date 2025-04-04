@@ -61,7 +61,7 @@ static const NPI_CLIENT_CHARACTERISTICS _ebpf_link_client_characteristics = {
     {
         0,
         sizeof(NPI_REGISTRATION_INSTANCE),
-        &EBPF_HOOK_EXTENSION_IID,
+        NULL,
         NULL,
         0,
         NULL,
@@ -280,6 +280,7 @@ ebpf_link_create(
 
     local_link->client_characteristics = _ebpf_link_client_characteristics;
     local_link->client_characteristics.ClientRegistrationInstance.ModuleId = &local_link->module_id;
+    local_link->client_characteristics.ClientRegistrationInstance.NpiId = ebpf_core_get_hook_extension_npi_id();
     local_link->client_characteristics.ClientRegistrationInstance.NpiSpecificCharacteristics = &local_link->client_data;
 
     ebpf_lock_unlock(&local_link->lock, state);

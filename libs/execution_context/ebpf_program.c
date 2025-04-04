@@ -117,7 +117,7 @@ static const NPI_CLIENT_CHARACTERISTICS _ebpf_program_general_program_informatio
     {
         0,
         sizeof(NPI_REGISTRATION_INSTANCE),
-        &EBPF_PROGRAM_INFO_EXTENSION_IID,
+        NULL,
         NULL,
         0,
         NULL,
@@ -136,7 +136,7 @@ static const NPI_CLIENT_CHARACTERISTICS _ebpf_program_type_specific_program_info
     {
         0,
         sizeof(NPI_REGISTRATION_INSTANCE),
-        &EBPF_PROGRAM_INFO_EXTENSION_IID,
+        NULL,
         NULL,
         0,
         NULL,
@@ -882,10 +882,14 @@ ebpf_program_create(_In_ const ebpf_program_parameters_t* program_parameters, _O
         _ebpf_program_general_program_information_client_characteristics;
     local_program->general_program_information_client_characteristics.ClientRegistrationInstance.ModuleId =
         &local_program->module_id;
+    local_program->general_program_information_client_characteristics.ClientRegistrationInstance.NpiId =
+        ebpf_core_get_program_information_npi_id();
     local_program->type_specific_program_information_client_characteristics =
         _ebpf_program_type_specific_program_information_client_characteristics;
     local_program->type_specific_program_information_client_characteristics.ClientRegistrationInstance.ModuleId =
         &local_program->module_id;
+    local_program->type_specific_program_information_client_characteristics.ClientRegistrationInstance.NpiId =
+        ebpf_core_get_program_information_npi_id();
 
     // Mark the program_information_rundown_reference as rundown to prevent programs
     // from using it.

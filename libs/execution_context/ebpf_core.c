@@ -186,6 +186,8 @@ static const NPI_PROVIDER_CHARACTERISTICS _ebpf_global_helper_function_provider_
 
 static HANDLE _ebpf_global_helper_function_nmr_binding_handle = NULL;
 
+static ebpf_core_configuration_t _ebpf_global_configuration = {0};
+
 static NTSTATUS
 _ebpf_general_helper_function_provider_attach_client(
     _In_ HANDLE nmr_binding_handle,
@@ -231,10 +233,18 @@ ebpf_core_terminate_pinning_table()
 }
 
 _Must_inspect_result_ ebpf_result_t
-ebpf_core_initiate()
+ebpf_core_initiate(_In_opt_ ebpf_core_configuration_t* configuration)
 {
     ebpf_result_t return_value;
     NTSTATUS status;
+
+    if (configuration) {
+        _ebpf_global_configuration = *configuration;
+    } else {
+        _ebpf_global_configuration.program_information_npi_id = EBPF_PROGRAM_INFO_EXTENSION_IID;
+        _ebpf_global_configuration.hook_extension_npi_id = EBPF_HOOK_EXTENSION_IID;
+        _ebpf_global_configuration.native_extension_npi_id = EBPF_NATIVE_MODULE_EXTENSION_IID;
+    }
 
     return_value = ebpf_platform_initiate();
     if (return_value != EBPF_SUCCESS) {
@@ -3135,4 +3145,22 @@ ebpf_core_update_map_with_handle(
 Done:
     EBPF_OBJECT_RELEASE_REFERENCE((ebpf_core_object_t*)map);
     EBPF_RETURN_RESULT(retval);
+}
+
+GUID*
+ebpf_core_get_program_information_npi_id()
+{
+    return &_ebpf_global_configuration.program_information_npi_id;
+}
+
+GUID*
+ebpf_core_get_hook_extension_npi_id()
+{
+    return &_ebpf_global_configuration.hook_extension_npi_id;
+}
+
+GUID*
+ebpf_core_get_native_extension_npi_id()
+{
+    return &_ebpf_global_configuration.native_extension_npi_id;
 }

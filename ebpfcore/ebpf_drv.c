@@ -190,7 +190,7 @@ _ebpf_driver_initialize_objects(
         goto Exit;
     }
 
-    status = ebpf_result_to_ntstatus(ebpf_core_initiate());
+    status = ebpf_result_to_ntstatus(ebpf_core_initiate(NULL));
     if (!NT_SUCCESS(status)) {
         EBPF_LOG_NTSTATUS_API_FAILURE(EBPF_TRACELOG_KEYWORD_ERROR, ebpf_core_initiate, status);
         goto Exit;

@@ -20,6 +20,12 @@ extern "C"
     __declspec(selectany) GUID EBPF_HOOK_EXTENSION_IID = {
         0x5d564054, 0x2736, 0x406d, {0x8b, 0x22, 0x12, 0xbc, 0xff, 0xaf, 0x0a, 0x9f}};
 
+    /** @brief NPI ID for eBPF native module extension.
+     */
+    /* c847aac8-a6f2-4b53-aea3-f4a94b9a80cb */
+    __declspec(selectany) GUID EBPF_NATIVE_MODULE_EXTENSION_IID = {
+        0xc847aac8, 0xa6f2, 0x4b53, {0xae, 0xa3, 0xf4, 0xa9, 0x4b, 0x9a, 0x80, 0xcb}};
+
 #ifdef __cplusplus
 }
 #endif

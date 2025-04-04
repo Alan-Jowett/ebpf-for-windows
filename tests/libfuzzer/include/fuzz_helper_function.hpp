@@ -64,7 +64,7 @@ template <typename context_type> class fuzz_helper_function
             // Throw an exception with the missing map type names.
             throw std::runtime_error("Missing map type definitions for: " + missing_map_type_names);
         }
-        ebpf_result_t result = ebpf_core_initiate();
+        ebpf_result_t result = ebpf_core_initiate(NULL);
         if (result != EBPF_SUCCESS) {
             throw std::runtime_error("ebpf_core_initiate failed");
         }

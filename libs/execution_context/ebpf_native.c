@@ -116,7 +116,7 @@ static const NPI_MODULEID _ebpf_native_provider_module_id = {
 static NPI_PROVIDER_ATTACH_CLIENT_FN _ebpf_native_provider_attach_client_callback;
 static NPI_PROVIDER_DETACH_CLIENT_FN _ebpf_native_provider_detach_client_callback;
 
-static const NPI_PROVIDER_CHARACTERISTICS _ebpf_native_provider_characteristics = {
+static NPI_PROVIDER_CHARACTERISTICS _ebpf_native_provider_characteristics = {
     0,
     sizeof(_ebpf_native_provider_characteristics),
     _ebpf_native_provider_attach_client_callback,
@@ -125,7 +125,7 @@ static const NPI_PROVIDER_CHARACTERISTICS _ebpf_native_provider_characteristics 
     {
         0,
         sizeof(NPI_REGISTRATION_INSTANCE),
-        &_ebpf_native_npi_id,
+        NULL,
         &_ebpf_native_provider_module_id,
         0,
         NULL,
@@ -935,6 +935,7 @@ ebpf_native_initiate()
     }
     hash_table_created = true;
 
+    _ebpf_native_provider_characteristics.ProviderRegistrationInstance.NpiId = ebpf_core_get_native_extension_npi_id();
     NTSTATUS status =
         NmrRegisterProvider(&_ebpf_native_provider_characteristics, NULL, &_ebpf_native_nmr_provider_handle);
     if (!NT_SUCCESS(status)) {

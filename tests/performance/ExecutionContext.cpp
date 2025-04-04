@@ -22,7 +22,7 @@ typedef class _ebpf_program_test_state
         : byte_code(byte_code), program_info_provider(nullptr)
     {
         ebpf_program_parameters_t parameters = {EBPF_PROGRAM_TYPE_SAMPLE};
-        REQUIRE(ebpf_core_initiate() == EBPF_SUCCESS);
+        REQUIRE(ebpf_core_initiate(NULL) == EBPF_SUCCESS);
 
         // Create the program info provider.  We can only do this after calling
         // ebpf_core_initiate() since that initializes the interface GUID.
@@ -101,7 +101,7 @@ typedef class _ebpf_map_test_state
         // Since this is perf test, not checking the result.
 
         cxplat_utf8_string_t name{(uint8_t*)"test", 4};
-        REQUIRE(ebpf_core_initiate() == EBPF_SUCCESS);
+        REQUIRE(ebpf_core_initiate(NULL) == EBPF_SUCCESS);
         ebpf_map_definition_in_memory_t definition{
             type, sizeof(uint32_t), sizeof(uint64_t), map_size.has_value() ? map_size.value() : ebpf_get_cpu_count()};
 
@@ -207,7 +207,7 @@ typedef class _ebpf_map_test_state
 typedef class _ebpf_map_lpm_trie_test_state
 {
   public:
-    _ebpf_map_lpm_trie_test_state() : map(nullptr) { REQUIRE(ebpf_core_initiate() == EBPF_SUCCESS); }
+    _ebpf_map_lpm_trie_test_state() : map(nullptr) { REQUIRE(ebpf_core_initiate(NULL) == EBPF_SUCCESS); }
 
     void
     populate_ipv4_routes(size_t route_count)

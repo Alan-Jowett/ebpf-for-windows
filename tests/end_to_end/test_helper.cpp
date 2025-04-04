@@ -721,7 +721,7 @@ _test_helper_end_to_end::_test_helper_end_to_end()
 void
 _test_helper_end_to_end::initialize()
 {
-    REQUIRE(ebpf_core_initiate() == EBPF_SUCCESS);
+    REQUIRE(ebpf_core_initiate(NULL) == EBPF_SUCCESS);
     ec_initialized = true;
     REQUIRE(ebpf_api_initiate() == EBPF_SUCCESS);
     api_initialized = true;
