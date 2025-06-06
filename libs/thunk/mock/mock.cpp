@@ -222,4 +222,11 @@ ebpf_rpc_load_program(
     ebpf_clear_thread_local_storage();
     return result;
 }
+
+_Must_inspect_result_ ebpf_result_t
+ebpf_rpc_authorize_native_module(_In_z_ const char* image_path)
+{
+    return ebpf_authorize_native_module(image_path);
+}
+
 #endif

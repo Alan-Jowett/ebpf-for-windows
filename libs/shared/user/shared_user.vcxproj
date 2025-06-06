@@ -3,6 +3,7 @@
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <ClCompile Include="..\ebpf_serialize.c" />
+    <ClCompile Include="..\hash.cpp" />
     <ClCompile Include="..\shared_common.c" />
     <ClCompile Include="..\tracelog.c" />
   </ItemGroup>
@@ -11,6 +12,7 @@
     <ClInclude Include="..\ebpf_serialize.h" />
     <ClInclude Include="..\ebpf_shared_framework.h" />
     <ClInclude Include="..\ebpf_tracelog.h" />
+    <ClInclude Include="..\hash.h" />
     <ClInclude Include="shared_context.h" />
   </ItemGroup>
   <Import Project="$(SolutionDir)wdk.props" />

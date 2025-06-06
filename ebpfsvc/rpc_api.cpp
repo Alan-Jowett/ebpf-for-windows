@@ -51,3 +51,19 @@ ebpf_server_verify_and_load_program(
     return EBPF_OPERATION_NOT_SUPPORTED;
 #endif
 }
+
+ebpf_result_t
+ebpf_server_verify_and_authorize_native_image(
+    /* [string][in] */ char* image_path)
+{
+    if (RpcImpersonateClient(nullptr) != RPC_S_OK) {
+        return EBPF_ACCESS_DENIED;
+    }
+    ebpf_result_t result = ebpf_authorize_native_module(image_path);
+    if (!RpcRevertToSelf() == RPC_S_OK) {
+        // If reverting to self fails, we still return the result of the authorization.
+        // This is a best-effort operation.
+        return result;
+    }
+    return result;
+}
