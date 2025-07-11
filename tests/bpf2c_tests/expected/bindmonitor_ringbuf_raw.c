@@ -99,23 +99,23 @@ bind_monitor(void* context, const program_runtime_context_t* runtime_context)
 
     // EBPF_OP_LDXW pc=0 dst=r2 src=r1 offset=44 imm=0
 #line 26 "sample/bindmonitor_ringbuf.c"
-    READ_ONCE_32(r2, r1, OFFSET(44));
-    // EBPF_OP_JNE_IMM pc=1 dst=r2 src=r0 offset=8 imm=0
+    r2 = *(uint32_t*)(uintptr_t)(r1 + OFFSET(44));
+    //  pc=1 dst=r2 src=r0 offset=8 imm=0
 #line 26 "sample/bindmonitor_ringbuf.c"
-    if (r2 != IMMEDIATE(0)) {
+    if ((uint32_t)r2 != IMMEDIATE(0)) {
 #line 26 "sample/bindmonitor_ringbuf.c"
         goto label_1;
 #line 26 "sample/bindmonitor_ringbuf.c"
     }
     // EBPF_OP_LDXDW pc=2 dst=r2 src=r1 offset=0 imm=0
 #line 28 "sample/bindmonitor_ringbuf.c"
-    READ_ONCE_64(r2, r1, OFFSET(0));
+    r2 = *(uint64_t*)(uintptr_t)(r1 + OFFSET(0));
     // EBPF_OP_LDXDW pc=3 dst=r3 src=r1 offset=8 imm=0
 #line 28 "sample/bindmonitor_ringbuf.c"
-    READ_ONCE_64(r3, r1, OFFSET(8));
-    // EBPF_OP_JGE_REG pc=4 dst=r2 src=r3 offset=5 imm=0
+    r3 = *(uint64_t*)(uintptr_t)(r1 + OFFSET(8));
+    // EBPF_OP_JLE_REG pc=4 dst=r3 src=r2 offset=5 imm=0
 #line 28 "sample/bindmonitor_ringbuf.c"
-    if (r2 >= r3) {
+    if (r3 <= r2) {
 #line 28 "sample/bindmonitor_ringbuf.c"
         goto label_1;
 #line 28 "sample/bindmonitor_ringbuf.c"
@@ -139,9 +139,11 @@ bind_monitor(void* context, const program_runtime_context_t* runtime_context)
 #line 29 "sample/bindmonitor_ringbuf.c"
     }
 label_1:
-    // EBPF_OP_MOV64_IMM pc=10 dst=r0 src=r0 offset=0 imm=0
+    // EBPF_OP_MOV_IMM pc=10 dst=r0 src=r0 offset=0 imm=0
 #line 36 "sample/bindmonitor_ringbuf.c"
     r0 = IMMEDIATE(0);
+#line 36 "sample/bindmonitor_ringbuf.c"
+    r0 &= UINT32_MAX;
     // EBPF_OP_EXIT pc=11 dst=r0 src=r0 offset=0 imm=0
 #line 36 "sample/bindmonitor_ringbuf.c"
     return r0;
@@ -180,8 +182,8 @@ _get_programs(_Outptr_result_buffer_(*count) program_entry_t** programs, _Out_ s
 static void
 _get_version(_Out_ bpf2c_version_t* version)
 {
-    version->major = 1;
-    version->minor = 1;
+    version->major = 0;
+    version->minor = 22;
     version->revision = 0;
 }
 

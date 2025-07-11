@@ -99,23 +99,23 @@ bind_monitor(void* context, const program_runtime_context_t* runtime_context)
 
     // EBPF_OP_LDXW pc=0 dst=r2 src=r1 offset=44 imm=0
 #line 28 "sample/bindmonitor_perf_event_array.c"
-    READ_ONCE_32(r2, r1, OFFSET(44));
-    // EBPF_OP_JNE_IMM pc=1 dst=r2 src=r0 offset=12 imm=0
+    r2 = *(uint32_t*)(uintptr_t)(r1 + OFFSET(44));
+    //  pc=1 dst=r2 src=r0 offset=12 imm=0
 #line 28 "sample/bindmonitor_perf_event_array.c"
-    if (r2 != IMMEDIATE(0)) {
+    if ((uint32_t)r2 != IMMEDIATE(0)) {
 #line 28 "sample/bindmonitor_perf_event_array.c"
         goto label_1;
 #line 28 "sample/bindmonitor_perf_event_array.c"
     }
     // EBPF_OP_LDXDW pc=2 dst=r4 src=r1 offset=0 imm=0
 #line 28 "sample/bindmonitor_perf_event_array.c"
-    READ_ONCE_64(r4, r1, OFFSET(0));
+    r4 = *(uint64_t*)(uintptr_t)(r1 + OFFSET(0));
     // EBPF_OP_LDXDW pc=3 dst=r5 src=r1 offset=8 imm=0
 #line 28 "sample/bindmonitor_perf_event_array.c"
-    READ_ONCE_64(r5, r1, OFFSET(8));
-    // EBPF_OP_JGE_REG pc=4 dst=r4 src=r5 offset=9 imm=0
+    r5 = *(uint64_t*)(uintptr_t)(r1 + OFFSET(8));
+    // EBPF_OP_JLE_REG pc=4 dst=r5 src=r4 offset=9 imm=0
 #line 28 "sample/bindmonitor_perf_event_array.c"
-    if (r4 >= r5) {
+    if (r5 <= r4) {
 #line 28 "sample/bindmonitor_perf_event_array.c"
         goto label_1;
 #line 28 "sample/bindmonitor_perf_event_array.c"
@@ -148,9 +148,11 @@ bind_monitor(void* context, const program_runtime_context_t* runtime_context)
 #line 31 "sample/bindmonitor_perf_event_array.c"
     }
 label_1:
-    // EBPF_OP_MOV64_IMM pc=14 dst=r0 src=r0 offset=0 imm=0
+    // EBPF_OP_MOV_IMM pc=14 dst=r0 src=r0 offset=0 imm=0
 #line 39 "sample/bindmonitor_perf_event_array.c"
     r0 = IMMEDIATE(0);
+#line 39 "sample/bindmonitor_perf_event_array.c"
+    r0 &= UINT32_MAX;
     // EBPF_OP_EXIT pc=15 dst=r0 src=r0 offset=0 imm=0
 #line 39 "sample/bindmonitor_perf_event_array.c"
     return r0;
@@ -189,8 +191,8 @@ _get_programs(_Outptr_result_buffer_(*count) program_entry_t** programs, _Out_ s
 static void
 _get_version(_Out_ bpf2c_version_t* version)
 {
-    version->major = 1;
-    version->minor = 1;
+    version->major = 0;
+    version->minor = 22;
     version->revision = 0;
 }
 

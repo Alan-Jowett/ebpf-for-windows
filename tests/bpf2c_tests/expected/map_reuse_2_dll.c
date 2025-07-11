@@ -171,12 +171,14 @@ lookup_update(void* context, const program_runtime_context_t* runtime_context)
 #line 50 "sample/undocked/map_reuse_2.c"
     r10 = (uintptr_t)((uint8_t*)stack + sizeof(stack));
 
-    // EBPF_OP_MOV64_IMM pc=0 dst=r6 src=r0 offset=0 imm=0
+    // EBPF_OP_MOV_IMM pc=0 dst=r6 src=r0 offset=0 imm=0
 #line 50 "sample/undocked/map_reuse_2.c"
     r6 = IMMEDIATE(0);
+#line 50 "sample/undocked/map_reuse_2.c"
+    r6 &= UINT32_MAX;
     // EBPF_OP_STXW pc=1 dst=r10 src=r6 offset=-4 imm=0
 #line 52 "sample/undocked/map_reuse_2.c"
-    WRITE_ONCE_32(r10, (uint32_t)r6, OFFSET(-4));
+    *(uint32_t*)(uintptr_t)(r10 + OFFSET(-4)) = (uint32_t)r6;
     // EBPF_OP_MOV64_REG pc=2 dst=r2 src=r10 offset=0 imm=0
 #line 52 "sample/undocked/map_reuse_2.c"
     r2 = r10;
@@ -199,12 +201,12 @@ lookup_update(void* context, const program_runtime_context_t* runtime_context)
 #line 56 "sample/undocked/map_reuse_2.c"
     if (r0 == IMMEDIATE(0)) {
 #line 56 "sample/undocked/map_reuse_2.c"
-        goto label_2;
+        goto label_1;
 #line 56 "sample/undocked/map_reuse_2.c"
     }
     // EBPF_OP_STXW pc=8 dst=r10 src=r6 offset=-8 imm=0
 #line 57 "sample/undocked/map_reuse_2.c"
-    WRITE_ONCE_32(r10, (uint32_t)r6, OFFSET(-8));
+    *(uint32_t*)(uintptr_t)(r10 + OFFSET(-8)) = (uint32_t)r6;
     // EBPF_OP_MOV64_REG pc=9 dst=r2 src=r10 offset=0 imm=0
 #line 57 "sample/undocked/map_reuse_2.c"
     r2 = r10;
@@ -223,37 +225,38 @@ lookup_update(void* context, const program_runtime_context_t* runtime_context)
         return 0;
 #line 58 "sample/undocked/map_reuse_2.c"
     }
-    // EBPF_OP_JNE_IMM pc=13 dst=r0 src=r0 offset=1 imm=0
+    // EBPF_OP_JEQ_IMM pc=13 dst=r0 src=r0 offset=14 imm=0
 #line 59 "sample/undocked/map_reuse_2.c"
-    if (r0 != IMMEDIATE(0)) {
+    if (r0 == IMMEDIATE(0)) {
 #line 59 "sample/undocked/map_reuse_2.c"
         goto label_1;
 #line 59 "sample/undocked/map_reuse_2.c"
     }
-    // EBPF_OP_JA pc=14 dst=r0 src=r0 offset=13 imm=0
+    // EBPF_OP_MOV_IMM pc=14 dst=r1 src=r0 offset=0 imm=0
 #line 59 "sample/undocked/map_reuse_2.c"
-    goto label_2;
-label_1:
-    // EBPF_OP_STXW pc=15 dst=r10 src=r6 offset=-12 imm=0
+    r1 = IMMEDIATE(0);
+#line 59 "sample/undocked/map_reuse_2.c"
+    r1 &= UINT32_MAX;
+    // EBPF_OP_STXW pc=15 dst=r10 src=r1 offset=-12 imm=0
 #line 61 "sample/undocked/map_reuse_2.c"
-    WRITE_ONCE_32(r10, (uint32_t)r6, OFFSET(-12));
+    *(uint32_t*)(uintptr_t)(r10 + OFFSET(-12)) = (uint32_t)r1;
     // EBPF_OP_LDXW pc=16 dst=r1 src=r0 offset=0 imm=0
 #line 62 "sample/undocked/map_reuse_2.c"
-    READ_ONCE_32(r1, r0, OFFSET(0));
+    r1 = *(uint32_t*)(uintptr_t)(r0 + OFFSET(0));
     // EBPF_OP_STXW pc=17 dst=r10 src=r1 offset=-16 imm=0
 #line 62 "sample/undocked/map_reuse_2.c"
-    WRITE_ONCE_32(r10, (uint32_t)r1, OFFSET(-16));
+    *(uint32_t*)(uintptr_t)(r10 + OFFSET(-16)) = (uint32_t)r1;
     // EBPF_OP_MOV64_REG pc=18 dst=r2 src=r10 offset=0 imm=0
 #line 62 "sample/undocked/map_reuse_2.c"
     r2 = r10;
     // EBPF_OP_ADD64_IMM pc=19 dst=r2 src=r0 offset=0 imm=-12
-#line 61 "sample/undocked/map_reuse_2.c"
+#line 62 "sample/undocked/map_reuse_2.c"
     r2 += IMMEDIATE(-12);
     // EBPF_OP_MOV64_REG pc=20 dst=r3 src=r10 offset=0 imm=0
-#line 61 "sample/undocked/map_reuse_2.c"
+#line 62 "sample/undocked/map_reuse_2.c"
     r3 = r10;
     // EBPF_OP_ADD64_IMM pc=21 dst=r3 src=r0 offset=0 imm=-16
-#line 61 "sample/undocked/map_reuse_2.c"
+#line 62 "sample/undocked/map_reuse_2.c"
     r3 += IMMEDIATE(-16);
     // EBPF_OP_LDDW pc=22 dst=r1 src=r1 offset=0 imm=3
 #line 63 "sample/undocked/map_reuse_2.c"
@@ -275,11 +278,13 @@ label_1:
     }
     // EBPF_OP_LDXW pc=27 dst=r6 src=r6 offset=0 imm=0
 #line 65 "sample/undocked/map_reuse_2.c"
-    READ_ONCE_32(r6, r6, OFFSET(0));
-label_2:
-    // EBPF_OP_MOV64_REG pc=28 dst=r0 src=r6 offset=0 imm=0
+    r6 = *(uint32_t*)(uintptr_t)(r6 + OFFSET(0));
+label_1:
+    // EBPF_OP_MOV_REG pc=28 dst=r0 src=r6 offset=0 imm=0
 #line 69 "sample/undocked/map_reuse_2.c"
     r0 = r6;
+#line 69 "sample/undocked/map_reuse_2.c"
+    r0 &= UINT32_MAX;
     // EBPF_OP_EXIT pc=29 dst=r0 src=r0 offset=0 imm=0
 #line 69 "sample/undocked/map_reuse_2.c"
     return r0;
@@ -318,8 +323,8 @@ _get_programs(_Outptr_result_buffer_(*count) program_entry_t** programs, _Out_ s
 static void
 _get_version(_Out_ bpf2c_version_t* version)
 {
-    version->major = 1;
-    version->minor = 1;
+    version->major = 0;
+    version->minor = 22;
     version->revision = 0;
 }
 
