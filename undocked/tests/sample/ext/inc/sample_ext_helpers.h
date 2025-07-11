@@ -53,7 +53,7 @@ EBPF_HELPER(int64_t, sample_ebpf_extension_helper_function1, (sample_program_con
  * @param[in] arg_size Length of pattern buffer.
  * @returns Offset of the input buffer where the patter begins.
  */
-EBPF_HELPER(int64_t, sample_ebpf_extension_find, (void* buffer, size_t size, void* find, size_t arg_size));
+EBPF_HELPER(int64_t, sample_ebpf_extension_find, (void* buffer, uint64_t size, void* find, uint64_t arg_size));
 #ifndef __doxygen
 #define sample_ebpf_extension_find ((sample_ebpf_extension_find_t)SAMPLE_EXT_HELPER_FN_BASE + 2)
 #endif
@@ -71,7 +71,7 @@ EBPF_HELPER(int64_t, sample_ebpf_extension_find, (void* buffer, size_t size, voi
 EBPF_HELPER(
     int64_t,
     sample_ebpf_extension_replace,
-    (void* buffer, size_t size, int64_t position, void* replace, size_t arg_size));
+    (void* buffer, uint64_t size, int64_t position, void* replace, uint64_t arg_size));
 #ifndef __doxygen
 #define sample_ebpf_extension_replace ((sample_ebpf_extension_replace_t)SAMPLE_EXT_HELPER_FN_BASE + 3)
 #endif
