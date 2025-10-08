@@ -357,7 +357,8 @@ TEST_CASE("valid bpf_load_program_xattr-jit", "[libbpf][deprecated]") { _test_va
 #endif
 
 // Define macros that appear in the Linux man page to values in ebpf_vm_isa.h.
-#define BPF_LD_MAP_FD(reg, fd) {INST_OP_LDDW_IMM, (reg), 1, 0, (fd)}, {0}
+#define BPF_LD_MAP_FD(reg, fd) \
+    {INST_OP_LDDW_IMM, (reg), 1, 0, (fd)}, { 0 }
 #define BPF_ALU64_IMM(op, reg, imm) {INST_CLS_ALU64 | INST_SRC_IMM | ((op) << 4), (reg), 0, 0, (imm)}
 #define BPF_MOV64_IMM(reg, imm) {INST_CLS_ALU64 | INST_SRC_IMM | 0xb0, (reg), 0, 0, (imm)}
 #define BPF_MOV64_REG(dst, src) {INST_CLS_ALU64 | INST_SRC_REG | 0xb0, (dst), (src), 0, 0}
@@ -530,7 +531,7 @@ _test_bpf_object_load_with_o_from_memory()
 
     REQUIRE(bpf_program__set_type(program, BPF_PROG_TYPE_CGROUP_SOCK_ADDR) == 0);
 
-      struct bpf_map* map = bpf_object__next_map(object, nullptr);
+    struct bpf_map* map = bpf_object__next_map(object, nullptr);
     REQUIRE(map != nullptr);
     REQUIRE(strcmp(bpf_map__name(map), "socket_cookie_map") == 0);
     REQUIRE(bpf_map__fd(map) == ebpf_fd_invalid);

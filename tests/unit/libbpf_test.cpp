@@ -2196,7 +2196,7 @@ TEST_CASE("libbpf_prog_type_by_name_test", "[libbpf]")
     bpf_prog_type prog_type;
     bpf_attach_type expected_attach_type;
 
-     // Try a cross-platform type.
+    // Try a cross-platform type.
     REQUIRE(libbpf_prog_type_by_name("sockops", &prog_type, &expected_attach_type) == 0);
     REQUIRE(prog_type == BPF_PROG_TYPE_SOCK_OPS);
     REQUIRE(expected_attach_type == BPF_CGROUP_SOCK_OPS);
