@@ -643,6 +643,42 @@ TEMPLATE_TEST_CASE("connection_test_connect_hard_permit", "[sock_addr_tests]", A
          }});
 }
 
+// auth_connect tests - using AUTH_CONNECT attach type for egress filtering.
+TEMPLATE_TEST_CASE("connection_test_auth_connect", "[sock_addr_tests]", ALL_CONNECTION_TEST_PARAMS)
+{
+    constexpr ADDRESS_FAMILY family = std::tuple_element_t<0, TestType>::value;
+    constexpr IPPROTO protocol = std::tuple_element_t<1, TestType>::value;
+    execute_connection_test(
+        {.name = "connection_test_auth_connect",
+         .address_family = family,
+         .protocol = protocol,
+         .modules{
+             {{.object_file = "cgroup_sock_addr",
+               .programs{
+                   {{(family == AF_INET) ? "authorize_auth_connect4" : "authorize_auth_connect6",
+                     (family == AF_INET) ? BPF_CGROUP_INET4_AUTH_CONNECT : BPF_CGROUP_INET6_AUTH_CONNECT},
+                    {(family == AF_INET) ? "authorize_recv_accept4" : "authorize_recv_accept6",
+                     (family == AF_INET) ? BPF_CGROUP_INET4_RECV_ACCEPT : BPF_CGROUP_INET6_RECV_ACCEPT}}}}}},
+         .tests{
+             {
+                 .description = "Initial reject egress+ingress",
+             },
+             {
+                 .description = "Hard permit egress, reject ingress",
+                 .egress_verdict = BPF_SOCK_ADDR_VERDICT_PROCEED_HARD,
+             },
+             {
+                 .description = "Soft permit egress, reject ingress",
+                 .egress_verdict = BPF_SOCK_ADDR_VERDICT_PROCEED_SOFT,
+             },
+             {
+                 .description = "Soft permit egress+ingress",
+                 .expected_result = connection_test_result::allow,
+                 .ingress_verdict = BPF_SOCK_ADDR_VERDICT_PROCEED_SOFT,
+             },
+         }});
+}
+
 // Bind policy basic functionality tests.
 TEMPLATE_TEST_CASE("bind_policy_basic", "[bind_tests]", ALL_CONNECTION_TEST_PARAMS)
 {
