@@ -12,13 +12,6 @@
 // Local definition of null GUID to avoid redefinition warnings
 static const GUID _ebpf_null_guid = {0, 0, 0, {0, 0, 0, 0, 0, 0, 0, 0}};
 
-// Structure to track namespace per process.
-typedef struct _ebpf_namespace_entry
-{
-    uint64_t process_start_key; ///< Process start key as the hash table key.
-    GUID namespace;             ///< The namespace GUID for this process.
-} ebpf_namespace_entry_t;
-
 // Hash table to track namespaces per process.
 static ebpf_hash_table_t* _ebpf_namespace_table = NULL;
 
@@ -29,7 +22,7 @@ ebpf_namespace_initiate()
 
     ebpf_hash_table_creation_options_t options = {0};
     options.key_size = sizeof(uint64_t);
-    options.value_size = sizeof(ebpf_namespace_entry_t);
+    options.value_size = sizeof(GUID);
     options.allocate = ebpf_epoch_allocate_with_tag;
     options.free = ebpf_epoch_free;
     options.minimum_bucket_count = 16;
@@ -51,7 +44,7 @@ ebpf_namespace_get_current()
 {
     ebpf_result_t result;
     uint64_t process_start_key;
-    ebpf_namespace_entry_t* entry = NULL;
+    GUID* namespace_ptr = NULL;
     GUID namespace = _ebpf_null_guid;
 
     if (_ebpf_namespace_table == NULL) {
@@ -60,9 +53,9 @@ ebpf_namespace_get_current()
 
     process_start_key = ebpf_platform_get_process_start_key();
 
-    result = ebpf_hash_table_find(_ebpf_namespace_table, (const uint8_t*)&process_start_key, (uint8_t**)&entry);
-    if (result == EBPF_SUCCESS && entry != NULL) {
-        namespace = entry->namespace;
+    result = ebpf_hash_table_find(_ebpf_namespace_table, (const uint8_t*)&process_start_key, (uint8_t**)&namespace_ptr);
+    if (result == EBPF_SUCCESS && namespace_ptr != NULL) {
+        namespace = *namespace_ptr;
     }
 
     return namespace;
@@ -73,8 +66,7 @@ ebpf_namespace_set_current(_In_ const GUID* namespace_guid)
 {
     ebpf_result_t result;
     uint64_t process_start_key;
-    ebpf_namespace_entry_t entry = {0};
-    ebpf_namespace_entry_t* existing_entry = NULL;
+    GUID* existing_namespace = NULL;
 
     if (_ebpf_namespace_table == NULL) {
         return EBPF_INVALID_ARGUMENT;
@@ -85,22 +77,20 @@ ebpf_namespace_set_current(_In_ const GUID* namespace_guid)
     }
 
     process_start_key = ebpf_platform_get_process_start_key();
-    entry.process_start_key = process_start_key;
-    entry.namespace = *namespace_guid;
 
     // Check if entry already exists
     result =
-        ebpf_hash_table_find(_ebpf_namespace_table, (const uint8_t*)&process_start_key, (uint8_t**)&existing_entry);
+        ebpf_hash_table_find(_ebpf_namespace_table, (const uint8_t*)&process_start_key, (uint8_t**)&existing_namespace);
     if (result == EBPF_SUCCESS) {
         // Update existing entry
-        existing_entry->namespace = *namespace_guid;
+        *existing_namespace = *namespace_guid;
         result = EBPF_SUCCESS;
     } else {
         // Insert new entry
         result = ebpf_hash_table_update(
             _ebpf_namespace_table,
             (const uint8_t*)&process_start_key,
-            (const uint8_t*)&entry,
+            (const uint8_t*)namespace_guid,
             EBPF_HASH_TABLE_OPERATION_INSERT);
     }
 
