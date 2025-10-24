@@ -163,7 +163,7 @@ extern "C"
         ebpf_list_entry_t object_list_entry;                 ///< Entry in the object list.
         volatile int32_t pinned_path_count;                  ///< Number of pinned paths for this object.
         struct _ebpf_epoch_work_item* free_object_work_item; ///< Work item to free this object when the epoch ends.
-        GUID namespace; ///< The namespace this object is part of. Zero GUID by default.
+        GUID object_namespace; ///< The namespace this object is part of. Zero GUID by default.
     } ebpf_core_object_t;
 
     /**

@@ -523,29 +523,6 @@ Done:
 }
 
 _Must_inspect_result_ ebpf_result_t
-ebpf_set_namespace(_In_ const GUID* namespace_guid)
-{
-    EBPF_LOG_ENTRY();
-    ebpf_result_t return_value;
-
-    if (namespace_guid == NULL) {
-        return_value = EBPF_INVALID_ARGUMENT;
-        goto Done;
-    }
-
-    return_value = ebpf_namespace_set_current(namespace_guid);
-
-Done:
-    EBPF_RETURN_RESULT(return_value);
-}
-
-GUID
-ebpf_get_current_namespace()
-{
-    return ebpf_namespace_get_current();
-}
-
-_Must_inspect_result_ ebpf_result_t
 ebpf_core_create_map(
     _In_ const cxplat_utf8_string_t* map_name,
     _In_ const ebpf_map_definition_in_memory_t* ebpf_map_definition,

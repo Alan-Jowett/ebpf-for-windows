@@ -3,14 +3,14 @@
 
 #define EBPF_FILE_ID EBPF_FILE_ID_NAMESPACE
 
+#include "ebpf_epoch.h"
 #include "ebpf_hash_table.h"
 #include "ebpf_namespace.h"
 #include "ebpf_platform.h"
 #include "ebpf_tracelog.h"
 
-#ifndef GUID_NULL
-static const GUID GUID_NULL = {0, 0, 0, {0, 0, 0, 0, 0, 0, 0, 0}};
-#endif
+// Local definition of null GUID to avoid redefinition warnings
+static const GUID _ebpf_null_guid = {0, 0, 0, {0, 0, 0, 0, 0, 0, 0, 0}};
 
 // Structure to track namespace per process.
 typedef struct _ebpf_namespace_entry
@@ -27,8 +27,14 @@ ebpf_namespace_initiate()
 {
     ebpf_result_t return_value;
 
-    return_value = ebpf_hash_table_create(
-        &_ebpf_namespace_table, ebpf_allocate, ebpf_free, sizeof(uint64_t), sizeof(ebpf_namespace_entry_t), NULL, NULL);
+    ebpf_hash_table_creation_options_t options = {0};
+    options.key_size = sizeof(uint64_t);
+    options.value_size = sizeof(ebpf_namespace_entry_t);
+    options.allocate = ebpf_epoch_allocate_with_tag;
+    options.free = ebpf_epoch_free;
+    options.minimum_bucket_count = 16;
+
+    return_value = ebpf_hash_table_create(&_ebpf_namespace_table, &options);
 
     return return_value;
 }
@@ -46,10 +52,10 @@ ebpf_namespace_get_current()
     ebpf_result_t result;
     uint64_t process_start_key;
     ebpf_namespace_entry_t* entry = NULL;
-    GUID namespace = GUID_NULL;
+    GUID namespace = _ebpf_null_guid;
 
     if (_ebpf_namespace_table == NULL) {
-        return GUID_NULL;
+        return _ebpf_null_guid;
     }
 
     process_start_key = ebpf_platform_get_process_start_key();

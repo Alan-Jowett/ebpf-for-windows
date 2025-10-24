@@ -295,25 +295,6 @@ extern "C"
         _In_reads_(count_of_maps) const ebpf_handle_t* map_handles,
         _Out_writes_(count_of_maps) uintptr_t* map_value_addresses);
 
-    /**
-     * @brief Set the namespace for the current process.
-     *
-     * @param[in] namespace_guid The namespace GUID to set for the current process.
-     * @retval EBPF_SUCCESS The operation was successful.
-     * @retval EBPF_INVALID_ARGUMENT The namespace_guid parameter is NULL.
-     * @retval EBPF_NO_MEMORY Unable to allocate resources for this operation.
-     */
-    _Must_inspect_result_ ebpf_result_t
-    ebpf_set_namespace(_In_ const GUID* namespace_guid);
-
-    /**
-     * @brief Get the namespace for the current process.
-     *
-     * @return The namespace GUID for the current process, or GUID_NULL if not set.
-     */
-    GUID
-    ebpf_get_current_namespace();
-
 #ifdef __cplusplus
 }
 #endif

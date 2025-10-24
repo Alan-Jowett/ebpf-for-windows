@@ -213,7 +213,7 @@ ebpf_object_initialize(
     object->notify_user_reference_count_zeroed = notify_user_reference_count_zeroed;
     object->get_program_type = get_program_type;
     object->id = ebpf_interlocked_increment_int32((volatile int32_t*)&_ebpf_next_id);
-    object->namespace = ebpf_namespace_get_current();
+    object->object_namespace = ebpf_namespace_get_current();
 
     ebpf_list_initialize(&object->object_list_entry);
     ebpf_epoch_work_item_t* free_object_work_item = NULL;
@@ -405,7 +405,7 @@ _ebpf_object_match_object_type_and_namespace(
     }
 
     // Check namespace
-    if (!IsEqualGUID(&object->namespace, &context->namespace)) {
+    if (!IsEqualGUID(&object->object_namespace, &context->namespace)) {
         return false;
     }
 
@@ -488,7 +488,7 @@ ebpf_object_reference_next_object(
 
         // Skip entries that are not in the current namespace.
         GUID current_namespace = ebpf_namespace_get_current();
-        if (!IsEqualGUID(&object->namespace, &current_namespace)) {
+        if (!IsEqualGUID(&object->object_namespace, &current_namespace)) {
             continue;
         }
 
@@ -535,7 +535,7 @@ ebpf_object_reference_by_id(
 
     // Skip entries that are not in the current namespace.
     GUID current_namespace = ebpf_namespace_get_current();
-    if (!IsEqualGUID(&found_object->namespace, &current_namespace)) {
+    if (!IsEqualGUID(&found_object->object_namespace, &current_namespace)) {
         result = EBPF_KEY_NOT_FOUND;
         goto Done;
     }
@@ -582,7 +582,7 @@ ebpf_object_pointer_by_id(ebpf_id_t id, ebpf_object_type_t object_type, _Outptr_
 
     // Skip entries that are not in the current namespace.
     GUID current_namespace = ebpf_namespace_get_current();
-    if (!IsEqualGUID(&found_object->namespace, &current_namespace)) {
+    if (!IsEqualGUID(&found_object->object_namespace, &current_namespace)) {
         result = EBPF_KEY_NOT_FOUND;
         goto Done;
     }
