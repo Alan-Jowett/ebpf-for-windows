@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: MIT
 
 #include "cxplat.h"
-#include "ebpf_core.h"
 #include "ebpf_epoch.h"
 #include "ebpf_handle.h"
 #include "ebpf_hash_table.h"
+#include "ebpf_namespace.h"
 #include "ebpf_object.h"
 #include "ebpf_shared_framework.h"
 #include "ebpf_tracelog.h"
@@ -213,7 +213,7 @@ ebpf_object_initialize(
     object->notify_user_reference_count_zeroed = notify_user_reference_count_zeroed;
     object->get_program_type = get_program_type;
     object->id = ebpf_interlocked_increment_int32((volatile int32_t*)&_ebpf_next_id);
-    object->namespace = ebpf_get_current_namespace();
+    object->namespace = ebpf_namespace_get_current();
 
     ebpf_list_initialize(&object->object_list_entry);
     ebpf_epoch_work_item_t* free_object_work_item = NULL;
@@ -432,7 +432,7 @@ ebpf_object_get_next_id(ebpf_id_t start_id, ebpf_object_type_t object_type, _Out
     // TODO: https://github.com/microsoft/ebpf-for-windows/issues/2985
     // Switch this to a data structure that supports sorted iteration.
     ebpf_id_entry_t* entry = NULL;
-    ebpf_object_match_context_t context = {.object_type = object_type, .namespace = ebpf_get_current_namespace()};
+    ebpf_object_match_context_t context = {.object_type = object_type, .namespace = ebpf_namespace_get_current()};
     ebpf_result_t result = ebpf_hash_table_next_key_and_value_sorted(
         _ebpf_id_table,
         start_id ? (const uint8_t*)&start_id : NULL,
@@ -487,7 +487,7 @@ ebpf_object_reference_next_object(
         }
 
         // Skip entries that are not in the current namespace.
-        GUID current_namespace = ebpf_get_current_namespace();
+        GUID current_namespace = ebpf_namespace_get_current();
         if (!IsEqualGUID(&object->namespace, &current_namespace)) {
             continue;
         }
@@ -534,7 +534,7 @@ ebpf_object_reference_by_id(
     }
 
     // Skip entries that are not in the current namespace.
-    GUID current_namespace = ebpf_get_current_namespace();
+    GUID current_namespace = ebpf_namespace_get_current();
     if (!IsEqualGUID(&found_object->namespace, &current_namespace)) {
         result = EBPF_KEY_NOT_FOUND;
         goto Done;
@@ -581,7 +581,7 @@ ebpf_object_pointer_by_id(ebpf_id_t id, ebpf_object_type_t object_type, _Outptr_
     }
 
     // Skip entries that are not in the current namespace.
-    GUID current_namespace = ebpf_get_current_namespace();
+    GUID current_namespace = ebpf_namespace_get_current();
     if (!IsEqualGUID(&found_object->namespace, &current_namespace)) {
         result = EBPF_KEY_NOT_FOUND;
         goto Done;

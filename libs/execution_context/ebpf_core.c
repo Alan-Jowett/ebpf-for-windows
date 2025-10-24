@@ -11,6 +11,7 @@
 #include "ebpf_handle.h"
 #include "ebpf_link.h"
 #include "ebpf_maps.h"
+#include "ebpf_namespace.h"
 #include "ebpf_native.h"
 #include "ebpf_pinning_table.h"
 #include "ebpf_program.h"
@@ -22,13 +23,6 @@
 
 #include <errno.h>
 #include <stdlib.h>
-
-// Structure to track namespace per process.
-typedef struct _ebpf_namespace_entry
-{
-    uint64_t process_start_key; ///< Process start key as the hash table key.
-    GUID namespace;             ///< The namespace GUID for this process.
-} ebpf_namespace_entry_t;
 
 const NPI_MODULEID ebpf_general_helper_function_module_id = {
     sizeof(ebpf_general_helper_function_module_id),
@@ -43,9 +37,6 @@ const NPI_MODULEID ebpf_general_helper_function_module_id = {
 };
 
 static ebpf_pinning_table_t* _ebpf_core_map_pinning_table = NULL;
-
-// Hash table to track namespaces per process.
-static ebpf_hash_table_t* _ebpf_core_namespace_table = NULL;
 
 // Assume enabled until we can query it.
 // Extern variable defined in ebpf_core_jit.h
@@ -306,14 +297,7 @@ ebpf_core_initiate()
         goto Done;
     }
 
-    return_value = ebpf_hash_table_create(
-        &_ebpf_core_namespace_table,
-        ebpf_allocate,
-        ebpf_free,
-        sizeof(uint64_t),
-        sizeof(ebpf_namespace_entry_t),
-        NULL,
-        NULL);
+    return_value = ebpf_namespace_initiate();
     if (return_value != EBPF_SUCCESS) {
         goto Done;
     }
@@ -375,8 +359,7 @@ ebpf_core_terminate()
 
     ebpf_core_terminate_pinning_table();
 
-    ebpf_hash_table_destroy(_ebpf_core_namespace_table);
-    _ebpf_core_namespace_table = NULL;
+    ebpf_namespace_terminate();
 
     ebpf_state_terminate();
 
@@ -550,7 +533,7 @@ ebpf_set_namespace(_In_ const GUID* namespace_guid)
         goto Done;
     }
 
-    return_value = _ebpf_core_set_current_namespace(namespace_guid);
+    return_value = ebpf_namespace_set_current(namespace_guid);
 
 Done:
     EBPF_RETURN_RESULT(return_value);
@@ -559,7 +542,7 @@ Done:
 GUID
 ebpf_get_current_namespace()
 {
-    return _ebpf_core_get_current_namespace();
+    return ebpf_namespace_get_current();
 }
 
 _Must_inspect_result_ ebpf_result_t
@@ -2256,7 +2239,7 @@ _ebpf_core_protocol_set_namespace(_In_ const ebpf_operation_set_namespace_reques
     EBPF_LOG_ENTRY();
     ebpf_result_t result;
 
-    result = _ebpf_core_set_current_namespace(&request->namespace_guid);
+    result = ebpf_namespace_set_current(&request->namespace_guid);
 
     EBPF_RETURN_RESULT(result);
 }
@@ -2717,78 +2700,6 @@ _ebpf_core_get_current_thread_create_time(
     UNREFERENCED_PARAMETER(ctx);
 
     return PsGetThreadCreateTime(KeGetCurrentThread());
-}
-
-/**
- * @brief Get the current namespace for the calling process.
- *
- * @return The namespace GUID for the current process, or GUID_NULL if not set.
- */
-static GUID
-_ebpf_core_get_current_namespace()
-{
-    ebpf_result_t result;
-    uint64_t process_start_key;
-    ebpf_namespace_entry_t* entry = NULL;
-    GUID namespace = GUID_NULL;
-
-    if (_ebpf_core_namespace_table == NULL) {
-        return GUID_NULL;
-    }
-
-    process_start_key = PsGetProcessStartKey(IoGetCurrentProcess());
-
-    result = ebpf_hash_table_find(_ebpf_core_namespace_table, (const uint8_t*)&process_start_key, (uint8_t**)&entry);
-    if (result == EBPF_SUCCESS && entry != NULL) {
-        namespace = entry->namespace;
-    }
-
-    return namespace;
-}
-
-/**
- * @brief Set the namespace for the calling process.
- *
- * @param[in] namespace_guid The namespace GUID to set for the current process.
- * @return EBPF_SUCCESS on success, error code on failure.
- */
-static ebpf_result_t
-_ebpf_core_set_current_namespace(_In_ const GUID* namespace_guid)
-{
-    ebpf_result_t result;
-    uint64_t process_start_key;
-    ebpf_namespace_entry_t entry = {0};
-    ebpf_namespace_entry_t* existing_entry = NULL;
-
-    if (_ebpf_core_namespace_table == NULL) {
-        return EBPF_INVALID_ARGUMENT;
-    }
-
-    if (namespace_guid == NULL) {
-        return EBPF_INVALID_ARGUMENT;
-    }
-
-    process_start_key = PsGetProcessStartKey(IoGetCurrentProcess());
-    entry.process_start_key = process_start_key;
-    entry.namespace = *namespace_guid;
-
-    // Check if entry already exists
-    result = ebpf_hash_table_find(
-        _ebpf_core_namespace_table, (const uint8_t*)&process_start_key, (uint8_t**)&existing_entry);
-    if (result == EBPF_SUCCESS) {
-        // Update existing entry
-        existing_entry->namespace = *namespace_guid;
-        result = EBPF_SUCCESS;
-    } else {
-        // Insert new entry
-        result = ebpf_hash_table_update(
-            _ebpf_core_namespace_table,
-            (const uint8_t*)&process_start_key,
-            (const uint8_t*)&entry,
-            EBPF_HASH_TABLE_OPERATION_INSERT);
-    }
-
-    return result;
 }
 
 typedef enum _ebpf_protocol_call_type

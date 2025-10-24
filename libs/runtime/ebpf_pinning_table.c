@@ -16,9 +16,9 @@
 
 #define EBPF_FILE_ID EBPF_FILE_ID_PINNING_TABLE
 
-#include "ebpf_core.h"
 #include "ebpf_core_structs.h"
 #include "ebpf_hash_table.h"
+#include "ebpf_namespace.h"
 #include "ebpf_object.h"
 #include "ebpf_pinning_table.h"
 #include "ebpf_tracelog.h"
@@ -195,7 +195,7 @@ ebpf_pinning_table_find(
         ebpf_core_object_t* found_object = (*existing_pinning_entry)->object;
 
         // Check if the object is in the current namespace
-        GUID current_namespace = ebpf_get_current_namespace();
+        GUID current_namespace = ebpf_namespace_get_current();
         if (!IsEqualGUID(&found_object->namespace, &current_namespace)) {
             return_value = EBPF_OBJECT_NOT_FOUND;
         } else {
@@ -226,7 +226,7 @@ ebpf_pinning_table_delete(ebpf_pinning_table_t* pinning_table, const cxplat_utf8
         entry = *existing_pinning_entry;
 
         // Check if the object is in the current namespace
-        GUID current_namespace = ebpf_get_current_namespace();
+        GUID current_namespace = ebpf_namespace_get_current();
         if (!IsEqualGUID(&entry->object->namespace, &current_namespace)) {
             return_value = EBPF_OBJECT_NOT_FOUND;
             entry = NULL;
@@ -320,7 +320,7 @@ ebpf_pinning_table_enumerate_entries(
         }
 
         // Skip entries that are not in the current namespace.
-        GUID current_namespace = ebpf_get_current_namespace();
+        GUID current_namespace = ebpf_namespace_get_current();
         if (!IsEqualGUID(&(*next_pinning_entry)->object->namespace, &current_namespace)) {
             continue;
         }
@@ -447,7 +447,7 @@ ebpf_pinning_table_get_next_path(
     // Get the next entry in the table.
     cxplat_utf8_string_t* next_object_path;
     ebpf_pinning_table_match_context_t context = {
-        .object_type = *object_type, .namespace = ebpf_get_current_namespace()};
+        .object_type = *object_type, .namespace = ebpf_namespace_get_current()};
     result = ebpf_hash_table_next_key_and_value_sorted(
         pinning_table->hash_table,
         previous_key,
