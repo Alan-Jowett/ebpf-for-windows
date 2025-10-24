@@ -67,14 +67,14 @@ extern "C"
     } ebpf_api_program_info_t;
 
     /**
-      * @brief Get list of programs and stats in an eBPF file.
-      * @param[in] file Name of file containing eBPF programs.
-      * @param[in] verbose Obtain additional info about the programs.
-      * @param[out] infos On success points to a list of eBPF programs.
-      * The caller is responsible for freeing the list via ebpf_free_programs().
-      * @param[out] error_message On failure points to a text description of
-      *  the error.
-      */
+     * @brief Get list of programs and stats in an eBPF file.
+     * @param[in] file Name of file containing eBPF programs.
+     * @param[in] verbose Obtain additional info about the programs.
+     * @param[out] infos On success points to a list of eBPF programs.
+     * The caller is responsible for freeing the list via ebpf_free_programs().
+     * @param[out] error_message On failure points to a text description of
+     *  the error.
+     */
     _Must_inspect_result_ ebpf_result_t
     ebpf_enumerate_programs(
         _In_z_ const char* file,
@@ -797,6 +797,17 @@ extern "C"
         perf_buffer_lost_fn lost_cb,
         _In_opt_ void* ctx,
         _In_opt_ const struct ebpf_perf_buffer_opts* opts) EBPF_NO_EXCEPT;
+
+    /**
+     * @brief Set the namespace for the current process.
+     *
+     * @param[in] namespace_guid The namespace GUID to set for the current process.
+     * @retval EBPF_SUCCESS The operation was successful.
+     * @retval EBPF_INVALID_ARGUMENT The namespace_guid parameter is NULL.
+     * @retval EBPF_NO_MEMORY Unable to allocate resources for this operation.
+     */
+    _Must_inspect_result_ ebpf_result_t
+    ebpf_set_namespace(_In_ const GUID* namespace_guid) EBPF_NO_EXCEPT;
 
 #ifdef __cplusplus
 }

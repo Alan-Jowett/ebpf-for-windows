@@ -16,6 +16,7 @@
 
 #define EBPF_FILE_ID EBPF_FILE_ID_PINNING_TABLE
 
+#include "ebpf_core.h"
 #include "ebpf_core_structs.h"
 #include "ebpf_hash_table.h"
 #include "ebpf_object.h"
@@ -191,8 +192,16 @@ ebpf_pinning_table_find(
         pinning_table->hash_table, (const uint8_t*)&existing_key, (uint8_t**)&existing_pinning_entry);
 
     if (return_value == EBPF_SUCCESS) {
-        *object = (*existing_pinning_entry)->object;
-        EBPF_OBJECT_ACQUIRE_REFERENCE(*object);
+        ebpf_core_object_t* found_object = (*existing_pinning_entry)->object;
+
+        // Check if the object is in the current namespace
+        GUID current_namespace = ebpf_get_current_namespace();
+        if (!IsEqualGUID(&found_object->namespace, &current_namespace)) {
+            return_value = EBPF_OBJECT_NOT_FOUND;
+        } else {
+            *object = found_object;
+            EBPF_OBJECT_ACQUIRE_REFERENCE(*object);
+        }
     }
 
     ebpf_lock_unlock(&pinning_table->lock, state);
@@ -215,10 +224,18 @@ ebpf_pinning_table_delete(ebpf_pinning_table_t* pinning_table, const cxplat_utf8
         pinning_table->hash_table, (const uint8_t*)&existing_key, (uint8_t**)&existing_pinning_entry);
     if (return_value == EBPF_SUCCESS) {
         entry = *existing_pinning_entry;
-        return_value = ebpf_hash_table_delete(pinning_table->hash_table, (const uint8_t*)&existing_key);
-        // If unable to remove the entry from the table, don't delete it.
-        if (return_value != EBPF_SUCCESS) {
+
+        // Check if the object is in the current namespace
+        GUID current_namespace = ebpf_get_current_namespace();
+        if (!IsEqualGUID(&entry->object->namespace, &current_namespace)) {
+            return_value = EBPF_OBJECT_NOT_FOUND;
             entry = NULL;
+        } else {
+            return_value = ebpf_hash_table_delete(pinning_table->hash_table, (const uint8_t*)&existing_key);
+            // If unable to remove the entry from the table, don't delete it.
+            if (return_value != EBPF_SUCCESS) {
+                entry = NULL;
+            }
         }
     }
     ebpf_lock_unlock(&pinning_table->lock, state);
@@ -268,7 +285,8 @@ ebpf_pinning_table_enumerate_entries(
     }
 
     // Allocate the output array for storing the pinning entries.
-    local_pinning_entries = (ebpf_pinning_entry_t*)ebpf_allocate_with_tag(sizeof(ebpf_pinning_entry_t) * entries_array_length, EBPF_POOL_TAG_DEFAULT);
+    local_pinning_entries = (ebpf_pinning_entry_t*)ebpf_allocate_with_tag(
+        sizeof(ebpf_pinning_entry_t) * entries_array_length, EBPF_POOL_TAG_DEFAULT);
     if (local_pinning_entries == NULL) {
         result = EBPF_NO_MEMORY;
         goto Exit;
@@ -298,6 +316,12 @@ ebpf_pinning_table_enumerate_entries(
 
         // Skip entries that don't match the input object type.
         if (object_type != ebpf_object_get_type((*next_pinning_entry)->object)) {
+            continue;
+        }
+
+        // Skip entries that are not in the current namespace.
+        GUID current_namespace = ebpf_get_current_namespace();
+        if (!IsEqualGUID(&(*next_pinning_entry)->object->namespace, &current_namespace)) {
             continue;
         }
 
@@ -351,6 +375,33 @@ _ebpf_pinning_table_match_object_type(_In_ void* filter_context, _In_ const uint
     return ebpf_object_get_type(entry->object) == object_type;
 }
 
+typedef struct _ebpf_pinning_table_match_context
+{
+    ebpf_object_type_t object_type;
+    GUID namespace;
+} ebpf_pinning_table_match_context_t;
+
+static bool
+_ebpf_pinning_table_match_object_type_and_namespace(
+    _In_ void* filter_context, _In_ const uint8_t* key, _In_ const uint8_t* value)
+{
+    ebpf_pinning_table_match_context_t* context = (ebpf_pinning_table_match_context_t*)filter_context;
+    ebpf_pinning_entry_t* entry = *(ebpf_pinning_entry_t**)value;
+    UNREFERENCED_PARAMETER(key);
+
+    // Check object type
+    if (context->object_type != EBPF_OBJECT_UNKNOWN && ebpf_object_get_type(entry->object) != context->object_type) {
+        return false;
+    }
+
+    // Check namespace
+    if (!IsEqualGUID(&entry->object->namespace, &context->namespace)) {
+        return false;
+    }
+
+    return true;
+}
+
 static int
 _ebpf_pinning_table_compare(_In_ const uint8_t* key1, _In_ const uint8_t* key2)
 {
@@ -395,12 +446,14 @@ ebpf_pinning_table_get_next_path(
 
     // Get the next entry in the table.
     cxplat_utf8_string_t* next_object_path;
+    ebpf_pinning_table_match_context_t context = {
+        .object_type = *object_type, .namespace = ebpf_get_current_namespace()};
     result = ebpf_hash_table_next_key_and_value_sorted(
         pinning_table->hash_table,
         previous_key,
         _ebpf_pinning_table_compare,
-        object_type,
-        _ebpf_pinning_table_match_object_type,
+        &context,
+        _ebpf_pinning_table_match_object_type_and_namespace,
         (uint8_t*)&next_object_path,
         (uint8_t**)&next_pinning_entry);
     if (result != EBPF_SUCCESS) {
