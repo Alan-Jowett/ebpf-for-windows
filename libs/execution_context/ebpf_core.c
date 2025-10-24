@@ -3230,3 +3230,15 @@ Done:
     EBPF_OBJECT_RELEASE_REFERENCE((ebpf_core_object_t*)map);
     EBPF_RETURN_RESULT(retval);
 }
+
+_Must_inspect_result_ ebpf_result_t
+ebpf_core_process_attach()
+{
+    return ebpf_namespace_process_attach();
+}
+
+void
+ebpf_core_process_detach()
+{
+    ebpf_namespace_process_detach();
+}

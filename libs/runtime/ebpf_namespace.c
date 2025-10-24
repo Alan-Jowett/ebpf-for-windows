@@ -58,6 +58,8 @@ ebpf_namespace_get_current()
         namespace = *namespace_ptr;
     }
 
+    ebpf_assert(result == EBPF_SUCCESS);
+
     return namespace;
 }
 
@@ -78,21 +80,35 @@ ebpf_namespace_set_current(_In_ const GUID* namespace_guid)
 
     process_start_key = ebpf_platform_get_process_start_key();
 
-    // Check if entry already exists
+    // Entry should exist (was added during process attach)
     result =
         ebpf_hash_table_find(_ebpf_namespace_table, (const uint8_t*)&process_start_key, (uint8_t**)&existing_namespace);
+    ebpf_assert(result == EBPF_SUCCESS);
     if (result == EBPF_SUCCESS) {
         // Update existing entry
         *existing_namespace = *namespace_guid;
         result = EBPF_SUCCESS;
-    } else {
-        // Insert new entry
-        result = ebpf_hash_table_update(
-            _ebpf_namespace_table,
-            (const uint8_t*)&process_start_key,
-            (const uint8_t*)namespace_guid,
-            EBPF_HASH_TABLE_OPERATION_INSERT);
     }
 
     return result;
+}
+
+_Must_inspect_result_ ebpf_result_t
+ebpf_namespace_process_attach()
+{
+    uint64_t process_start_key;
+    process_start_key = ebpf_platform_get_process_start_key();
+    return ebpf_hash_table_update(
+        _ebpf_namespace_table,
+        (const uint8_t*)&process_start_key,
+        (const uint8_t*)&_ebpf_null_guid,
+        EBPF_HASH_TABLE_OPERATION_INSERT);
+}
+
+void
+ebpf_namespace_process_detach()
+{
+    uint64_t process_start_key;
+    process_start_key = ebpf_platform_get_process_start_key();
+    ebpf_assert_success(ebpf_hash_table_delete(_ebpf_namespace_table, (const uint8_t*)&process_start_key));
 }

@@ -109,9 +109,15 @@ class _test_helper
         state_initiated = true;
         REQUIRE(ebpf_namespace_initiate() == EBPF_SUCCESS);
         namespace_initiated = true;
+        REQUIRE(ebpf_namespace_process_attach() == EBPF_SUCCESS);
+        process_attached = true;
     }
     ~_test_helper()
     {
+        if (process_attached) {
+            ebpf_namespace_process_detach();
+        }
+
         if (namespace_initiated) {
             ebpf_namespace_terminate();
         }
@@ -141,6 +147,7 @@ class _test_helper
     bool state_initiated = false;
     bool object_tracking_initiated = false;
     bool namespace_initiated = false;
+    bool process_attached = false;
 };
 
 struct ebpf_hash_table_destroyer_t
@@ -2145,9 +2152,6 @@ TEST_CASE("namespace_basic_operations", "[platform][namespace]")
     _test_helper test_helper;
     test_helper.initialize();
 
-    // Initialize namespace system
-    REQUIRE(ebpf_namespace_initiate() == EBPF_SUCCESS);
-
     // Test initial state
     GUID initial_namespace = ebpf_namespace_get_current();
     // Initial namespace should be GUID_NULL or some consistent default
@@ -2173,8 +2177,6 @@ TEST_CASE("namespace_basic_operations", "[platform][namespace]")
 
     // Test error handling
     REQUIRE(ebpf_namespace_set_current(nullptr) == EBPF_INVALID_ARGUMENT);
-
-    ebpf_namespace_terminate();
 }
 
 // std::unique_ptr for pining_table with custom deleter

@@ -295,6 +295,25 @@ extern "C"
         _In_reads_(count_of_maps) const ebpf_handle_t* map_handles,
         _Out_writes_(count_of_maps) uintptr_t* map_value_addresses);
 
+    /**
+     * @brief Attach the current process to the eBPF execution context.
+     * This function is called when a user process opens a handle to the eBPF driver,
+     * enabling per-process tracking and namespace isolation.
+     *
+     * @retval EBPF_SUCCESS The operation was successful.
+     * @retval EBPF_NO_MEMORY Unable to allocate resources for this operation.
+     */
+    _Must_inspect_result_ ebpf_result_t
+    ebpf_core_process_attach();
+
+    /**
+     * @brief Detach the current process from the eBPF execution context.
+     * This function is called when a user process closes its handle to the eBPF driver,
+     * performing cleanup for per-process tracking and namespace isolation.
+     */
+    void
+    ebpf_core_process_detach();
+
 #ifdef __cplusplus
 }
 #endif

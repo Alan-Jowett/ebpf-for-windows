@@ -41,6 +41,20 @@ extern "C"
     _Must_inspect_result_ ebpf_result_t
     ebpf_namespace_set_current(_In_ const GUID* namespace_guid);
 
+    /**
+     * @brief On process attach, create the namespace entry for this process.
+     *
+     * @return EBPF_SUCCESS on success, error code on failure.
+     */
+    _Must_inspect_result_ ebpf_result_t
+    ebpf_namespace_process_attach();
+
+    /**
+     * @brief On process detach, delete the namespace entry for this process.
+     */
+    void
+    ebpf_namespace_process_detach();
+
 #ifdef __cplusplus
 }
 #endif
