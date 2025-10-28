@@ -108,7 +108,7 @@ typedef struct _bind_audit_entry
     uint64_t timestamp;    ///< Timestamp from bpf_ktime_get_ns().
 } bind_audit_entry_t;
 
-// Structure to store all helper function results for verification (matches eBPF program)
+// Structure to store all helper function results for verification (matches eBPF program).
 typedef struct _helper_results
 {
     uint32_t interface_type;
