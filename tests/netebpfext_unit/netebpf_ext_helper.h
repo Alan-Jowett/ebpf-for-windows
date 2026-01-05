@@ -48,12 +48,6 @@ typedef class _netebpf_ext_helper
     get_program_info_provider_data(_In_ const GUID& program_info_provider);
 
     FWP_ACTION_TYPE
-    classify_test_packet(_In_ const GUID* layer_guid, NET_IFINDEX if_index)
-    {
-        return usersim_fwp_classify_packet(layer_guid, if_index);
-    }
-
-    FWP_ACTION_TYPE
     test_bind_ipv4(_In_ fwp_classify_parameters_t* parameters) { return usersim_fwp_bind_ipv4(parameters); }
 
     FWP_ACTION_TYPE
@@ -81,10 +75,22 @@ typedef class _netebpf_ext_helper
     }
 
     FWP_ACTION_TYPE
-    test_sock_ops_v4(_In_ fwp_classify_parameters_t* parameters) { return usersim_fwp_sock_ops_v4(parameters); }
+    test_sock_ops_v4(_In_ fwp_classify_parameters_t* parameters, _Out_opt_ uint64_t* flow_id)
+    {
+        return usersim_fwp_sock_ops_v4(parameters, flow_id);
+    }
 
     FWP_ACTION_TYPE
-    test_sock_ops_v6(_In_ fwp_classify_parameters_t* parameters) { return usersim_fwp_sock_ops_v6(parameters); }
+    test_sock_ops_v6(_In_ fwp_classify_parameters_t* parameters, _Out_opt_ uint64_t* flow_id)
+    {
+        return usersim_fwp_sock_ops_v6(parameters, flow_id);
+    }
+
+    void
+    test_sock_ops_v4_remove_flow_context(uint64_t flow_id)
+    {
+        usersim_fwp_sock_ops_v4_remove_flow_context(flow_id);
+    }
 
   private:
     bool trace_initiated = false;

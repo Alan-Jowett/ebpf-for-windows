@@ -45,7 +45,13 @@ _get_hash(_Outptr_result_buffer_maybenull_(*size) const uint8_t** hash, _Out_ si
 
 #pragma data_seg(push, "maps")
 static map_entry_t _maps[] = {
-    {0,
+    {
+     {0, 0},
+     {
+         1,                  // Current Version.
+         80,                 // Struct size up to the last field.
+         80,                 // Total struct size including padding.
+     },
      {
          BPF_MAP_TYPE_ARRAY, // Type of map.
          4,                  // Size in bytes of a map key.
@@ -77,10 +83,26 @@ _get_global_variable_sections(
 }
 
 static helper_function_entry_t test_program_entry_helpers[] = {
-    {1, "helper_id_1"},
-    {65537, "helper_id_65537"},
-    {65538, "helper_id_65538"},
-    {65536, "helper_id_65536"},
+    {
+     {1, 40, 40}, // Version header.
+     1,
+     "helper_id_1",
+    },
+    {
+     {1, 40, 40}, // Version header.
+     65537,
+     "helper_id_65537",
+    },
+    {
+     {1, 40, 40}, // Version header.
+     65538,
+     "helper_id_65538",
+    },
+    {
+     {1, 40, 40}, // Version header.
+     65536,
+     "helper_id_65536",
+    },
 };
 
 static GUID test_program_entry_program_type_guid = {
@@ -134,7 +156,7 @@ test_program_entry(void* context, const program_runtime_context_t* runtime_conte
     r1 = (uint64_t)4294967296;
     // EBPF_OP_STXDW pc=3 dst=r10 src=r1 offset=-8 imm=0
 #line 36 "sample/undocked/test_sample_ebpf.c"
-    *(uint64_t*)(uintptr_t)(r10 + OFFSET(-8)) = (uint64_t)r1;
+    WRITE_ONCE_64(r10, (uint64_t)r1, OFFSET(-8));
     // EBPF_OP_MOV64_REG pc=4 dst=r2 src=r10 offset=0 imm=0
 #line 36 "sample/undocked/test_sample_ebpf.c"
     r2 = r10;
@@ -179,10 +201,10 @@ test_program_entry(void* context, const program_runtime_context_t* runtime_conte
     r7 = r0;
     // EBPF_OP_LDXDW pc=16 dst=r1 src=r6 offset=0 imm=0
 #line 42 "sample/undocked/test_sample_ebpf.c"
-    r1 = *(uint64_t*)(uintptr_t)(r6 + OFFSET(0));
+    READ_ONCE_64(r1, r6, OFFSET(0));
     // EBPF_OP_LDXDW pc=17 dst=r2 src=r6 offset=8 imm=0
 #line 42 "sample/undocked/test_sample_ebpf.c"
-    r2 = *(uint64_t*)(uintptr_t)(r6 + OFFSET(8));
+    READ_ONCE_64(r2, r6, OFFSET(8));
     // EBPF_OP_JGE_REG pc=18 dst=r1 src=r2 offset=15 imm=0
 #line 42 "sample/undocked/test_sample_ebpf.c"
     if (r1 >= r2) {
@@ -224,10 +246,10 @@ test_program_entry(void* context, const program_runtime_context_t* runtime_conte
     }
     // EBPF_OP_LDXDW pc=25 dst=r1 src=r6 offset=0 imm=0
 #line 50 "sample/undocked/test_sample_ebpf.c"
-    r1 = *(uint64_t*)(uintptr_t)(r6 + OFFSET(0));
+    READ_ONCE_64(r1, r6, OFFSET(0));
     // EBPF_OP_LDXDW pc=26 dst=r2 src=r6 offset=8 imm=0
 #line 50 "sample/undocked/test_sample_ebpf.c"
-    r2 = *(uint64_t*)(uintptr_t)(r6 + OFFSET(8));
+    READ_ONCE_64(r2, r6, OFFSET(8));
     // EBPF_OP_SUB64_REG pc=27 dst=r2 src=r1 offset=0 imm=0
 #line 50 "sample/undocked/test_sample_ebpf.c"
     r2 -= r1;
@@ -298,6 +320,7 @@ label_2:
 static program_entry_t _programs[] = {
     {
         0,
+        {1, 144, 144}, // Version header.
         test_program_entry,
         "sample~1",
         "sample_ext",
@@ -323,8 +346,8 @@ _get_programs(_Outptr_result_buffer_(*count) program_entry_t** programs, _Out_ s
 static void
 _get_version(_Out_ bpf2c_version_t* version)
 {
-    version->major = 0;
-    version->minor = 21;
+    version->major = 1;
+    version->minor = 1;
     version->revision = 0;
 }
 

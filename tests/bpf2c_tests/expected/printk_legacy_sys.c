@@ -47,7 +47,7 @@ static const NPI_CLIENT_CHARACTERISTICS _bpf2c_npi_client_characteristics = {
      &_bpf2c_npi_id,
      &_bpf2c_module_id,
      0,
-     &metadata_table}};
+     NULL}};
 
 static NTSTATUS
 _bpf2c_query_npi_module_id(
@@ -140,17 +140,11 @@ _bpf2c_npi_client_attach_provider(
         return STATUS_INVALID_PARAMETER;
     }
 
-#pragma warning(push)
-#pragma warning( \
-    disable : 6387) // Param 3 does not adhere to the specification for the function 'NmrClientAttachProvider'
-    // As per MSDN, client dispatch can be NULL, but SAL does not allow it.
-    // https://docs.microsoft.com/en-us/windows-hardware/drivers/ddi/netioddk/nf-netioddk-nmrclientattachprovider
     status = NmrClientAttachProvider(
-        nmr_binding_handle, client_context, NULL, &provider_binding_context, &provider_dispatch_table);
+        nmr_binding_handle, client_context, &metadata_table, &provider_binding_context, &provider_dispatch_table);
     if (status != STATUS_SUCCESS) {
         goto Done;
     }
-#pragma warning(pop)
     _bpf2c_nmr_provider_handle = nmr_binding_handle;
 
 Done:
@@ -191,10 +185,26 @@ _get_global_variable_sections(
 }
 
 static helper_function_entry_t func_helpers[] = {
-    {12, "helper_id_12"},
-    {13, "helper_id_13"},
-    {14, "helper_id_14"},
-    {15, "helper_id_15"},
+    {
+     {1, 40, 40}, // Version header.
+     12,
+     "helper_id_12",
+    },
+    {
+     {1, 40, 40}, // Version header.
+     13,
+     "helper_id_13",
+    },
+    {
+     {1, 40, 40}, // Version header.
+     14,
+     "helper_id_14",
+    },
+    {
+     {1, 40, 40}, // Version header.
+     15,
+     "helper_id_15",
+    },
 };
 
 static GUID func_program_type_guid = {0x608c517c, 0x6c52, 0x4a26, {0xb6, 0x77, 0xbb, 0x1c, 0x34, 0x42, 0x5a, 0xdf}};
@@ -244,19 +254,19 @@ func(void* context, const program_runtime_context_t* runtime_context)
     r1 = IMMEDIATE(0);
     // EBPF_OP_STXB pc=2 dst=r10 src=r1 offset=-20 imm=0
 #line 31 "sample/printk_legacy.c"
-    *(uint8_t*)(uintptr_t)(r10 + OFFSET(-20)) = (uint8_t)r1;
+    WRITE_ONCE_8(r10, (uint8_t)r1, OFFSET(-20));
     // EBPF_OP_MOV64_IMM pc=3 dst=r6 src=r0 offset=0 imm=1684828783
 #line 31 "sample/printk_legacy.c"
     r6 = IMMEDIATE(1684828783);
     // EBPF_OP_STXW pc=4 dst=r10 src=r6 offset=-24 imm=0
 #line 31 "sample/printk_legacy.c"
-    *(uint32_t*)(uintptr_t)(r10 + OFFSET(-24)) = (uint32_t)r6;
+    WRITE_ONCE_32(r10, (uint32_t)r6, OFFSET(-24));
     // EBPF_OP_LDDW pc=5 dst=r9 src=r0 offset=0 imm=1819043144
 #line 31 "sample/printk_legacy.c"
     r9 = (uint64_t)8583909746840200520;
     // EBPF_OP_STXDW pc=7 dst=r10 src=r9 offset=-32 imm=0
 #line 31 "sample/printk_legacy.c"
-    *(uint64_t*)(uintptr_t)(r10 + OFFSET(-32)) = (uint64_t)r9;
+    WRITE_ONCE_64(r10, (uint64_t)r9, OFFSET(-32));
     // EBPF_OP_MOV64_REG pc=8 dst=r1 src=r10 offset=0 imm=0
 #line 31 "sample/printk_legacy.c"
     r1 = r10;
@@ -283,13 +293,13 @@ func(void* context, const program_runtime_context_t* runtime_context)
     r1 = IMMEDIATE(10);
     // EBPF_OP_STXH pc=14 dst=r10 src=r1 offset=-20 imm=0
 #line 32 "sample/printk_legacy.c"
-    *(uint16_t*)(uintptr_t)(r10 + OFFSET(-20)) = (uint16_t)r1;
+    WRITE_ONCE_16(r10, (uint16_t)r1, OFFSET(-20));
     // EBPF_OP_STXW pc=15 dst=r10 src=r6 offset=-24 imm=0
 #line 32 "sample/printk_legacy.c"
-    *(uint32_t*)(uintptr_t)(r10 + OFFSET(-24)) = (uint32_t)r6;
+    WRITE_ONCE_32(r10, (uint32_t)r6, OFFSET(-24));
     // EBPF_OP_STXDW pc=16 dst=r10 src=r9 offset=-32 imm=0
 #line 32 "sample/printk_legacy.c"
-    *(uint64_t*)(uintptr_t)(r10 + OFFSET(-32)) = (uint64_t)r9;
+    WRITE_ONCE_64(r10, (uint64_t)r9, OFFSET(-32));
     // EBPF_OP_MOV64_REG pc=17 dst=r1 src=r10 offset=0 imm=0
 #line 32 "sample/printk_legacy.c"
     r1 = r10;
@@ -316,13 +326,13 @@ func(void* context, const program_runtime_context_t* runtime_context)
     r1 = (uint64_t)32973392621881680;
     // EBPF_OP_STXDW pc=24 dst=r10 src=r1 offset=-32 imm=0
 #line 35 "sample/printk_legacy.c"
-    *(uint64_t*)(uintptr_t)(r10 + OFFSET(-32)) = (uint64_t)r1;
+    WRITE_ONCE_64(r10, (uint64_t)r1, OFFSET(-32));
     // EBPF_OP_ADD64_REG pc=25 dst=r6 src=r8 offset=0 imm=0
 #line 32 "sample/printk_legacy.c"
     r6 += r8;
     // EBPF_OP_LDXDW pc=26 dst=r3 src=r7 offset=16 imm=0
 #line 35 "sample/printk_legacy.c"
-    r3 = *(uint64_t*)(uintptr_t)(r7 + OFFSET(16));
+    READ_ONCE_64(r3, r7, OFFSET(16));
     // EBPF_OP_MOV64_REG pc=27 dst=r1 src=r10 offset=0 imm=0
 #line 35 "sample/printk_legacy.c"
     r1 = r10;
@@ -349,25 +359,25 @@ func(void* context, const program_runtime_context_t* runtime_context)
     r9 = IMMEDIATE(117);
     // EBPF_OP_STXH pc=33 dst=r10 src=r9 offset=-16 imm=0
 #line 36 "sample/printk_legacy.c"
-    *(uint16_t*)(uintptr_t)(r10 + OFFSET(-16)) = (uint16_t)r9;
+    WRITE_ONCE_16(r10, (uint16_t)r9, OFFSET(-16));
     // EBPF_OP_LDDW pc=34 dst=r1 src=r0 offset=0 imm=1414484560
 #line 36 "sample/printk_legacy.c"
     r1 = (uint64_t)2675202291049386576;
     // EBPF_OP_STXDW pc=36 dst=r10 src=r1 offset=-24 imm=0
 #line 36 "sample/printk_legacy.c"
-    *(uint64_t*)(uintptr_t)(r10 + OFFSET(-24)) = (uint64_t)r1;
+    WRITE_ONCE_64(r10, (uint64_t)r1, OFFSET(-24));
     // EBPF_OP_LDDW pc=37 dst=r8 src=r0 offset=0 imm=977553744
 #line 36 "sample/printk_legacy.c"
     r8 = (uint64_t)2338816401835575632;
     // EBPF_OP_STXDW pc=39 dst=r10 src=r8 offset=-32 imm=0
 #line 36 "sample/printk_legacy.c"
-    *(uint64_t*)(uintptr_t)(r10 + OFFSET(-32)) = (uint64_t)r8;
+    WRITE_ONCE_64(r10, (uint64_t)r8, OFFSET(-32));
     // EBPF_OP_LDXB pc=40 dst=r4 src=r7 offset=48 imm=0
 #line 36 "sample/printk_legacy.c"
-    r4 = *(uint8_t*)(uintptr_t)(r7 + OFFSET(48));
+    READ_ONCE_8(r4, r7, OFFSET(48));
     // EBPF_OP_LDXDW pc=41 dst=r3 src=r7 offset=16 imm=0
 #line 36 "sample/printk_legacy.c"
-    r3 = *(uint64_t*)(uintptr_t)(r7 + OFFSET(16));
+    READ_ONCE_64(r3, r7, OFFSET(16));
     // EBPF_OP_MOV64_REG pc=42 dst=r1 src=r10 offset=0 imm=0
 #line 36 "sample/printk_legacy.c"
     r1 = r10;
@@ -388,40 +398,40 @@ func(void* context, const program_runtime_context_t* runtime_context)
     }
     // EBPF_OP_STXH pc=46 dst=r10 src=r9 offset=-4 imm=0
 #line 38 "sample/printk_legacy.c"
-    *(uint16_t*)(uintptr_t)(r10 + OFFSET(-4)) = (uint16_t)r9;
+    WRITE_ONCE_16(r10, (uint16_t)r9, OFFSET(-4));
     // EBPF_OP_MOV64_IMM pc=47 dst=r1 src=r0 offset=0 imm=622869070
 #line 38 "sample/printk_legacy.c"
     r1 = IMMEDIATE(622869070);
     // EBPF_OP_STXW pc=48 dst=r10 src=r1 offset=-8 imm=0
 #line 38 "sample/printk_legacy.c"
-    *(uint32_t*)(uintptr_t)(r10 + OFFSET(-8)) = (uint32_t)r1;
+    WRITE_ONCE_32(r10, (uint32_t)r1, OFFSET(-8));
     // EBPF_OP_LDDW pc=49 dst=r1 src=r0 offset=0 imm=1145118837
 #line 38 "sample/printk_legacy.c"
     r1 = (uint64_t)4993456540003410037;
     // EBPF_OP_STXDW pc=51 dst=r10 src=r1 offset=-16 imm=0
 #line 38 "sample/printk_legacy.c"
-    *(uint64_t*)(uintptr_t)(r10 + OFFSET(-16)) = (uint64_t)r1;
+    WRITE_ONCE_64(r10, (uint64_t)r1, OFFSET(-16));
     // EBPF_OP_LDDW pc=52 dst=r1 src=r0 offset=0 imm=1414484560
 #line 38 "sample/printk_legacy.c"
     r1 = (uint64_t)2675202291049386576;
     // EBPF_OP_STXDW pc=54 dst=r10 src=r1 offset=-24 imm=0
 #line 38 "sample/printk_legacy.c"
-    *(uint64_t*)(uintptr_t)(r10 + OFFSET(-24)) = (uint64_t)r1;
+    WRITE_ONCE_64(r10, (uint64_t)r1, OFFSET(-24));
     // EBPF_OP_STXDW pc=55 dst=r10 src=r8 offset=-32 imm=0
 #line 38 "sample/printk_legacy.c"
-    *(uint64_t*)(uintptr_t)(r10 + OFFSET(-32)) = (uint64_t)r8;
+    WRITE_ONCE_64(r10, (uint64_t)r8, OFFSET(-32));
     // EBPF_OP_ADD64_REG pc=56 dst=r6 src=r0 offset=0 imm=0
 #line 36 "sample/printk_legacy.c"
     r6 += r0;
     // EBPF_OP_LDXB pc=57 dst=r5 src=r7 offset=40 imm=0
 #line 38 "sample/printk_legacy.c"
-    r5 = *(uint8_t*)(uintptr_t)(r7 + OFFSET(40));
+    READ_ONCE_8(r5, r7, OFFSET(40));
     // EBPF_OP_LDXB pc=58 dst=r4 src=r7 offset=48 imm=0
 #line 38 "sample/printk_legacy.c"
-    r4 = *(uint8_t*)(uintptr_t)(r7 + OFFSET(48));
+    READ_ONCE_8(r4, r7, OFFSET(48));
     // EBPF_OP_LDXDW pc=59 dst=r3 src=r7 offset=16 imm=0
 #line 38 "sample/printk_legacy.c"
-    r3 = *(uint64_t*)(uintptr_t)(r7 + OFFSET(16));
+    READ_ONCE_64(r3, r7, OFFSET(16));
     // EBPF_OP_MOV64_REG pc=60 dst=r1 src=r10 offset=0 imm=0
 #line 38 "sample/printk_legacy.c"
     r1 = r10;
@@ -445,13 +455,13 @@ func(void* context, const program_runtime_context_t* runtime_context)
     r1 = IMMEDIATE(9504);
     // EBPF_OP_STXH pc=65 dst=r10 src=r1 offset=-28 imm=0
 #line 42 "sample/printk_legacy.c"
-    *(uint16_t*)(uintptr_t)(r10 + OFFSET(-28)) = (uint16_t)r1;
+    WRITE_ONCE_16(r10, (uint16_t)r1, OFFSET(-28));
     // EBPF_OP_MOV64_IMM pc=66 dst=r1 src=r0 offset=0 imm=826556738
 #line 42 "sample/printk_legacy.c"
     r1 = IMMEDIATE(826556738);
     // EBPF_OP_STXW pc=67 dst=r10 src=r1 offset=-32 imm=0
 #line 42 "sample/printk_legacy.c"
-    *(uint32_t*)(uintptr_t)(r10 + OFFSET(-32)) = (uint32_t)r1;
+    WRITE_ONCE_32(r10, (uint32_t)r1, OFFSET(-32));
     // EBPF_OP_ADD64_REG pc=68 dst=r6 src=r0 offset=0 imm=0
 #line 37 "sample/printk_legacy.c"
     r6 += r0;
@@ -460,7 +470,7 @@ func(void* context, const program_runtime_context_t* runtime_context)
     r8 = IMMEDIATE(0);
     // EBPF_OP_STXB pc=70 dst=r10 src=r8 offset=-26 imm=0
 #line 42 "sample/printk_legacy.c"
-    *(uint8_t*)(uintptr_t)(r10 + OFFSET(-26)) = (uint8_t)r8;
+    WRITE_ONCE_8(r10, (uint8_t)r8, OFFSET(-26));
     // EBPF_OP_MOV64_REG pc=71 dst=r1 src=r10 offset=0 imm=0
 #line 42 "sample/printk_legacy.c"
     r1 = r10;
@@ -484,13 +494,13 @@ func(void* context, const program_runtime_context_t* runtime_context)
     r1 = (uint64_t)7812660273793483074;
     // EBPF_OP_STXDW pc=77 dst=r10 src=r1 offset=-32 imm=0
 #line 43 "sample/printk_legacy.c"
-    *(uint64_t*)(uintptr_t)(r10 + OFFSET(-32)) = (uint64_t)r1;
+    WRITE_ONCE_64(r10, (uint64_t)r1, OFFSET(-32));
     // EBPF_OP_ADD64_REG pc=78 dst=r6 src=r0 offset=0 imm=0
 #line 42 "sample/printk_legacy.c"
     r6 += r0;
     // EBPF_OP_STXB pc=79 dst=r10 src=r8 offset=-24 imm=0
 #line 43 "sample/printk_legacy.c"
-    *(uint8_t*)(uintptr_t)(r10 + OFFSET(-24)) = (uint8_t)r8;
+    WRITE_ONCE_8(r10, (uint8_t)r8, OFFSET(-24));
     // EBPF_OP_MOV64_REG pc=80 dst=r1 src=r10 offset=0 imm=0
 #line 43 "sample/printk_legacy.c"
     r1 = r10;
@@ -514,16 +524,16 @@ func(void* context, const program_runtime_context_t* runtime_context)
     r1 = (uint64_t)7220718397787750722;
     // EBPF_OP_STXDW pc=86 dst=r10 src=r1 offset=-32 imm=0
 #line 44 "sample/printk_legacy.c"
-    *(uint64_t*)(uintptr_t)(r10 + OFFSET(-32)) = (uint64_t)r1;
+    WRITE_ONCE_64(r10, (uint64_t)r1, OFFSET(-32));
     // EBPF_OP_ADD64_REG pc=87 dst=r6 src=r0 offset=0 imm=0
 #line 43 "sample/printk_legacy.c"
     r6 += r0;
     // EBPF_OP_STXB pc=88 dst=r10 src=r8 offset=-24 imm=0
 #line 44 "sample/printk_legacy.c"
-    *(uint8_t*)(uintptr_t)(r10 + OFFSET(-24)) = (uint8_t)r8;
+    WRITE_ONCE_8(r10, (uint8_t)r8, OFFSET(-24));
     // EBPF_OP_LDXDW pc=89 dst=r3 src=r7 offset=16 imm=0
 #line 44 "sample/printk_legacy.c"
-    r3 = *(uint64_t*)(uintptr_t)(r7 + OFFSET(16));
+    READ_ONCE_64(r3, r7, OFFSET(16));
     // EBPF_OP_MOV64_REG pc=90 dst=r1 src=r10 offset=0 imm=0
 #line 44 "sample/printk_legacy.c"
     r1 = r10;
@@ -547,13 +557,13 @@ func(void* context, const program_runtime_context_t* runtime_context)
     r1 = (uint64_t)31566017637663042;
     // EBPF_OP_STXDW pc=96 dst=r10 src=r1 offset=-32 imm=0
 #line 45 "sample/printk_legacy.c"
-    *(uint64_t*)(uintptr_t)(r10 + OFFSET(-32)) = (uint64_t)r1;
+    WRITE_ONCE_64(r10, (uint64_t)r1, OFFSET(-32));
     // EBPF_OP_ADD64_REG pc=97 dst=r6 src=r0 offset=0 imm=0
 #line 44 "sample/printk_legacy.c"
     r6 += r0;
     // EBPF_OP_LDXDW pc=98 dst=r3 src=r7 offset=16 imm=0
 #line 45 "sample/printk_legacy.c"
-    r3 = *(uint64_t*)(uintptr_t)(r7 + OFFSET(16));
+    READ_ONCE_64(r3, r7, OFFSET(16));
     // EBPF_OP_MOV64_REG pc=99 dst=r1 src=r10 offset=0 imm=0
 #line 45 "sample/printk_legacy.c"
     r1 = r10;
@@ -577,16 +587,16 @@ func(void* context, const program_runtime_context_t* runtime_context)
     r1 = IMMEDIATE(893665602);
     // EBPF_OP_STXW pc=104 dst=r10 src=r1 offset=-32 imm=0
 #line 49 "sample/printk_legacy.c"
-    *(uint32_t*)(uintptr_t)(r10 + OFFSET(-32)) = (uint32_t)r1;
+    WRITE_ONCE_32(r10, (uint32_t)r1, OFFSET(-32));
     // EBPF_OP_ADD64_REG pc=105 dst=r6 src=r0 offset=0 imm=0
 #line 45 "sample/printk_legacy.c"
     r6 += r0;
     // EBPF_OP_STXB pc=106 dst=r10 src=r8 offset=-28 imm=0
 #line 49 "sample/printk_legacy.c"
-    *(uint8_t*)(uintptr_t)(r10 + OFFSET(-28)) = (uint8_t)r8;
+    WRITE_ONCE_8(r10, (uint8_t)r8, OFFSET(-28));
     // EBPF_OP_LDXDW pc=107 dst=r3 src=r7 offset=16 imm=0
 #line 49 "sample/printk_legacy.c"
-    r3 = *(uint64_t*)(uintptr_t)(r7 + OFFSET(16));
+    READ_ONCE_64(r3, r7, OFFSET(16));
     // EBPF_OP_MOV64_REG pc=108 dst=r1 src=r10 offset=0 imm=0
 #line 49 "sample/printk_legacy.c"
     r1 = r10;
@@ -610,7 +620,7 @@ func(void* context, const program_runtime_context_t* runtime_context)
     r1 = (uint64_t)32973392554770754;
     // EBPF_OP_STXDW pc=114 dst=r10 src=r1 offset=-32 imm=0
 #line 50 "sample/printk_legacy.c"
-    *(uint64_t*)(uintptr_t)(r10 + OFFSET(-32)) = (uint64_t)r1;
+    WRITE_ONCE_64(r10, (uint64_t)r1, OFFSET(-32));
     // EBPF_OP_ADD64_REG pc=115 dst=r6 src=r0 offset=0 imm=0
 #line 49 "sample/printk_legacy.c"
     r6 += r0;
@@ -634,19 +644,19 @@ func(void* context, const program_runtime_context_t* runtime_context)
     }
     // EBPF_OP_STXB pc=120 dst=r10 src=r8 offset=-22 imm=0
 #line 53 "sample/printk_legacy.c"
-    *(uint8_t*)(uintptr_t)(r10 + OFFSET(-22)) = (uint8_t)r8;
+    WRITE_ONCE_8(r10, (uint8_t)r8, OFFSET(-22));
     // EBPF_OP_MOV64_IMM pc=121 dst=r1 src=r0 offset=0 imm=25966
 #line 53 "sample/printk_legacy.c"
     r1 = IMMEDIATE(25966);
     // EBPF_OP_STXH pc=122 dst=r10 src=r1 offset=-24 imm=0
 #line 53 "sample/printk_legacy.c"
-    *(uint16_t*)(uintptr_t)(r10 + OFFSET(-24)) = (uint16_t)r1;
+    WRITE_ONCE_16(r10, (uint16_t)r1, OFFSET(-24));
     // EBPF_OP_LDDW pc=123 dst=r1 src=r0 offset=0 imm=623915057
 #line 53 "sample/printk_legacy.c"
     r1 = (uint64_t)8026575779790860337;
     // EBPF_OP_STXDW pc=125 dst=r10 src=r1 offset=-32 imm=0
 #line 53 "sample/printk_legacy.c"
-    *(uint64_t*)(uintptr_t)(r10 + OFFSET(-32)) = (uint64_t)r1;
+    WRITE_ONCE_64(r10, (uint64_t)r1, OFFSET(-32));
     // EBPF_OP_ADD64_REG pc=126 dst=r6 src=r0 offset=0 imm=0
 #line 50 "sample/printk_legacy.c"
     r6 += r0;
@@ -686,6 +696,7 @@ func(void* context, const program_runtime_context_t* runtime_context)
 static program_entry_t _programs[] = {
     {
         0,
+        {1, 144, 144}, // Version header.
         func,
         "bind",
         "bind",
@@ -711,8 +722,8 @@ _get_programs(_Outptr_result_buffer_(*count) program_entry_t** programs, _Out_ s
 static void
 _get_version(_Out_ bpf2c_version_t* version)
 {
-    version->major = 0;
-    version->minor = 21;
+    version->major = 1;
+    version->minor = 1;
     version->revision = 0;
 }
 

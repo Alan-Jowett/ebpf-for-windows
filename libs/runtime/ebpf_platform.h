@@ -38,12 +38,6 @@ extern "C"
 #define EBPF_NS_PER_FILETIME 100
 #define EBPF_FILETIME_PER_MS 10000
 
-    typedef enum _ebpf_code_integrity_state
-    {
-        EBPF_CODE_INTEGRITY_DEFAULT = 0,
-        EBPF_CODE_INTEGRITY_HYPERVISOR_KERNEL_MODE = 1
-    } ebpf_code_integrity_state_t;
-
     typedef struct _ebpf_timer_work_item ebpf_timer_work_item_t;
     typedef struct _ebpf_helper_function_prototype ebpf_helper_function_prototype_t;
 
@@ -133,8 +127,7 @@ extern "C"
      * @brief Allocate pages from physical memory and create a mapping into the
      * system address space with the same pages mapped twice.
      *
-     * @param[in] length Size of memory to allocate (internally this gets rounded
-     * up to a page boundary).
+     * @param[in] length Size of memory to allocate, which must be a multiple of the page size.
      * @return Pointer to an ebpf_memory_descriptor_t on success, NULL on failure.
      */
     _Ret_maybenull_ ebpf_ring_descriptor_t*
@@ -161,13 +154,32 @@ extern "C"
     ebpf_ring_descriptor_get_base_address(_In_ const ebpf_ring_descriptor_t* ring);
 
     /**
-     * @brief Create a read-only mapping in the calling process of the ring buffer.
+     * @brief Create a mapping in the calling process of the ring buffer.
      *
      * @param[in] ring Ring buffer to map.
-     * @return Pointer to the base of the ring buffer.
+     * @param[out] consumer Pointer to the mapped consumer page.
+     * @param[out] producer Pointer to the mapped producer page.
+     * @param[out] data Pointer to the mapped data region.
+     * @retval EBPF_SUCCESS The operation was successful.
+     * @retval EBPF_INVALID_ARGUMENT Unable to map the buffer.
      */
-    _Ret_maybenull_ void*
-    ebpf_ring_map_readonly_user(_In_ const ebpf_ring_descriptor_t* ring);
+    _Must_inspect_result_ ebpf_result_t
+    ebpf_ring_map_user(
+        _In_ ebpf_ring_descriptor_t* ring, _Outptr_ void** consumer, _Outptr_ void** producer, _Outptr_ uint8_t** data);
+
+    /**
+     * @brief Unmap the memory of a ring buffer.
+     *
+     * @param[in] ring Ring buffer to unmap.
+     * @param[in] consumer Address of the consumer mapping.
+     * @param[in] producer Address of the producer mapping.
+     * @param[in] data Address of the data mapping.
+     * @retval EBPF_SUCCESS The operation was successful.
+     * @retval EBPF_INVALID_ARGUMENT Unable to unmap the buffer.
+     */
+    _Must_inspect_result_ ebpf_result_t
+    ebpf_ring_unmap_user(
+        _In_ ebpf_ring_descriptor_t* ring, _In_ const void* consumer, _In_ const void* producer, _In_ const void* data);
 
     /**
      * @brief Allocate and copy a UTF-8 string.
@@ -184,12 +196,15 @@ extern "C"
 
     /**
      * @brief Get the code integrity state from the platform.
-     * @param[out] state The code integrity state being enforced.
+     * @param[out] test_signing_enabled Pointer to a boolean that will be set to true if test signing is enabled, to
+     * false otherwise.
+     * @param[out] hypervisor_kernel_mode_enabled Pointer to a boolean that will be set to true if hypervisor kernel
+     * mode is enabled, to false otherwise.
      * @retval EBPF_SUCCESS The operation was successful.
      * @retval EBPF_NOT_SUPPORTED Unable to obtain state from platform.
      */
     _Must_inspect_result_ ebpf_result_t
-    ebpf_get_code_integrity_state(_Out_ ebpf_code_integrity_state_t* state);
+    ebpf_get_code_integrity_state(_Out_ bool* test_signing_enabled, _Out_ bool* hypervisor_kernel_mode_enabled);
 
     /**
      * @brief Create an instance of a lock.
@@ -246,8 +261,8 @@ extern "C"
      *
      * @return The previous IRQL.
      */
-    _IRQL_requires_max_(DISPATCH_LEVEL) _IRQL_saves_ _IRQL_raises_(DISPATCH_LEVEL) KIRQL
-        ebpf_raise_irql_to_dispatch_if_needed();
+    _IRQL_requires_max_(DISPATCH_LEVEL) _IRQL_saves_
+        _When_(return < DISPATCH_LEVEL, _IRQL_raises_(DISPATCH_LEVEL)) KIRQL ebpf_raise_irql_to_dispatch_if_needed();
 
     /**
      * @brief Lower the CPU's IRQL to the previous IRQL if previous level was below DISPATCH_LEVEL.
@@ -674,17 +689,6 @@ extern "C"
     void
     ebpf_restore_current_thread_cpu_affinity(_In_ GROUP_AFFINITY* old_cpu_affinity);
 
-    typedef _Return_type_success_(return >= 0) LONG NTSTATUS;
-
-    /**
-     * @brief Map an ebpf_result_t to a generic NTSTATUS code.
-     *
-     * @param[in] result ebpf_result_t to map.
-     * @return The generic NTSTATUS code.
-     */
-    NTSTATUS
-    ebpf_result_to_ntstatus(ebpf_result_t result);
-
     /**
      * @brief Map an ebpf_result_t to a generic Win32 error code.
      *
@@ -827,6 +831,27 @@ extern "C"
     ebpf_cryptographic_hash_get_hash_length(_In_ const ebpf_cryptographic_hash_t* hash, _Out_ size_t* length);
 
     /**
+     * @brief Compute the cryptographic hash of a file.
+     *
+     * @param[in] file_name File name to compute the hash of.
+     * @param[in] algorithm Algorithm to use for the hash computation. Recommended value is "SHA256".
+     * @param[out] buffer Buffer to receive the hash value.
+     * @param[in] length Size of the buffer in bytes.
+     * @param[out] output_length Length of the hash value written to the buffer.
+     * @retval EBPF_SUCCESS The operation was successful.
+     * @retval EBPF_NO_MEMORY Unable to allocate resources for the file mapping.
+     * @retval EBPF_INVALID_ARGUMENT An invalid argument was supplied.
+     * @retval EBPF_FILE_NOT_FOUND The specified file was not found.
+     */
+    _Must_inspect_result_ ebpf_result_t
+    ebpf_hash_file_contents(
+        _In_ const cxplat_utf8_string_t* file_name,
+        _In_ const cxplat_utf8_string_t* algorithm,
+        _Out_writes_bytes_(length) uint8_t* buffer,
+        size_t length,
+        _Out_ size_t* output_length);
+
+    /**
      * @brief Should the current thread yield the processor?
      *
      * @retval true Thread should yield the processor.
@@ -935,6 +960,30 @@ extern "C"
     ebpf_driver_get_device_object();
 
     extern bool ebpf_processor_supports_sse42;
+
+    /**
+     * @brief Open a file mapping in read-only mode.
+     *
+     * @param[in] file_name Name of the file to open.
+     * @param[out] file_handle File handle to the opened file.
+     * @param[out] mapping_handle Handle to the file mapping.
+     * @param[out] base_address Base address of the file mapping in the process address space.
+     * @param[out] size Size of the file mapping in bytes.
+     * @retval EBPF_SUCCESS The operation was successful.
+     * @retval EBPF_NO_MEMORY Unable to allocate resources for the file mapping.
+     * @retval EBPF_INVALID_ARGUMENT An invalid argument was supplied.
+     * @retval EBPF_FILE_NOT_FOUND The specified file was not found.
+     */
+    _Must_inspect_result_ ebpf_result_t
+    ebpf_open_readonly_file_mapping(
+        _In_ const cxplat_utf8_string_t* file_name,
+        _Outptr_ HANDLE* file_handle,
+        _Outptr_ HANDLE* mapping_handle,
+        _Outptr_ void** base_address,
+        _Out_ size_t* size);
+
+    void
+    ebpf_close_file_mapping(_In_opt_ HANDLE file_handle, _In_opt_ HANDLE mapping_handle, _In_opt_ void* base_address);
 
 #ifdef __cplusplus
 }

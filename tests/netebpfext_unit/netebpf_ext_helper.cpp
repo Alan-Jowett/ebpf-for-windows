@@ -8,7 +8,10 @@ DEVICE_OBJECT* _net_ebpf_ext_driver_device_object;
 
 constexpr uint32_t _test_destination_ipv4_address = 0x01020304;
 static FWP_BYTE_ARRAY16 _test_destination_ipv6_address = {1, 2, 3, 4};
-constexpr uint16_t _test_destination_port = 1234;
+// _get_sock_addr_action() uses destination_port % SOCK_ADDR_TEST_ACTION_ROUND_ROBIN
+// to get the expected verdict in sock_addr_thread_function().
+// If sock_addr_test_action_t is changed, _test_destination_port may need to be updated as well.
+constexpr uint16_t _test_destination_port = 1235;
 constexpr uint32_t _test_source_ipv4_address = 0x05060708;
 static FWP_BYTE_ARRAY16 _test_source_ipv6_address = {5, 6, 7, 8};
 constexpr uint16_t _test_source_port = 5678;
@@ -69,17 +72,17 @@ _netebpf_ext_helper::_netebpf_ext_helper(
 
     ndis_handle_initialized = true;
 
-    if (!NT_SUCCESS(net_ebpf_ext_register_providers())) {
-        return;
-    }
-
-    provider_registered = true;
-
     if (!NT_SUCCESS(net_ebpf_extension_initialize_wfp_components(device_object))) {
         return;
     }
 
     wfp_initialized = true;
+
+    if (!NT_SUCCESS(net_ebpf_ext_register_providers())) {
+        return;
+    }
+
+    provider_registered = true;
 
     nmr_program_info_client_handle = std::make_unique<nmr_client_registration_t>(&program_info_client, this);
 
@@ -104,12 +107,12 @@ _netebpf_ext_helper::~_netebpf_ext_helper()
         nmr_program_info_client_handle.reset(nullptr);
     }
 
-    if (wfp_initialized) {
-        net_ebpf_extension_uninitialize_wfp_components();
-    }
-
     if (provider_registered) {
         net_ebpf_ext_unregister_providers();
+    }
+
+    if (wfp_initialized) {
+        net_ebpf_extension_uninitialize_wfp_components();
     }
 
     if (ndis_handle_initialized) {

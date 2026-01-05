@@ -14,6 +14,8 @@
 
 CXPLAT_EXTERN_C_BEGIN
 
+#define ARRAY_ELEMENT_INDEX(array, index, element_size) (((uint8_t*)array) + (index * element_size));
+
 #define EBPF_COUNT_OF(arr) (sizeof(arr) / sizeof(arr[0]))
 #define EBPF_FROM_FIELD(s, m, o) (s*)((uint8_t*)o - EBPF_OFFSET_OF(s, m))
 
@@ -49,24 +51,13 @@ typedef enum _ebpf_pool_tag
     EBPF_POOL_TAG_LINK = 'knle',
     EBPF_POOL_TAG_MAP = 'pame',
     EBPF_POOL_TAG_NATIVE = 'vtne',
+    EBPF_POOL_TAG_PINNING = 'nipe',
     EBPF_POOL_TAG_PROGRAM = 'grpe',
     EBPF_POOL_TAG_RANDOM = 'gnre',
     EBPF_POOL_TAG_RING_BUFFER = 'fbre',
     EBPF_POOL_TAG_STATE = 'atse',
 } ebpf_pool_tag_t;
 
-/**
- * @brief Allocate memory.
- * @deprecated Use ebpf_allocate_with_tag() instead.
- * @param[in] size Size of memory to allocate.
- * @param[in] tag Pool tag to use.
- * @returns Pointer to zero-initialized memory block allocated, or null on failure.
- */
-__forceinline __drv_allocatesMem(Mem) _Must_inspect_result_
-    _Ret_writes_maybenull_(size) void* ebpf_allocate(size_t size)
-{
-    return cxplat_allocate(CXPLAT_POOL_FLAG_NON_PAGED, size, EBPF_POOL_TAG_DEFAULT);
-}
 
 __forceinline void
 ebpf_free(_Frees_ptr_opt_ void* pointer)
@@ -128,6 +119,57 @@ ebpf_validate_helper_function_prototype_array(
     _In_reads_(count) const ebpf_helper_function_prototype_t* helper_prototype, uint32_t count);
 
 /**
+ * @brief Validate the extension header for native module helper function entry.
+ * @param[in] native_helper_function_entry_header Pointer to extension header for
+ *            native helper function entry.
+
+ * @returns true if validation succeeds, false otherwise.
+ */
+bool
+ebpf_validate_object_header_native_helper_function_entry(
+    _In_ const ebpf_extension_header_t* native_helper_function_entry_header);
+
+/**
+ * @brief Validate the extension header for native module map entry structure.
+ * @param[in] native_map_entry_header Pointer to extension header for native map entry.
+
+ * @returns true if validation succeeds, false otherwise.
+ */
+bool
+ebpf_validate_object_header_native_map_entry(_In_ const ebpf_extension_header_t* native_map_entry_header);
+
+/**
+ * @brief Validate the extension header for native module program entry structure.
+ * @param[in] native_program_entry_header Pointer to extension header for native program entry.
+
+ * @returns true if validation succeeds, false otherwise.
+ */
+bool
+ebpf_validate_object_header_native_program_entry(_In_ const ebpf_extension_header_t* native_program_entry_header);
+
+/**
+ * @brief Validate the extension header for native map initial values structure.
+ * @param[in] native_map_initial_values_header Pointer to extension header for native map
+ *            initial values structure.
+
+ * @returns true if validation succeeds, false otherwise.
+ */
+bool
+ebpf_validate_object_header_native_map_initial_values(
+    _In_ const ebpf_extension_header_t* native_map_initial_values_header);
+
+/**
+ * @brief Validate the extension header for native global variable section info structure.
+ * @param[in] native_global_variable_section_info_header Pointer to extension header for
+ *            global variable section info structure
+
+ * @returns true if validation succeeds, false otherwise.
+ */
+bool
+ebpf_validate_object_header_native_global_variable_section_info(
+    _In_ const ebpf_extension_header_t* native_global_variable_section_info_header);
+
+/**
  * @brief Helper Function to free ebpf_program_info_t.
  *
  * @param[in] program_info Program info to be freed.
@@ -165,5 +207,19 @@ ebpf_program_data_free(_In_opt_ ebpf_program_data_t* program_data);
 ebpf_result_t
 ebpf_duplicate_program_data(
     _In_ const ebpf_program_data_t* program_data, _Outptr_ ebpf_program_data_t** new_program_data);
+
+/**
+ * @brief Canonicalize a path using filesystem canonicalization rules.
+ *
+ * @param[out] output Buffer in which to write canonicalized path.
+ * @param[in] output_size Size of output buffer.
+ * @param[out] error_code Zero on success, non-zero Win32 error code on failure.
+ *
+ * @retval EBPF_SUCCESS The operation was successful.
+ * @retval EBPF_INVALID_ARGUMENT The input path was invalid.
+ * @retval EBPF_INSUFFICIENT_BUFFER The output buffer did not have sufficient space.
+ */
+ebpf_result_t
+ebpf_canonicalize_path(_Out_writes_(output_size) char* output, size_t output_size, _In_z_ const char* input);
 
 CXPLAT_EXTERN_C_END

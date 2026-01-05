@@ -3,7 +3,6 @@
 
 #include "ebpf_api.h"
 
-#include <crtdbg.h> // For _CrtSetReportMode
 #include <cstdlib>
 #include <io.h>
 #include <stdint.h>
@@ -16,10 +15,9 @@ class _invalid_parameter_suppression
   public:
     _invalid_parameter_suppression()
     {
-        _CrtSetReportMode(_CRT_ASSERT, 0);
-        previous_handler = _set_invalid_parameter_handler(_ignore_invalid_parameter);
+        previous_handler = _set_thread_local_invalid_parameter_handler(_ignore_invalid_parameter);
     }
-    ~_invalid_parameter_suppression() { _set_invalid_parameter_handler(previous_handler); }
+    ~_invalid_parameter_suppression() { _set_thread_local_invalid_parameter_handler(previous_handler); }
 
   private:
     static void
@@ -184,33 +182,36 @@ _update_registry_value(
     return error;
 }
 
-static bool
-_check_service_state(SC_HANDLE service_handle, unsigned long expected_state, _Out_ unsigned long* final_state)
+static DWORD
+_check_service_deleted(const wchar_t* service_name)
 {
 #define MAX_RETRY_COUNT 20
 #define WAIT_TIME_IN_MS 500
 
-    int retry_count = 0;
-    bool status = false;
-    int error;
-    SERVICE_STATUS service_status = {0};
-
-    // Query service state.
-    while (retry_count < MAX_RETRY_COUNT) {
-        if (!QueryServiceStatus(service_handle, &service_status)) {
-            error = GetLastError();
-            break;
-        } else if (service_status.dwCurrentState == expected_state) {
-            status = true;
-            break;
-        } else {
-            Sleep(WAIT_TIME_IN_MS);
-            retry_count++;
-        }
+    SC_HANDLE scm_handle = OpenSCManager(nullptr, nullptr, SC_MANAGER_CONNECT);
+    if (scm_handle == nullptr) {
+        return GetLastError();
     }
 
-    *final_state = service_status.dwCurrentState;
-    return status;
+    DWORD error = ERROR_SERVICE_REQUEST_TIMEOUT;
+    for (int retry_count = 0; retry_count < MAX_RETRY_COUNT; retry_count++) {
+        SC_HANDLE service_handle = OpenService(scm_handle, service_name, SERVICE_QUERY_STATUS);
+
+        if (service_handle == nullptr) {
+            error = GetLastError();
+            break;
+        }
+
+        CloseServiceHandle(service_handle);
+        Sleep(WAIT_TIME_IN_MS);
+    }
+
+    if (error == ERROR_SERVICE_DOES_NOT_EXIST) {
+        error = ERROR_SUCCESS;
+    }
+
+    CloseServiceHandle(scm_handle);
+    return error;
 }
 
 uint32_t
@@ -287,27 +288,30 @@ _delete_service(SC_HANDLE service_handle)
 }
 
 uint32_t
-_stop_service(SC_HANDLE service_handle)
+_stop_and_delete_service(SC_HANDLE service_handle, const wchar_t* service_name)
 {
     SERVICE_STATUS status;
-    bool service_stopped = false;
-    unsigned long service_state;
-    int error = ERROR_SUCCESS;
+    DWORD error = ERROR_SUCCESS;
 
     if (service_handle == nullptr) {
         return EBPF_INVALID_ARGUMENT;
     }
 
     if (!ControlService(service_handle, SERVICE_CONTROL_STOP, &status)) {
-        return GetLastError();
+        error = GetLastError();
+        if (error != ERROR_SERVICE_NOT_ACTIVE) {
+            return error;
+        }
+
+        // Service is already stopped.
     }
 
-    service_stopped = _check_service_state(service_handle, SERVICE_STOPPED, &service_state);
-    if (!service_stopped) {
-        error = ERROR_SERVICE_REQUEST_TIMEOUT;
+    error = _delete_service(service_handle);
+    if (error != ERROR_SUCCESS) {
+        return error;
     }
 
-    return error;
+    return _check_service_deleted(service_name);
 }
 
 } // namespace Platform

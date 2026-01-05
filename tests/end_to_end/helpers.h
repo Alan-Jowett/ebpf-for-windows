@@ -9,9 +9,9 @@
 #include "ebpf_program_types.h"
 #include "ebpf_windows.h"
 #include "net_ebpf_ext_program_info.h"
-#include "net_ebpf_ext_xdp_hooks.h"
 #include "sample_ext_program_info.h"
 #include "usersim/ke.h"
+#include "xdp_hooks.h"
 
 // We need the NET_BUFFER typedefs without the other NT kernel defines that
 // ndis.h might pull in and conflict with user-mode headers.
@@ -21,6 +21,24 @@ typedef LARGE_INTEGER PHYSICAL_ADDRESS, *PPHYSICAL_ADDRESS;
 #include <ndis/nbl.h>
 #endif
 #include <vector>
+
+#define CONCAT(s1, s2) s1 s2
+#define DECLARE_TEST_CASE(_name, _group, _function, _suffix, _execution_type) \
+    TEST_CASE(CONCAT(_name, _suffix), _group) { _function(_execution_type); }
+#define DECLARE_NATIVE_TEST(_name, _group, _function) \
+    DECLARE_TEST_CASE(_name, _group, _function, "-native", EBPF_EXECUTION_NATIVE)
+#if !defined(CONFIG_BPF_INTERPRETER_DISABLED)
+#define DECLARE_INTERPRET_TEST(_name, _group, _function) \
+    DECLARE_TEST_CASE(_name, _group, _function, "-interpret", EBPF_EXECUTION_INTERPRET)
+#else
+#define DECLARE_INTERPRET_TEST(_name, _group, _function)
+#endif
+
+#define DECLARE_CGROUP_SOCK_ADDR_LOAD_TEST2(file, name, attach_type, name_suffix, file_suffix, execution_type) \
+    TEST_CASE("cgroup_sockaddr_load_test_" name "_" #attach_type "_" name_suffix, "[cgroup_sock_addr]")        \
+    {                                                                                                          \
+        cgroup_sock_addr_load_test(file file_suffix, name, attach_type, execution_type);                       \
+    }
 
 typedef struct _sample_program_context_header
 {
@@ -33,6 +51,18 @@ typedef struct _bind_context_header
     uint64_t context_header[8];
     bind_md_t context;
 } bind_context_header_t;
+
+typedef struct _sock_addr_context_header
+{
+    EBPF_CONTEXT_HEADER;
+    bpf_sock_addr_t context;
+} sock_addr_context_header_t;
+
+typedef struct _sock_ops_context_header
+{
+    EBPF_CONTEXT_HEADER;
+    bpf_sock_ops_t context;
+} sock_ops_context_header_t;
 
 #define INITIALIZE_BIND_CONTEXT      \
     bind_context_header_t header{0}; \
@@ -56,17 +86,16 @@ typedef struct _ebpf_free_memory
 
 typedef std::unique_ptr<uint8_t, ebpf_free_memory_t> ebpf_memory_t;
 
+// Prototype added as the libbpf headers cause conflicts with the execution context headers.
+int
+bpf_link__destroy(bpf_link* link);
+
 typedef struct _close_bpf_link
 {
     void
     operator()(_In_opt_ _Post_invalid_ bpf_link* link)
     {
-        if (link != nullptr) {
-            if (ebpf_link_detach(link) != EBPF_SUCCESS) {
-                throw std::runtime_error("ebpf_link_detach failed");
-            }
-            ebpf_link_close(link);
-        }
+        bpf_link__destroy(link);
     }
 } close_bpf_link_t;
 
@@ -363,12 +392,25 @@ typedef class _single_instance_hook : public _hook_helper
     bpf_link* link_object = nullptr;
 } single_instance_hook_t;
 
-typedef class xdp_md_helper : public xdp_md_t
+// XDP program information.
+static const ebpf_context_descriptor_t _ebpf_xdp_test_context_descriptor = {
+    sizeof(xdp_md_t),
+    EBPF_OFFSET_OF(xdp_md_t, data),
+    EBPF_OFFSET_OF(xdp_md_t, data_end),
+    EBPF_OFFSET_OF(xdp_md_t, data_meta)};
+
+typedef struct _xdp_md_header
+{
+    EBPF_CONTEXT_HEADER;
+    xdp_md_t context;
+} xdp_md_header_t;
+
+typedef class xdp_md_helper : public xdp_md_header_t
 {
   public:
     xdp_md_helper(std::vector<uint8_t>& packet)
-        : xdp_md_t{packet.data(), packet.data() + packet.size()}, _packet(&packet), _begin(0), _end(packet.size()),
-          cloned_nbl(nullptr)
+        : xdp_md_header_t{{0}, {packet.data(), packet.data() + packet.size()}}, _packet(&packet), _begin(0),
+          _end(packet.size()), cloned_nbl(nullptr)
     {
         original_nbl = &_original_nbl_storage;
         _original_nbl_storage.FirstNetBuffer = &_original_nb;
@@ -376,6 +418,24 @@ typedef class xdp_md_helper : public xdp_md_t
         _original_nb.MdlChain = &_original_mdl;
         _original_mdl.byte_count = (unsigned long)packet.size();
         _original_mdl.start_va = packet.data();
+    }
+
+    static inline xdp_md_helper*
+    from_ctx(xdp_md_t* ctx)
+    {
+        return (xdp_md_helper*)CONTAINING_RECORD(ctx, xdp_md_header_t, context);
+    }
+
+    static inline const xdp_md_helper*
+    from_ctx(const xdp_md_t* ctx)
+    {
+        return (xdp_md_helper*)CONTAINING_RECORD(ctx, xdp_md_header_t, context);
+    }
+
+    xdp_md_t*
+    get_ctx()
+    {
+        return &context;
     }
 
     int
@@ -410,8 +470,8 @@ typedef class xdp_md_helper : public xdp_md_t
             }
         }
         // Adjust xdp_md data pointers.
-        data = _packet->data() + _begin;
-        data_end = _packet->data() + _end;
+        context.data = _packet->data() + _begin;
+        context.data_end = _packet->data() + _end;
     Done:
         return return_value;
     }
@@ -431,9 +491,9 @@ typedef class _test_xdp_helper
 {
   public:
     static int
-    adjust_head(_In_ const xdp_md_t* ctx, int delta)
+    adjust_head(_In_ xdp_md_t* ctx, int delta)
     {
-        return ((xdp_md_helper_t*)ctx)->adjust_head(delta);
+        return xdp_md_helper_t::from_ctx(ctx)->adjust_head(delta);
     }
 } test_xdp_helper_t;
 
@@ -448,11 +508,13 @@ _xdp_context_create(
 {
     ebpf_result_t retval = EBPF_FAILED;
     *context = nullptr;
+    xdp_md_t* xdp_context = nullptr;
 
-    xdp_md_t* xdp_context = reinterpret_cast<xdp_md_t*>(malloc(sizeof(xdp_md_t)));
-    if (xdp_context == nullptr) {
+    xdp_md_header_t* xdp_context_header = reinterpret_cast<xdp_md_header_t*>(malloc(sizeof(xdp_md_header_t)));
+    if (xdp_context_header == nullptr) {
         goto Done;
     }
+    xdp_context = &xdp_context_header->context;
 
     if (context_in) {
         if (context_size_in < sizeof(xdp_md_t)) {
@@ -468,10 +530,11 @@ _xdp_context_create(
 
     *context = xdp_context;
     xdp_context = nullptr;
+    xdp_context_header = nullptr;
     retval = EBPF_SUCCESS;
 Done:
-    free(xdp_context);
-    xdp_context = nullptr;
+    free(xdp_context_header);
+    xdp_context_header = nullptr;
     return retval;
 }
 
@@ -488,6 +551,7 @@ _xdp_context_destroy(
     }
 
     xdp_md_t* xdp_context = reinterpret_cast<xdp_md_t*>(context);
+    xdp_md_header_t* xdp_context_header = CONTAINING_RECORD(xdp_context, xdp_md_header_t, context);
     uint8_t* data = reinterpret_cast<uint8_t*>(xdp_context->data);
     uint8_t* data_end = reinterpret_cast<uint8_t*>(xdp_context->data_end);
     size_t data_length = data_end - data;
@@ -505,7 +569,7 @@ _xdp_context_destroy(
         *context_size_out = sizeof(xdp_md_t);
     }
 
-    free(context);
+    free(xdp_context_header);
 }
 
 typedef class _test_global_helper
@@ -642,6 +706,7 @@ _sample_test_context_create(
     }
 
     *context = sample_context;
+    sample_context = nullptr;
     context_header = nullptr;
     retval = EBPF_SUCCESS;
 
@@ -686,6 +751,17 @@ _sample_test_context_destroy(
 // Mock implementation of XDP.
 static const void* _mock_xdp_helper_functions[] = {(void*)&test_xdp_helper_t::adjust_head};
 
+// XDP_TEST helper function prototype descriptors.
+static const ebpf_helper_function_prototype_t _xdp_test_ebpf_extension_helper_function_prototype[] = {
+    {EBPF_HELPER_FUNCTION_PROTOTYPE_HEADER,
+     XDP_EXT_HELPER_FUNCTION_START + 1,
+     "bpf_xdp_adjust_head",
+     EBPF_RETURN_TYPE_INTEGER,
+     {EBPF_ARGUMENT_TYPE_PTR_TO_CTX, EBPF_ARGUMENT_TYPE_ANYTHING},
+     // Flags.
+     {HELPER_FUNCTION_REALLOCATE_PACKET}}};
+
+
 static ebpf_helper_function_addresses_t _mock_xdp_helper_function_address_table = {
     EBPF_HELPER_FUNCTION_ADDRESSES_HEADER,
     EBPF_COUNT_OF(_mock_xdp_helper_functions),
@@ -702,7 +778,9 @@ static const ebpf_program_info_t _mock_xdp_program_info = {
     EBPF_PROGRAM_INFORMATION_HEADER,
     &_mock_xdp_program_type_descriptor,
     EBPF_COUNT_OF(_xdp_test_ebpf_extension_helper_function_prototype),
-    _xdp_test_ebpf_extension_helper_function_prototype};
+    _xdp_test_ebpf_extension_helper_function_prototype,
+    0,
+    NULL};
 
 static ebpf_program_data_t _mock_xdp_program_data = {
     EBPF_PROGRAM_DATA_HEADER,
@@ -710,16 +788,10 @@ static ebpf_program_data_t _mock_xdp_program_data = {
     &_mock_xdp_helper_function_address_table,
     nullptr,
     _xdp_context_create,
-    _xdp_context_destroy};
-
-// XDP_TEST.
-static ebpf_program_data_t _ebpf_xdp_test_program_data = {
-    EBPF_PROGRAM_DATA_HEADER,
-    &_ebpf_xdp_test_program_info,
-    &_mock_xdp_helper_function_address_table,
-    nullptr,
-    _xdp_context_create,
-    _xdp_context_destroy};
+    _xdp_context_destroy,
+    0,
+    {0},
+};
 
 // Bind.
 static ebpf_result_t
@@ -732,12 +804,14 @@ _ebpf_bind_context_create(
 {
     ebpf_result_t retval;
     *context = nullptr;
-
-    bind_md_t* bind_context = reinterpret_cast<bind_md_t*>(ebpf_allocate(sizeof(bind_md_t)));
-    if (bind_context == nullptr) {
+    bind_md_t* bind_context = nullptr;
+    bind_context_header_t* bind_context_header =
+        reinterpret_cast<bind_context_header_t*>(ebpf_allocate_with_tag(sizeof(bind_context_header_t), EBPF_POOL_TAG_DEFAULT));
+    if (bind_context_header == nullptr) {
         retval = EBPF_NO_MEMORY;
         goto Done;
     }
+    bind_context = &bind_context_header->context;
 
     if (context_in) {
         if (context_size_in < sizeof(bind_md_t)) {
@@ -758,10 +832,11 @@ _ebpf_bind_context_create(
 
     *context = bind_context;
     bind_context = nullptr;
+    bind_context_header = nullptr;
     retval = EBPF_SUCCESS;
 Done:
-    ebpf_free(bind_context);
-    bind_context = nullptr;
+    ebpf_free(bind_context_header);
+    bind_context_header = nullptr;
     return retval;
 }
 
@@ -779,14 +854,15 @@ _ebpf_bind_context_destroy(
     }
 
     bind_md_t* bind_context = reinterpret_cast<bind_md_t*>(context);
+    bind_context_header_t* bind_context_header = CONTAINING_RECORD(bind_context, bind_context_header_t, context);
     if (context_out && *context_size_out >= sizeof(bind_md_t)) {
         bind_md_t* provided_context = (bind_md_t*)context_out;
         *provided_context = *bind_context;
         *context_size_out = sizeof(bind_md_t);
     }
 
-    ebpf_free(bind_context);
-    bind_context = nullptr;
+    ebpf_free(bind_context_header);
+    bind_context_header = nullptr;
 
     *data_size_out = 0;
     return;
@@ -797,17 +873,10 @@ static ebpf_program_data_t _ebpf_bind_program_data = {
     .program_info = &_ebpf_bind_program_info,
     .context_create = _ebpf_bind_context_create,
     .context_destroy = _ebpf_bind_context_destroy,
-    .capabilities = {.supports_context_header = true},
+    .capabilities = {0},
 };
 
 // SOCK_ADDR.
-static int
-_ebpf_sock_addr_get_current_pid_tgid(_In_ const bpf_sock_addr_t* ctx)
-{
-    UNREFERENCED_PARAMETER(ctx);
-    return -ENOTSUP;
-}
-
 static int
 _ebpf_sock_addr_set_redirect_context(_In_ const bpf_sock_addr_t* ctx, _In_ void* data, _In_ uint32_t data_size)
 {
@@ -870,11 +939,14 @@ _ebpf_sock_addr_context_create(
     ebpf_result_t retval;
     *context = nullptr;
 
-    bpf_sock_addr_t* sock_addr_context = reinterpret_cast<bpf_sock_addr_t*>(ebpf_allocate(sizeof(bpf_sock_addr_t)));
-    if (sock_addr_context == nullptr) {
+    bpf_sock_addr_t* sock_addr_context = nullptr;
+    sock_addr_context_header_t* sock_addr_context_header =
+        reinterpret_cast<sock_addr_context_header_t*>(ebpf_allocate_with_tag(sizeof(sock_addr_context_header_t), EBPF_POOL_TAG_DEFAULT));
+    if (sock_addr_context_header == nullptr) {
         retval = EBPF_NO_MEMORY;
         goto Done;
     }
+    sock_addr_context = &sock_addr_context_header->context;
 
     if (context_in) {
         if (context_size_in < sizeof(bpf_sock_addr_t)) {
@@ -887,9 +959,10 @@ _ebpf_sock_addr_context_create(
 
     *context = sock_addr_context;
     sock_addr_context = nullptr;
+    sock_addr_context_header = nullptr;
     retval = EBPF_SUCCESS;
 Done:
-    ebpf_free(sock_addr_context);
+    ebpf_free(sock_addr_context_header);
     sock_addr_context = nullptr;
     return retval;
 }
@@ -908,21 +981,22 @@ _ebpf_sock_addr_context_destroy(
     }
 
     bpf_sock_addr_t* sock_addr_context = reinterpret_cast<bpf_sock_addr_t*>(context);
+    sock_addr_context_header_t* sock_addr_context_header =
+        CONTAINING_RECORD(sock_addr_context, sock_addr_context_header_t, context);
     if (context_out && *context_size_out >= sizeof(bpf_sock_addr_t)) {
         bpf_sock_addr_t* provided_context = (bpf_sock_addr_t*)context_out;
         *provided_context = *sock_addr_context;
         *context_size_out = sizeof(bpf_sock_addr_t);
     }
 
-    ebpf_free(sock_addr_context);
-    sock_addr_context = nullptr;
+    ebpf_free(sock_addr_context_header);
+    sock_addr_context_header = nullptr;
 
     *data_size_out = 0;
     return;
 }
 
-static const void* _ebpf_sock_addr_specific_helper_functions[] = {
-    (void*)_ebpf_sock_addr_get_current_pid_tgid, (void*)_ebpf_sock_addr_set_redirect_context};
+static const void* _ebpf_sock_addr_specific_helper_functions[] = {(void*)_ebpf_sock_addr_set_redirect_context};
 
 static ebpf_helper_function_addresses_t _ebpf_sock_addr_specific_helper_function_address_table = {
     EBPF_HELPER_FUNCTION_ADDRESSES_HEADER,
@@ -948,6 +1022,7 @@ static ebpf_program_data_t _ebpf_sock_addr_program_data = {
     .context_create = &_ebpf_sock_addr_context_create,
     .context_destroy = &_ebpf_sock_addr_context_destroy,
     .required_irql = DISPATCH_LEVEL,
+    .capabilities = {0},
 };
 
 // SOCK_OPS.
@@ -989,11 +1064,14 @@ _ebpf_sock_ops_context_create(
     ebpf_result_t retval;
     *context = nullptr;
 
-    bpf_sock_ops_t* sock_ops_context = reinterpret_cast<bpf_sock_ops_t*>(ebpf_allocate(sizeof(bpf_sock_ops_t)));
-    if (sock_ops_context == nullptr) {
+    bpf_sock_ops_t* sock_ops_context = nullptr;
+    sock_ops_context_header_t* sock_ops_context_header =
+        reinterpret_cast<sock_ops_context_header_t*>(ebpf_allocate_with_tag(sizeof(sock_ops_context_header_t), EBPF_POOL_TAG_DEFAULT));
+    if (sock_ops_context_header == nullptr) {
         retval = EBPF_NO_MEMORY;
         goto Done;
     }
+    sock_ops_context = &sock_ops_context_header->context;
 
     if (context_in) {
         if (context_size_in < sizeof(bpf_sock_ops_t)) {
@@ -1006,9 +1084,10 @@ _ebpf_sock_ops_context_create(
 
     *context = sock_ops_context;
     sock_ops_context = nullptr;
+    sock_ops_context_header = nullptr;
     retval = EBPF_SUCCESS;
 Done:
-    ebpf_free(sock_ops_context);
+    ebpf_free(sock_ops_context_header);
     sock_ops_context = nullptr;
     return retval;
 }
@@ -1027,13 +1106,16 @@ _ebpf_sock_ops_context_destroy(
     }
 
     bpf_sock_ops_t* sock_ops_context = reinterpret_cast<bpf_sock_ops_t*>(context);
+    sock_ops_context_header_t* sock_ops_context_header =
+        CONTAINING_RECORD(sock_ops_context, sock_ops_context_header_t, context);
     if (context_out && *context_size_out >= sizeof(bpf_sock_ops_t)) {
         bpf_sock_ops_t* provided_context = (bpf_sock_ops_t*)context_out;
         *provided_context = *sock_ops_context;
         *context_size_out = sizeof(bpf_sock_ops_t);
     }
 
-    ebpf_free(sock_ops_context);
+    ebpf_free(sock_ops_context_header);
+    sock_ops_context_header = nullptr;
 
     *data_size_out = 0;
     return;
@@ -1046,6 +1128,7 @@ static ebpf_program_data_t _ebpf_sock_ops_program_data = {
     .context_create = &_ebpf_sock_ops_context_create,
     .context_destroy = &_ebpf_sock_ops_context_destroy,
     .required_irql = DISPATCH_LEVEL,
+    .capabilities = {0},
 };
 
 // Sample extension.
@@ -1076,7 +1159,8 @@ static ebpf_program_data_t _test_ebpf_sample_extension_program_data = {
     _sample_test_context_create,
     _sample_test_context_destroy,
     0,
-    {.supports_context_header = true}};
+    {0},
+};
 
 #define TEST_EBPF_SAMPLE_EXTENSION_NPI_PROVIDER_VERSION 0
 
@@ -1097,8 +1181,6 @@ typedef class _program_info_provider
             program_data = custom_program_data;
         } else if (program_type == EBPF_PROGRAM_TYPE_XDP) {
             program_data = &_mock_xdp_program_data;
-        } else if (program_type == EBPF_PROGRAM_TYPE_XDP_TEST) {
-            program_data = &_ebpf_xdp_test_program_data;
         } else if (program_type == EBPF_PROGRAM_TYPE_BIND) {
             program_data = &_ebpf_bind_program_data;
         } else if (program_type == EBPF_PROGRAM_TYPE_CGROUP_SOCK_ADDR) {
@@ -1192,3 +1274,43 @@ typedef class _program_info_provider
 #define ETHERNET_TYPE_IPV4 0x0800
 std::vector<uint8_t>
 prepare_udp_packet(uint16_t udp_length, uint16_t ethertype);
+
+class _wait_event
+{
+  public:
+    ebpf_handle_t
+    handle()
+    {
+        initialize();
+        // ObReferenceObjectByHandle in usersim simply reinterprets the handle as a pointer.
+        return reinterpret_cast<ebpf_handle_t>(&_event);
+    }
+
+    KEVENT*
+    operator&()
+    {
+        initialize();
+        return &_event;
+    }
+
+  private:
+    bool _initialized = false;
+    KEVENT _event = {0};
+
+    void
+    initialize()
+    {
+        if (_initialized) {
+            return;
+        }
+
+        KeInitializeEvent(&_event, SynchronizationEvent, FALSE);
+
+        // Take a refcount on the event, without ever dropping it. This avoids
+        // a call to CloseHandle in the ObfDereferenceObject implementation in
+        // usersim.
+        ObfReferenceObject(&_event);
+
+        _initialized = true;
+    }
+};

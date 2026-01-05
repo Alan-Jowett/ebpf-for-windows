@@ -15,7 +15,7 @@ function Write-Log
 
     process
     {
-        if (($null -ne $TraceMessage) -and ![System.String]::IsNullOrEmpty($TraceMessage)) {
+        if (![System.String]::IsNullOrEmpty($TraceMessage)) {
             $timestamp = (Get-Date).ToString('HH:mm:ss')
             Write-Host "[$timestamp] :: $TraceMessage"-ForegroundColor $ForegroundColor
             Write-Output "[$timestamp] :: $TraceMessage" | Out-File "$env:TEMP\$LogFileName" -Append
@@ -32,6 +32,49 @@ function ThrowWithErrorMessage
     Write-Log $ErrorMessage -ForegroundColor Red
     Start-Sleep -Milliseconds 100
     throw $ErrorMessage
+}
+
+function Start-ProcessWithTimeout
+{
+    param(
+        [Parameter(Mandatory=$true)] [string] $FilePath,
+        [Parameter(Mandatory=$false)] [string[]] $ArgumentList = @(),
+        [Parameter(Mandatory=$false)] [int] $TimeoutSeconds = 60
+    )
+
+    # Create temp files for output redirection
+    $tempOut = [System.IO.Path]::GetTempFileName()
+    $tempErr = [System.IO.Path]::GetTempFileName()
+
+    try {
+        Write-Log "Starting process with timeout: $TimeoutSeconds seconds"
+        Write-Log "Executing: $FilePath $($ArgumentList -join ' ')"
+
+        $process = Start-Process -FilePath $FilePath -ArgumentList $ArgumentList -NoNewWindow -PassThru -RedirectStandardOutput $tempOut -RedirectStandardError $tempErr
+        $handle = $process.Handle # Important: this ensures we can access the process info later
+        Write-Log "Process started with ID: $($process.Id)"
+
+        if ($process.WaitForExit($TimeoutSeconds * 1000)) {
+            $exitCode = $process.ExitCode
+            Write-Log "Process completed with exit code: $exitCode"
+            return $exitCode
+        } else {
+            Write-Log "Process timed out after $TimeoutSeconds seconds, terminating process"
+            if (-not $process.HasExited) {
+                $process.Kill()
+                $process.WaitForExit(5000)
+            }
+            Write-Log "Process terminated due to timeout"
+            return -1 # Indicate timeout
+        }
+    } catch {
+        Write-Log "Exception running process: $_" -ForegroundColor Red
+        return -2 # Indicate exception
+    } finally {
+        # Clean up temp files
+        if (Test-Path $tempOut) { Remove-Item $tempOut -Force -ErrorAction SilentlyContinue }
+        if (Test-Path $tempErr) { Remove-Item $tempErr -Force -ErrorAction SilentlyContinue }
+    }
 }
 
 function New-Credential
@@ -52,24 +95,296 @@ function Compress-File
 
     Write-Log "Compressing $SourcePath -> $DestinationPath"
 
-    # Retry 3 times to ensure compression operation succeeds.
+    # Retry 5 times to ensure compression operation succeeds.
     # To mitigate error message: "The process cannot access the file <filename> because it is being used by another process."
     $retryCount = 1
-    while ($retryCount -lt 4) {
-        $error.clear()
-        Compress-Archive `
-            -Path $SourcePath `
-            -DestinationPath $DestinationPath `
-            -CompressionLevel Fastest `
-            -Force
-        if ($error[0] -ne $null) {
-            $ErrorMessage = "*** ERROR *** Failed to compress kernel mode dump files: $error. Retrying $retryCount"
-            Write-Output $ErrorMessage
-            Start-Sleep -seconds (5 * $retryCount)
+    while ($retryCount -le 5) {
+        try {
+            $ErrorActionPreference = "Stop"
+            Compress-Archive `
+                -Path $SourcePath `
+                -DestinationPath $DestinationPath `
+                -CompressionLevel Fastest `
+                -Force
+
+            # Verify the compressed file was actually created.
+            if (Test-Path $DestinationPath) {
+                Write-Log "Compression completed successfully."
+                return $true
+            } else {
+                throw "Compressed file was not created at $DestinationPath"
+            }
+        } catch {
+            $ErrorMessage = "*** ERROR *** Failed to compress files (attempt $retryCount of 5): $($_.Exception.Message)"
+            Write-Log $ErrorMessage
+            if ($retryCount -lt 5) {
+                Start-Sleep -seconds (5 * $retryCount)
+            }
             $retryCount++
+        }
+    }
+
+    # All retries failed.
+    Write-Log "*** ERROR *** Failed to compress after 5 attempts. Compression failed."
+    return $false
+}
+
+<#
+.SYNOPSIS
+    Attempts to compress files and copies them to a destination, with fallback to uncompressed files.
+
+.DESCRIPTION
+    This function standardizes the pattern of trying to compress files and copying the result,
+    with automatic fallback to copying uncompressed files if compression fails.
+
+.PARAMETER SourcePath
+    The source files to compress (supports wildcards like *.dmp).
+
+.PARAMETER DestinationDirectory
+    The directory where the final files should be copied.
+
+.PARAMETER CompressedFileName
+    The name for the compressed file. If not provided, auto-generates based on source.
+
+.OUTPUTS
+    Returns a hashtable with the following properties:
+    - Success: Boolean indicating if compression succeeded
+    - CompressedPath: Path to compressed file (if compression succeeded)
+    - UncompressedPath: Path to uncompressed file (if compression failed)
+    - FinalPath: Path to the final file that was copied
+
+.EXAMPLE
+    $result = CompressOrCopy-File -SourcePath "C:\dumps\*.dmp" -DestinationDirectory "C:\output" -CompressedFileName "dumps.zip"
+    if ($result.Success) {
+        Write-Host "Compression succeeded: $($result.FinalPath)"
+    } else {
+        Write-Host "Compression failed, using uncompressed: $($result.FinalPath)"
+    }
+#>
+function CompressOrCopy-File
+{
+    param(
+        [Parameter(Mandatory=$True)][string] $SourcePath,
+        [Parameter(Mandatory=$True)][string] $DestinationDirectory,
+        [Parameter(Mandatory=$False)][string] $CompressedFileName
+    )
+
+    # Ensure destination directory exists.
+    if (-not (Test-Path $DestinationDirectory -PathType Container)) {
+        New-Item -Path $DestinationDirectory -ItemType Directory -Force | Out-Null
+    }
+
+    # Auto-generate compressed filename if not provided.
+    if (-not $CompressedFileName) {
+        $sourceName = Split-Path $SourcePath -Leaf
+        $CompressedFileName = "$sourceName.zip"
+    }
+
+    # Create temporary path for compression.
+    $tempCompressedPath = Join-Path $env:TEMP $CompressedFileName
+    $finalCompressedPath = Join-Path $DestinationDirectory $CompressedFileName
+
+    # Attempt compression.
+    $compressionSucceeded = Compress-File -SourcePath $SourcePath -DestinationPath $tempCompressedPath
+
+    if ($compressionSucceeded -and (Test-Path $tempCompressedPath)) {
+        # Compression succeeded - copy compressed file.
+        Copy-Item -Path $tempCompressedPath -Destination $finalCompressedPath -Force
+        Remove-Item -Path $tempCompressedPath -Force -ErrorAction Ignore
+
+        $compressedFile = Get-ChildItem -Path $finalCompressedPath
+        Write-Log "Copied compressed file: $($compressedFile.Name), Size: $((($compressedFile.Length) / 1MB).ToString("F2")) MB"
+
+        return @{
+            Success = $true
+            CompressedPath = $finalCompressedPath
+            UncompressedPath = ""
+            FinalPath = $finalCompressedPath
+        }
+    } else {
+        # Compression failed - copy uncompressed files as fallback.
+        Write-Log "*** WARNING *** Compression failed. Copying uncompressed files instead."
+
+        $sourceFiles = Get-ChildItem -Path $SourcePath -ErrorAction SilentlyContinue
+        $copiedPaths = @()
+
+        foreach ($file in $sourceFiles) {
+            $destinationPath = Join-Path $DestinationDirectory $file.Name
+            Copy-Item -Path $file.FullName -Destination $destinationPath -Force
+            Write-Log "Copied uncompressed file: $($file.Name)"
+            $copiedPaths += $destinationPath
+        }
+
+        # Clean up temporary compressed file if it exists.
+        if (Test-Path $tempCompressedPath) {
+            Remove-Item -Path $tempCompressedPath -Force -ErrorAction Ignore
+        }
+
+        return @{
+            Success = $false
+            CompressedPath = ""
+            UncompressedPath = if ($copiedPaths.Count -gt 0) { $copiedPaths -join "; " } else { "" }
+            FinalPath = if ($copiedPaths.Count -gt 0) { $copiedPaths -join "; " } else { "" }
+        }
+    }
+}
+
+<#
+.SYNOPSIS
+    Copies compressed files from a remote session, with fallback to uncompressed files.
+
+.DESCRIPTION
+    This function standardizes the pattern of trying to copy compressed files from a remote session
+    and falling back to uncompressed files if the compressed copy fails.
+
+.PARAMETER VMSession
+    The remote PowerShell session to copy from.
+
+.PARAMETER CompressedSourcePath
+    The path to the compressed file on the remote session.
+
+.PARAMETER UncompressedSourcePath
+    The path to the uncompressed file on the remote session.
+
+.PARAMETER DestinationDirectory
+    The local directory where files should be copied.
+
+.OUTPUTS
+    Returns a hashtable with the following properties:
+    - Success: Boolean indicating if compressed copy succeeded
+    - CompressedPath: Path to compressed file (if compressed copy succeeded)
+    - UncompressedPath: Path to uncompressed file (if compressed copy failed)
+    - FinalPath: Path to the final file that was copied
+
+.EXAMPLE
+    $result = CopyCompressedOrUncompressed-FileFromSession -VMSession $session -CompressedSourcePath "C:\eBPF\trace.zip" -UncompressedSourcePath "C:\eBPF\trace.etl" -DestinationDirectory ".\Logs"
+    if ($result.Success) {
+        Write-Host "Compressed copy succeeded: $($result.FinalPath)"
+    } else {
+        Write-Host "Using uncompressed fallback: $($result.FinalPath)"
+    }
+#>
+function CopyCompressedOrUncompressed-FileFromSession
+{
+    param(
+        [Parameter(Mandatory=$True)] $VMSession,
+        [Parameter(Mandatory=$True)][string] $CompressedSourcePath,
+        [Parameter(Mandatory=$True)][string] $UncompressedSourcePath,
+        [Parameter(Mandatory=$True)][string] $DestinationDirectory,
+        [Parameter(Mandatory=$False)][int] $MaxRetries = 3
+    )
+
+    # Ensure destination directory exists.
+    if (-not (Test-Path $DestinationDirectory -PathType Container)) {
+        New-Item -Path $DestinationDirectory -ItemType Directory -Force | Out-Null
+    }
+
+    $compressedFileName = Split-Path $CompressedSourcePath -Leaf
+    $uncompressedFileName = Split-Path $UncompressedSourcePath -Leaf
+    $compressedDestPath = Join-Path $DestinationDirectory $compressedFileName
+
+    # Try to copy compressed file first with retry logic.
+    Write-Log "Copy $CompressedSourcePath to $DestinationDirectory"
+    $compressedCopySucceeded = $false
+
+    for ($attempt = 1; $attempt -le $MaxRetries; $attempt++) {
+        try {
+            Write-Log "Attempting compressed file copy (attempt $attempt of $MaxRetries)"
+            Copy-Item `
+                -FromSession $VMSession `
+                -Path $CompressedSourcePath `
+                -Destination $DestinationDirectory `
+                -Recurse `
+                -Force `
+                -ErrorAction Stop
+
+            # Check if compressed copy succeeded.
+            if (Test-Path $compressedDestPath) {
+                Write-Log "Successfully copied compressed file: $compressedFileName"
+                $compressedCopySucceeded = $true
+                break
+            }
+        } catch {
+            Write-Log "Compressed file copy attempt $attempt failed: $($_.Exception.Message)"
+            if ($attempt -lt $MaxRetries) {
+                Start-Sleep -Seconds (2 * $attempt)  # Progressive delay
+            }
+        }
+    }
+
+    if ($compressedCopySucceeded) {
+        return @{
+            Success = $true
+            CompressedPath = $compressedDestPath
+            UncompressedPath = ""
+            FinalPath = $compressedDestPath
+        }
+    } else {
+        # Compressed copy failed, try uncompressed with retry logic.
+        Write-Log "Compressed file not found or copy failed, trying uncompressed: Copy $UncompressedSourcePath to $DestinationDirectory"
+        $uncompressedDestPath = Join-Path $DestinationDirectory $uncompressedFileName
+        $uncompressedCopySucceeded = $false
+
+        # Handle wildcard paths by expanding them on the remote session first
+        $sourceFiles = @()
+        if ($UncompressedSourcePath -like "*\*.*") {
+            try {
+                $sourceFiles = Invoke-Command -Session $VMSession -ScriptBlock {
+                    param($Path)
+                    Get-ChildItem -Path $Path -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
+                } -ArgumentList $UncompressedSourcePath -ErrorAction SilentlyContinue
+
+                if ($sourceFiles.Count -eq 0) {
+                    Write-Log "No files found matching pattern: $UncompressedSourcePath"
+                }
+            } catch {
+                Write-Log "Failed to expand wildcard path $UncompressedSourcePath : $($_.Exception.Message)"
+            }
         } else {
-            # Compression succeeded.
-            break;
+            $sourceFiles = @($UncompressedSourcePath)
+        }
+
+        # Copy each file individually with retry logic
+        $anyCopySucceeded = $false
+        foreach ($sourceFile in $sourceFiles) {
+            $fileName = Split-Path $sourceFile -Leaf
+            $destPath = Join-Path $DestinationDirectory $fileName
+
+            for ($attempt = 1; $attempt -le $MaxRetries; $attempt++) {
+                try {
+                    Write-Log "Attempting to copy $sourceFile (attempt $attempt of $MaxRetries)"
+                    Copy-Item `
+                        -FromSession $VMSession `
+                        -Path $sourceFile `
+                        -Destination $DestinationDirectory `
+                        -Force `
+                        -ErrorAction Stop
+
+                    # Check if copy succeeded.
+                    if (Test-Path $destPath) {
+                        Write-Log "Successfully copied uncompressed file: $fileName"
+                        $anyCopySucceeded = $true
+                        $uncompressedDestPath = $destPath  # Update to last successful file
+                        break
+                    }
+                } catch {
+                    Write-Log "Failed to copy $sourceFile (attempt $attempt): $($_.Exception.Message)"
+                    if ($attempt -lt $MaxRetries) {
+                        Start-Sleep -Seconds (2 * $attempt)  # Progressive delay
+                    }
+                }
+            }
+        }
+
+        if (-not $anyCopySucceeded) {
+            Write-Log "*** WARNING *** Failed to copy any files from $UncompressedSourcePath after $MaxRetries attempts each"
+        }
+
+        return @{
+            Success = $false
+            CompressedPath = ""
+            UncompressedPath = $uncompressedDestPath
+            FinalPath = $uncompressedDestPath
         }
     }
 }
@@ -80,9 +395,20 @@ function Wait-TestJobToComplete
            [Parameter(Mandatory = $true)] [PSCustomObject] $Config,
            [Parameter(Mandatory = $true)] [string] $SelfHostedRunnerName,
            [Parameter(Mandatory = $true)] [int] $TestJobTimeout,
-           [Parameter(Mandatory = $true)] [string] $CheckpointPrefix)
+           [Parameter(Mandatory = $true)] [string] $CheckpointPrefix,
+           [Parameter(Mandatory = $false)] [bool] $ExecuteOnHost=$false,
+           [Parameter(Mandatory = $false)] [bool] $ExecuteOnVM=$true,
+           [Parameter(Mandatory = $false)] [PSCredential] $AdminTestVMCredential,
+           [Parameter(Mandatory = $false)] [PSCredential] $StandardUserTestVMCredential,
+           [Parameter(Mandatory = $false)] [bool] $VMIsRemote=$false,
+           [Parameter(Mandatory = $false)] [string] $TestWorkingDirectory="C:\ebpf",
+           [Parameter(Mandatory = $false)] [string] $LogFileName="timeout_kernel_dump.log",
+           [Parameter(Mandatory = $false)] [string] $TestMode="CI/CD",
+           [Parameter(Mandatory = $false)] [string[]] $Options=@("None"),
+           [Parameter(Mandatory = $false)] [int] $TestHangTimeout=(10*60),
+           [Parameter(Mandatory = $false)] [string] $UserModeDumpFolder="C:\Dumps")
     $TimeElapsed = 0
-    # Loop to fetch and print job output in near real-time
+    # Loop to fetch and print job output in near real-time.
     while ($Job.State -eq 'Running') {
         $JobOutput = Receive-Job -Job $job
         $JobOutput | ForEach-Object { Write-Host $_ }
@@ -92,21 +418,45 @@ function Wait-TestJobToComplete
 
         if ($TimeElapsed -gt $TestJobTimeout) {
             if ($Job.State -eq "Running") {
-                $VMList = $Config.VMMap.$SelfHostedRunnerName
-                # currently one VM runs per runner.
-                $TestVMName = $VMList[0].Name
-                Write-Host "Running kernel tests on $TestVMName has timed out after one hour" -ForegroundColor Yellow
-                $Timestamp = Get-Date -Format 'yyyy-MM-dd_HH-mm-ss'
-                $CheckpointName = "$CheckpointPrefix-$TestVMName-Checkpoint-$Timestamp"
-                Write-Log "Taking snapshot $CheckpointName of $TestVMName"
-                Checkpoint-VM -Name $TestVMName -SnapshotName $CheckpointName
+                if ($ExecuteOnVM) {
+                    $VMList = $Config.VMMap.$SelfHostedRunnerName
+                    # Currently one VM runs per runner.
+                    $TestVMName = $VMList[0].Name
+
+                    try {
+                        Write-Host "Running kernel test job on $TestVMName has timed out after $($TestJobTimeout / 60) minutes." -ForegroundColor Yellow
+                        Write-Log "Generating kernel dump due to test timeout on $TestVMName"
+
+                        Import-Module "$PSScriptRoot\vm_run_tests.psm1" -ArgumentList @(
+                            $false,                                    # ExecuteOnHost
+                            $true,                                     # ExecuteOnVM
+                            $VMIsRemote,                               # VMIsRemote
+                            $TestVMName,                               # VMName
+                            $AdminTestVMCredential.UserName,           # Admin
+                            $AdminTestVMCredential.Password,           # AdminPassword
+                            $StandardUserTestVMCredential.UserName,    # StandardUser
+                            $StandardUserTestVMCredential.Password,    # StandardUserPassword
+                            $TestWorkingDirectory,                     # WorkingDirectory
+                            $LogFileName,                              # LogFileName
+                            $TestMode,                                 # TestMode
+                            $Options,                                  # Options
+                            $TestHangTimeout,                          # TestHangTimeout
+                            $UserModeDumpFolder                        # UserModeDumpFolder
+                        ) -Force -WarningAction SilentlyContinue
+
+                        # Generate kernel dump on the VM
+                        Generate-KernelDumpOnVM
+                    } catch {
+                        # Do nothing - this is expected as the VM will crash.
+                    }
+                }
                 $JobTimedOut = $true
                 break
             }
         }
     }
 
-    # Print any remaining output after the job completes
+    # Print any remaining output after the job completes.
     $JobOutput = Receive-Job -Job $job
     $JobOutput | ForEach-Object { Write-Host $_ }
 
@@ -435,51 +785,6 @@ function Get-ZipFileFromUrl {
     }
 }
 
-function Get-LegacyRegressionTestArtifacts
-{
-    $ArifactVersionList = @("0.11.0")
-    $RegressionTestArtifactsPath = "$pwd\regression"
-    if (Test-Path -Path $RegressionTestArtifactsPath) {
-        Remove-Item -Path $RegressionTestArtifactsPath -Recurse -Force
-    }
-    mkdir $RegressionTestArtifactsPath
-
-    # verify Artifacts' folder presense
-    if (-not (Test-Path -Path $RegressionTestArtifactsPath)) {
-        $ErrorMessage = "*** ERROR *** Regression test artifacts folder not found: $RegressionTestArtifactsPath)"
-        Write-Log $ErrorMessage
-        throw $ErrorMessage
-    }
-
-    # Download regression test artifacts for each version.
-    foreach ($ArtifactVersion in $ArifactVersionList)
-    {
-        Write-Log "Downloading legacy regression test artifacts for version $ArtifactVersion"
-        $DownloadPath = "$RegressionTestArtifactsPath\$ArtifactVersion"
-        mkdir $DownloadPath
-        $ArtifactName = "v$ArtifactVersion/Build-x64-native-only-Release.$ArtifactVersion.zip"
-        $ArtifactUrl = "https://github.com/microsoft/ebpf-for-windows/releases/download/" + $ArtifactName
-
-        for ($i = 0; $i -lt 5; $i++) {
-            try {
-                # Download and extract the artifact.
-                Get-ZipFileFromUrl -Url $ArtifactUrl -DownloadFilePath "$DownloadPath\artifact.zip" -OutputDir $DownloadPath
-
-                # Extract the inner zip file.
-                Expand-Archive -Path "$DownloadPath\build-NativeOnlyRelease.zip" -DestinationPath $DownloadPath -Force
-                break
-            } catch {
-                Write-Log -TraceMessage "Iteration $i failed to download $ArtifactUrl. Removing $DownloadPath" -ForegroundColor Red
-                Remove-Item -Path $DownloadPath -Force -ErrorAction Ignore
-                Start-Sleep -Seconds 5
-            }
-        }
-
-        Move-Item -Path "$DownloadPath\NativeOnlyRelease\cgroup_sock_addr2.sys" -Destination "$RegressionTestArtifactsPath\cgroup_sock_addr2_$ArtifactVersion.sys" -Force
-        Remove-Item -Path $DownloadPath -Force -Recurse
-    }
-}
-
 function Get-RegressionTestArtifacts
 {
     param([Parameter(Mandatory=$True)][string] $Configuration,
@@ -501,7 +806,7 @@ function Get-RegressionTestArtifacts
 
     # Download regression test artifacts for each version.
     $DownloadPath = "$RegressionTestArtifactsPath"
-    $ArtifactName = "Release-v$ArtifactVersion/Build-x64.$Configuration.zip"
+    $ArtifactName = "Release-v$ArtifactVersion/Build.$Configuration.x64.zip"
     $ArtifactUrl = "https://github.com/microsoft/ebpf-for-windows/releases/download/" + $ArtifactName
 
     if (Test-Path -Path $DownloadPath\Build-x64.$Configuration) {
@@ -509,7 +814,7 @@ function Get-RegressionTestArtifacts
     }
 
     Get-ZipFileFromUrl -Url $ArtifactUrl -DownloadFilePath "$DownloadPath\Build-x64.$Configuration.zip" -OutputDir $DownloadPath
-    $DownloadedArtifactPath = "$DownloadPath\Build-x64 $Configuration"
+    $DownloadedArtifactPath = "$DownloadPath\Build $Configuration x64"
     if (!(Test-Path -Path $DownloadedArtifactPath)) {
         throw ("Path ""$DownloadedArtifactPath"" not found.")
     }
@@ -531,13 +836,21 @@ function Get-RegressionTestArtifacts
 
 # Copied from https://github.com/microsoft/msquic/blob/main/scripts/prepare-machine.ps1
 function Get-CoreNetTools {
+    param(
+        [string] $Architecture = "x64"
+    )
     # Download and extract https://github.com/microsoft/corenet-ci.
     $DownloadPath = "$pwd\corenet-ci"
     mkdir $DownloadPath
     Write-Log "Downloading CoreNet-CI to $DownloadPath"
     Get-ZipFileFromUrl -Url "https://github.com/microsoft/corenet-ci/archive/refs/heads/main.zip" -DownloadFilePath "$DownloadPath\corenet-ci.zip" -OutputDir $DownloadPath
-    #DuoNic.
-    Move-Item -Path "$DownloadPath\corenet-ci-main\vm-setup\duonic\*" -Destination $pwd -Force
+    # DuoNic.
+    if ($Architecture -eq "arm64") {
+        $duoNicPath = "$DownloadPath\corenet-ci-main\vm-setup\duonic\arm64\*"
+    } else {
+        $duoNicPath = "$DownloadPath\corenet-ci-main\vm-setup\duonic\*"
+    }
+    Move-Item -Path $duoNicPath -Destination $pwd -Force
     # Procdump.
     Move-Item -Path "$DownloadPath\corenet-ci-main\vm-setup\procdump64.exe" -Destination $pwd -Force
     # NotMyFault.
@@ -559,4 +872,77 @@ function Get-PSExec {
     Move-Item -Path "$DownloadPath\PsExec64.exe" -Destination $pwd -Force
     Remove-Item -Path $DownloadPath -Force -Recurse -ErrorAction Ignore
     return $psExecPath
+}
+
+<#
+.SYNOPSIS
+    Invokes a command on a remote or local VM.
+
+.PARAMETER VMName
+    The name of the VM.
+
+.PARAMETER VMIsRemote
+    Indicates if the VM is remote.
+
+.PARAMETER Credential
+    The credential to use for the VM.
+
+.DESCRIPTION
+    This function invokes a command on a remote or local VM using the specified credentials.
+
+.PARAMETER ScriptBlock
+    The script block to execute on the VM.
+
+.PARAMETER ArgumentList
+    The arguments to pass to the script block.
+
+.EXAMPLE
+    Invoke-CommandOnVM -VMName "MyVM" -VMIsRemote $true -Credential $credential -ScriptBlock { Get-Process }
+#>
+function Invoke-CommandOnVM {
+    param(
+        [Parameter(Mandatory = $true)][string] $VMName,
+        [Parameter(Mandatory = $false)][bool] $VMIsRemote = $false,
+        [Parameter(Mandatory = $true)][PSCredential] $Credential,
+        [Parameter(Mandatory = $true)][ScriptBlock] $ScriptBlock,
+        [Parameter(Mandatory = $false)][object[]] $ArgumentList = @()
+    )
+    Write-Log "Invoking command on VM: $VMName (IsRemote: $VMIsRemote)"
+    if ($VMIsRemote) {
+        Invoke-Command -ComputerName $VMName -Credential $Credential -ScriptBlock $ScriptBlock -ArgumentList $ArgumentList -ErrorAction Stop
+    } else {
+        Invoke-Command -VMName $VMName -Credential $Credential -ScriptBlock $ScriptBlock -ArgumentList $ArgumentList -ErrorAction Stop
+    }
+}
+
+<#
+.SYNOPSIS
+    Creates a new PowerShell session on a remote or local VM.
+.PARAMETER VMName
+    The name of the VM.
+.PARAMETER VMIsRemote
+    Indicates if the VM is remote.
+.PARAMETER Credential
+    The credential to use for the VM.
+.RETURNS
+    A new PowerShell session object.
+.DESCRIPTION
+    This function creates a new PowerShell session on a remote or local VM using the specified credentials
+.EXAMPLE
+    $session = New-SessionOnVM -VMName "MyVM" -VMIsRemote $true -Credential $credential
+#>
+function New-SessionOnVM {
+    param(
+        [Parameter(Mandatory = $true)][string] $VMName,
+        [Parameter(Mandatory = $false)][bool] $VMIsRemote = $false,
+        [Parameter(Mandatory = $true)][PSCredential] $Credential
+    )
+    $session = $null
+    Write-Log "Creating new session on VM: $VMName (IsRemote: $VMIsRemote)"
+    if ($VMIsRemote) {
+        $session = New-PSSession -ComputerName $VMName -Credential $Credential -ErrorAction Stop
+    } else {
+        $session = New-PSSession -VMName $VMName -Credential $Credential -ErrorAction Stop
+    }
+    return $session
 }

@@ -54,8 +54,12 @@ bind_hook_t(bind_md_t* context);
 // CGROUP_SOCK_ADDR.
 //
 
-#define BPF_SOCK_ADDR_VERDICT_REJECT 0
-#define BPF_SOCK_ADDR_VERDICT_PROCEED 1
+typedef enum _ebpf_sock_addr_verdict
+{
+    BPF_SOCK_ADDR_VERDICT_REJECT,
+    BPF_SOCK_ADDR_VERDICT_PROCEED_SOFT,
+    BPF_SOCK_ADDR_VERDICT_PROCEED_HARD
+} ebpf_sock_addr_verdict_t;
 
 #ifdef _MSC_VER
 #pragma warning(push)
@@ -106,25 +110,6 @@ typedef enum
 } ebpf_sock_addr_helper_id_t;
 
 /**
- * @brief Get current pid and tgid (sock_addr specific only).
- *
- * @deprecated Use bpf_get_current_pid_tgid instead.
- *
- * @param[in] ctx Pointer to bpf_sock_addr_t context.
- *
- * @returns a 64-bit integer containing the current tgid
- *  and pid, and created as such:
- *
- * 	*current_task*\ **->tgid << 32 \|**
- * 	*current_task*\ **->pid**.
- */
-EBPF_HELPER(uint64_t, bpf_sock_addr_get_current_pid_tgid, (bpf_sock_addr_t * ctx));
-#ifndef __doxygen
-#define bpf_sock_addr_get_current_pid_tgid \
-    ((bpf_sock_addr_get_current_pid_tgid_t)BPF_FUNC_sock_addr_get_current_pid_tgid)
-#endif
-
-/**
  * @brief Set a context for consumption by a user-mode application (sock_addr specific only).
  * This function is not supported for the recv_accept hooks.
  *
@@ -153,12 +138,13 @@ EBPF_HELPER(int, bpf_sock_addr_set_redirect_context, (bpf_sock_addr_t * ctx, voi
  *  \ref EBPF_ATTACH_TYPE_CGROUP_INET6_RECV_ACCEPT
  *
  * @param[in] context \ref bpf_sock_addr_t
- * @retval BPF_SOCK_ADDR_VERDICT_PROCEED Block the socket operation.
- * @retval BPF_SOCK_ADDR_VERDICT_REJECT Allow the socket operation.
+ * @retval BPF_SOCK_ADDR_VERDICT_REJECT Block the socket operation. Maps to a hard block in WFP.
+ * @retval BPF_SOCK_ADDR_VERDICT_PROCEED_SOFT Allow the socket operation. Maps to a soft permit in WFP.
+ * @retval BPF_SOCK_ADDR_VERDICT_PROCEED_HARD Allow the socket operation. Maps to a hard permit in WFP.
  *
- * Any other return value other than the two mentioned above is treated as BPF_SOCK_ADDR_VERDICT_REJECT.
+ * Any return value other than the ones mentioned above is treated as BPF_SOCK_ADDR_VERDICT_REJECT.
  */
-typedef int
+typedef ebpf_sock_addr_verdict_t
 sock_addr_hook_t(bpf_sock_addr_t* context);
 
 typedef enum _bpf_sock_op_type

@@ -7,7 +7,7 @@ SPDX-License-Identifier: MIT
 <?define ProductVersion="022C44B5-8969-4B75-8DB0-73F98B1BD7DC"?>
 <?define UpgradeCode="B6BCACB1-C872-4159-ABCB-43A50668056C"?>
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi" xmlns:ui="http://schemas.microsoft.com/wix/UIExtension" xmlns:util="http://schemas.microsoft.com/wix/UtilExtension">
-	<Product Id="$(var.ProductVersion)" Name="eBPF for Windows" Language="1033" Version="$(var.EbpfVersion)" Manufacturer="Microsoft" UpgradeCode="$(var.UpgradeCode)">
+	<Product Id="$(var.ProductVersion)" Name="eBPF for Windows" Language="1033" Version="$(var.EbpfVersionNoModifier)" Manufacturer="Microsoft" UpgradeCode="$(var.UpgradeCode)">
 		<!-- Platform should be $(var.Platform) but the current installer doesn't support ARM64. Fortunately ARM64 can emulate x64, so setting it to x64 works. -->
 		<Package Description="eBPF for Windows" InstallerVersion="301" Compressed="yes" InstallScope="perMachine" Manufacturer="Microsoft" Platform="x64"/>
 		<MajorUpgrade AllowSameVersionUpgrades="yes"
@@ -28,23 +28,7 @@ SPDX-License-Identifier: MIT
 				<ComponentGroupRef Id="eBPF_Runtime_Components" />
 				<ComponentGroupRef Id="eBPFCore_Driver" />
 				<ComponentGroupRef Id="NetEbpfExt_Driver" />
-				<?if $(var.IncludeJIT) = True ?>
-				<?if $(var.Configuration) = Debug ?>
-				<Feature Id="eBPF_Runtime_Components_JIT" Level="11" Title="JIT" Absent="allow" AllowAdvertise="no" >
-					<ComponentGroupRef Id="eBPF_Service" />
-				</Feature>
-				<?endif?>
-				<?if $(var.Configuration) = Release ?>
-				<Feature Id="eBPF_Runtime_Components_JIT" Level="11" Title="JIT" Absent="allow" AllowAdvertise="no" >
-					<ComponentGroupRef Id="eBPF_Service" />
-				</Feature>
-				<?endif?>
-				<?endif?>
-                <?if $(var.IncludeVCRedist) = True ?>
-                <Feature Id="VCRedist" Title="VC++ Redistributable" Level="11" Absent="disallow" AllowAdvertise="no" >
-                    <ComponentGroupRef Id="VCRedist" />
-                </Feature>
-                <?endif?>
+				<ComponentGroupRef Id="eBPF_Service" />
 			</Feature>
 		</Feature>
 
@@ -103,11 +87,7 @@ SPDX-License-Identifier: MIT
 		<Directory Id="TARGETDIR" Name="SourceDir">
 			<Directory Id="ProgramFiles64Folder">
 				<Directory Id="INSTALLFOLDER" Name="ebpf-for-windows">
-					<?if $(var.IncludeJIT) = True ?>
-					<?if $(var.Configuration) = Debug OR $(var.Configuration) = Release?>
 					<Directory Id="dir_JIT" Name="JIT" />
-					<?endif?>
-					<?endif?>
 					<Directory Id="dir_drivers" Name="drivers"/>
 				</Directory>
 			</Directory>
@@ -116,38 +96,6 @@ SPDX-License-Identifier: MIT
 
 	<!-- Define the product's <Runtime> components -->
 	<Fragment>
-        <?if $(var.IncludeVCRedist) = True ?>
-        <ComponentGroup Id="VCRedist" Directory="INSTALLFOLDER">
-			<Component Id="concrt140" Guid="{BA96F793-1D16-4277-B12B-7588BC2E647A}">
-				<File Id="concrt140.dll" Name="concrt140.dll" DiskId="1" KeyPath="yes" Source="$(var.SolutionDir)$(var.Platform)\$(var.Configuration)\concrt140.dll" />
-			</Component>
-            <Component Id="msvcp140" Guid="{225C690D-C9B9-4F6C-B422-6579380E3A41}">
-				<File Id="msvcp140.dll" Name="msvcp140.dll" DiskId="1" KeyPath="yes" Source="$(var.SolutionDir)$(var.Platform)\$(var.Configuration)\msvcp140.dll" />
-			</Component>
-            <Component Id="msvcp140_1" Guid="{32C5D7C0-43CA-469E-A712-5A7ED0C18F68}">
-				<File Id="msvcp140_1.dll" Name="msvcp140_1.dll" DiskId="1" KeyPath="yes" Source="$(var.SolutionDir)$(var.Platform)\$(var.Configuration)\msvcp140_1.dll" />
-			</Component>
-            <Component Id="msvcp140_2" Guid="{CD0CB411-69A8-427F-B775-B1C0BB269D2A}">
-				<File Id="msvcp140_2.dll" Name="msvcp140_2.dll" DiskId="1" KeyPath="yes" Source="$(var.SolutionDir)$(var.Platform)\$(var.Configuration)\msvcp140_2.dll" />
-			</Component>
-            <Component Id="msvcp140_atomic_wait" Guid="{EDD2FCE1-0A0C-4DF0-A935-6A917BEC8FD2}">
-				<File Id="msvcp140_atomic_wait.dll" Name="msvcp140_atomic_wait.dll" DiskId="1" KeyPath="yes" Source="$(var.SolutionDir)$(var.Platform)\$(var.Configuration)\msvcp140_atomic_wait.dll" />
-			</Component>
-            <Component Id="msvcp140_codecvt_ids" Guid="{ED0E8435-4D52-4801-81A5-E4EF0DFA9CA7}">
-				<File Id="msvcp140_codecvt_ids.dll" Name="msvcp140_codecvt_ids.dll" DiskId="1" KeyPath="yes" Source="$(var.SolutionDir)$(var.Platform)\$(var.Configuration)\msvcp140_codecvt_ids.dll" />
-			</Component>
-            <Component Id="vccorlib140" Guid="{D1B5ADB1-10BB-491C-B10E-8B5445D71484}">
-				<File Id="vccorlib140.dll" Name="vccorlib140.dll" DiskId="1" KeyPath="yes" Source="$(var.SolutionDir)$(var.Platform)\$(var.Configuration)\vccorlib140.dll" />
-			</Component>
-            <Component Id="vcruntime140" Guid="{96C01CAE-A895-463D-B090-7E15DD03724E}">
-				<File Id="vcruntime140.dll" Name="vcruntime140.dll" DiskId="1" KeyPath="yes" Source="$(var.SolutionDir)$(var.Platform)\$(var.Configuration)\vcruntime140.dll" />
-			</Component>
-            <Component Id="vcruntime140_1" Guid="{2EC40012-1B68-4DAB-91B9-6B4190B4EB6D}">
-				<File Id="vcruntime140_1.dll" Name="vcruntime140_1.dll" DiskId="1" KeyPath="yes" Source="$(var.SolutionDir)$(var.Platform)\$(var.Configuration)\vcruntime140_1.dll" />
-			</Component>
-		</ComponentGroup>
-        <?endif?>
-
 		<ComponentGroup Id="eBPF_Runtime_Components" Directory="INSTALLFOLDER">
 			<Component Id ="eBpfPATH" Guid="{C062B980-4B93-4FC7-A4F9-A751C2B419FD}" KeyPath="yes">
 				<Environment Id="eBpfPATH" Name="PATH" Value="[INSTALLFOLDER]" Permanent="no" Part="last" Action="set" System="yes" Separator=";" />
@@ -209,15 +157,14 @@ SPDX-License-Identifier: MIT
 		<!--Install/Uninstall the netsh helper-->
 		<!--qtexec does not currently support a working directory (ref. https://github.com/wixtoolset/issues/issues/1265)-->
 		<!--This workaround uses PowerShell to batch two commands, one to change the working directory, the other to execute the actual command from that directory.-->
-		<SetProperty Id="eBPF_netsh_helper_install" Value="&quot;[WindowsFolder]System32\WindowsPowerShell\v1.0\powershell.exe&quot; -ExecutionPolicy Bypass &quot;cd '[INSTALLFOLDER]';netsh add helper ebpfnetsh.dll&quot;" Before="eBPF_netsh_helper_install" Sequence="execute"/>
+		<SetProperty Id="eBPF_netsh_helper_install" Value="&quot;[WindowsFolder]System32\WindowsPowerShell\v1.0\powershell.exe&quot; -ExecutionPolicy Bypass &quot;cd '[INSTALLFOLDER]';&amp;netsh add helper ebpfnetsh.dll&quot;" Before="eBPF_netsh_helper_install" Sequence="execute"/>
 		<CustomAction Id="eBPF_netsh_helper_install" BinaryKey="WixCA" DllEntry="WixQuietExec64" Execute="deferred" Return="check" Impersonate="no"/>
-		<SetProperty Id="eBPF_netsh_helper_uninstall" Value="&quot;[WindowsFolder]System32\WindowsPowerShell\v1.0\powershell.exe&quot; -ExecutionPolicy Bypass &quot;cd '[INSTALLFOLDER]';netsh delete helper ebpfnetsh.dll&quot;" Before="eBPF_netsh_helper_uninstall" Sequence="execute"/>
+		<SetProperty Id="eBPF_netsh_helper_uninstall" Value="&quot;[WindowsFolder]System32\WindowsPowerShell\v1.0\powershell.exe&quot; -ExecutionPolicy Bypass &quot;cd '[INSTALLFOLDER]';&amp;netsh delete helper ebpfnetsh.dll&quot;" Before="eBPF_netsh_helper_uninstall" Sequence="execute"/>
 		<CustomAction Id="eBPF_netsh_helper_uninstall" BinaryKey="WixCA" DllEntry="WixQuietExec64" Execute="deferred" Return="ignore" Impersonate="no"/>
-		<SetProperty Id="eBPF_netsh_helper_uninstall_rollback" Value="&quot;[WindowsFolder]System32\WindowsPowerShell\v1.0\powershell.exe&quot; -ExecutionPolicy Bypass &quot;cd '[INSTALLFOLDER]';netsh delete helper ebpfnetsh.dll&quot;" Before="eBPF_netsh_helper_uninstall_rollback" Sequence="execute"/>
+		<SetProperty Id="eBPF_netsh_helper_uninstall_rollback" Value="&quot;[WindowsFolder]System32\WindowsPowerShell\v1.0\powershell.exe&quot; -ExecutionPolicy Bypass &quot;cd '[INSTALLFOLDER]';&amp;netsh delete helper ebpfnetsh.dll&quot;" Before="eBPF_netsh_helper_uninstall_rollback" Sequence="execute"/>
 		<CustomAction Id="eBPF_netsh_helper_uninstall_rollback" BinaryKey="WixCA" DllEntry="WixQuietExec64" Execute="deferred" Return="ignore" Impersonate="no"/>
 
 		<!--Install/Uninstall the eBPF Service -->
-		<?if $(var.IncludeJIT) = True ?>
 		<ComponentGroup Id="eBPF_Service" Directory="dir_JIT">
 			<Component Id="EBPFSVC.PDB" DiskId="1" Guid="{D1935DF0-2FC7-42F5-81E5-19AF88D6244B}">
 				<File Id="EBPFSVC.PDB" Name="EbpfSvc.pdb" Source="$(var.ebpfsvc.TargetDir)ebpfsvc.pdb" />
@@ -242,7 +189,6 @@ SPDX-License-Identifier: MIT
 								Wait="yes" />
 			</Component>
 		</ComponentGroup>
-		<?endif?>
 
 		<!--Install/Uninstall the eBPFCore Driver-->
 		<!--A kernel driver service is not currently supported by the Windows Installer (Wix v3 - https://wixtoolset.org/docs/v3/xsd/wix/serviceinstall/).-->

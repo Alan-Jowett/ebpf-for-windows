@@ -13,6 +13,7 @@ class _test_helper_end_to_end
   private:
     bool ec_initialized = false;
     bool api_initialized = false;
+    bool service_initialized = false;
 };
 
 class _program_info_provider;
@@ -36,8 +37,6 @@ class _test_helper_libbpf
     _single_instance_hook* cgroup_inet4_connect_hook;
     _program_info_provider* sample_program_info;
     _single_instance_hook* sample_hook;
-    _program_info_provider* xdp_test_program_info;
-    _single_instance_hook* xdp_test_hook;
 };
 
 class _test_handle_helper

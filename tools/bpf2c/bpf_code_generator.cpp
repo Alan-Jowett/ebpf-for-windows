@@ -11,6 +11,7 @@
 // Example:
 // .\scripts\generate_expected_bpf2c_output.ps1 .\x64\Debug\
 
+#include "bpf2c.h"
 #include "bpf_code_generator.h"
 #include "ebpf_api.h"
 #include "ebpf_version.h"
@@ -29,6 +30,10 @@
 #include <sstream>
 #include <vector>
 #undef max
+
+// Pulling in the prevail namespace to get the definitions in ebpf_vm_isa.h.
+// See: https://github.com/vbpf/prevail/issues/876
+using namespace prevail;
 
 #define MAXIMUM_GLOBAL_VARIABLE_SECTION_SIZE 1024 * 1024
 
@@ -508,7 +513,7 @@ bpf_code_generator::parse_btf_maps_section(const unsafe_string& name)
     if (map_section) {
         auto btf_section = get_required_section(".BTF");
         std::optional<libbtf::btf_type_data> btf_data = vector_of<std::byte>(*btf_section);
-        std::vector<EbpfMapDescriptor> map_descriptors;
+        std::vector<prevail::EbpfMapDescriptor> map_descriptors;
 
         auto map_data = libbtf::parse_btf_map_section(btf_data.value());
         std::map<std::string, size_t> map_offsets;
@@ -568,7 +573,7 @@ bpf_code_generator::parse_btf_maps_section(const unsafe_string& name)
                 throw bpf_code_generator_exception("map symbol not found in map section");
             }
             ebpf_map_definition_in_file_t map_definition{};
-            EbpfMapDescriptor map_descriptor = map_descriptors[map_name_to_index[unsafe_symbol_name.raw()]];
+            prevail::EbpfMapDescriptor map_descriptor = map_descriptors[map_name_to_index[unsafe_symbol_name.raw()]];
 
             map_definition.type = static_cast<ebpf_map_type_t>(map_descriptor.type);
             map_definition.key_size = map_descriptor.key_size;
@@ -717,9 +722,10 @@ bpf_code_generator::parse_btf_global_variable_section(const unsafe_string& name)
 {
     auto btf_section = get_required_section(".BTF");
     std::optional<libbtf::btf_type_data> btf_data = vector_of<std::byte>(*btf_section);
-    std::vector<EbpfMapDescriptor> map_descriptors;
+    std::vector<prevail::EbpfMapDescriptor> map_descriptors;
 
     auto map_data = libbtf::parse_btf_map_section(btf_data.value());
+    uint32_t global_variable_map_value_size = 0;
 
     bool section_has_map = false;
 
@@ -734,6 +740,7 @@ bpf_code_generator::parse_btf_global_variable_section(const unsafe_string& name)
         map_definition.value_size = map.value_size;
         map_definition.max_entries = map.max_entries;
         map_definition.id = map.type_id;
+        global_variable_map_value_size = map.value_size;
 
         map_definitions[_get_btf_global_var_map_name(c_name, name)] = {map_definition, map_definitions.size()};
     }
@@ -749,6 +756,14 @@ bpf_code_generator::parse_btf_global_variable_section(const unsafe_string& name)
     if (section_size > MAXIMUM_GLOBAL_VARIABLE_SECTION_SIZE) {
         throw bpf_code_generator_exception("global variable section is too large");
     }
+
+    // If the section_size (from the ELF file) and the map value size (from BTF) don't match,
+    // then something is wrong. Prevent this from proceeding as it will likely result in
+    // generating invalid code that corrupts memory.
+    if (section_size != global_variable_map_value_size) {
+        throw bpf_code_generator_exception("The global variable section size does not match the map value size");
+    }
+
     data.resize(section_size);
     if (section->get_data()) {
         memcpy(data.data(), section->get_data(), section->get_size());
@@ -1054,7 +1069,7 @@ bpf_code_generator::bpf_code_generator_program::build_function_table()
 
 void
 bpf_code_generator::bpf_code_generator_program::encode_instructions(
-    std::map<unsafe_string, map_entry_t>& map_definitions,
+    std::map<unsafe_string, map_info_t>& map_definitions,
     std::map<unsafe_string, global_variable_section_t>& global_variable_sections)
 {
     std::vector<output_instruction_t>& program_output = output_instructions;
@@ -1359,33 +1374,38 @@ bpf_code_generator::bpf_code_generator_program::encode_instructions(
         } break;
         case INST_CLS_LDX: {
             std::string size_type;
+            std::string size_num;
             std::string destination = get_register_name(inst.dst);
             std::string source = get_register_name(inst.src);
             std::string offset = "OFFSET(" + std::to_string(inst.offset) + ")";
             switch (inst.opcode & INST_SIZE_DW) {
             case INST_SIZE_B:
                 size_type = "uint8_t";
+                size_num = "8";
                 break;
             case INST_SIZE_H:
                 size_type = "uint16_t";
+                size_num = "16";
                 break;
             case INST_SIZE_W:
                 size_type = "uint32_t";
+                size_num = "32";
                 break;
             case INST_SIZE_DW:
                 size_type = "uint64_t";
+                size_num = "64";
                 break;
             default:
                 throw bpf_code_generator_exception("invalid operand", output.instruction_offset);
             }
-            output.lines.push_back(
-                std::format("{} = *({}*)(uintptr_t)({} + {});", destination, size_type, source, offset));
+            output.lines.push_back(std::format("READ_ONCE_{}({}, {}, {});", size_num, destination, source, offset));
         } break;
         case INST_CLS_ST:
         case INST_CLS_STX: {
             std::string size_type;
             std::string lock_type;
             std::string size_num;
+            std::string size_64_or_blank;
             std::string destination = get_register_name(inst.dst);
             std::string source;
             std::string raw_source;
@@ -1398,17 +1418,21 @@ bpf_code_generator::bpf_code_generator_program::encode_instructions(
             std::string offset = "OFFSET(" + std::to_string(inst.offset) + ")";
             switch (inst.opcode & INST_SIZE_DW) {
             case INST_SIZE_B:
+                size_num = "8";
                 size_type = "uint8_t";
                 break;
             case INST_SIZE_H:
+                size_num = "16";
                 size_type = "uint16_t";
                 break;
             case INST_SIZE_W:
+                size_num = "32";
                 size_type = "uint32_t";
                 lock_type = "volatile long";
                 break;
             case INST_SIZE_DW:
                 size_num = "64";
+                size_64_or_blank = "64";
                 size_type = "uint64_t";
                 lock_type = "volatile int64_t";
                 break;
@@ -1424,7 +1448,7 @@ bpf_code_generator::bpf_code_generator_program::encode_instructions(
                 case EBPF_ATOMIC_ADD_FETCH:
                     line = std::format(
                         "InterlockedExchangeAdd{}(({}*)(uintptr_t)({} + {}), {});",
-                        size_num,
+                        size_64_or_blank,
                         lock_type,
                         destination,
                         offset,
@@ -1434,7 +1458,7 @@ bpf_code_generator::bpf_code_generator_program::encode_instructions(
                 case EBPF_ATOMIC_OR_FETCH:
                     line = std::format(
                         "InterlockedOr{}(({}*)(uintptr_t)({} + {}), {});",
-                        size_num,
+                        size_64_or_blank,
                         lock_type,
                         destination,
                         offset,
@@ -1444,7 +1468,7 @@ bpf_code_generator::bpf_code_generator_program::encode_instructions(
                 case EBPF_ATOMIC_AND_FETCH:
                     line = std::format(
                         "InterlockedAnd{}(({}*)(uintptr_t)({} + {}), {});",
-                        size_num,
+                        size_64_or_blank,
                         lock_type,
                         destination,
                         offset,
@@ -1454,7 +1478,7 @@ bpf_code_generator::bpf_code_generator_program::encode_instructions(
                 case EBPF_ATOMIC_XOR_FETCH:
                     line = std::format(
                         "InterlockedXor{}(({}*)(uintptr_t)({} + {}), {});",
-                        size_num,
+                        size_64_or_blank,
                         lock_type,
                         destination,
                         offset,
@@ -1465,7 +1489,7 @@ bpf_code_generator::bpf_code_generator_program::encode_instructions(
                     line = std::format(
                         "{} = InterlockedExchange{}(({}*)(uintptr_t)({} + {}), {});",
                         raw_source,
-                        size_num,
+                        size_64_or_blank,
                         lock_type,
                         destination,
                         offset,
@@ -1476,7 +1500,7 @@ bpf_code_generator::bpf_code_generator_program::encode_instructions(
                     line = std::format(
                         "r0 = ({})InterlockedCompareExchange{}(({}*)(uintptr_t)({} + {}), {}, r0);",
                         size_type,
-                        size_num,
+                        size_64_or_blank,
                         lock_type,
                         destination,
                         offset,
@@ -1492,7 +1516,7 @@ bpf_code_generator::bpf_code_generator_program::encode_instructions(
                 }
             } else if ((inst.opcode & INST_MODE_MASK) == EBPF_MODE_MEM) {
                 output.lines.push_back(
-                    std::format("*({}*)(uintptr_t)({} + {}) = {};", size_type, destination, offset, source));
+                    std::format("WRITE_ONCE_{}({}, {}, {});", size_num, destination, source, offset));
             } else {
                 throw bpf_code_generator_exception("invalid atomic mode", inst.opcode & INST_MODE_MASK);
             }
@@ -1697,7 +1721,7 @@ bpf_code_generator::emit_c_code(std::ostream& output_stream)
         size_t map_size = map_definitions.size();
 
         // Sort maps by index.
-        std::vector<std::tuple<bpf_code_generator::unsafe_string, map_entry_t>> maps_by_index(map_size);
+        std::vector<std::tuple<bpf_code_generator::unsafe_string, map_info_t>> maps_by_index(map_size);
         for (const auto& pair : map_definitions) {
             if (pair.second.index >= maps_by_index.size()) {
                 throw bpf_code_generator_exception("Invalid map section");
@@ -1732,7 +1756,19 @@ bpf_code_generator::emit_c_code(std::ostream& output_stream)
             auto stream_width = static_cast<std::streamsize>(std::floor(width) + 1);
             stream_width += 2; // Add space for the trailing ", "
 
-            output_stream << INDENT "{0," << std::endl;
+            output_stream << INDENT "{" << std::endl;
+            output_stream << INDENT " {0, 0}," << std::endl;
+            output_stream << INDENT " {" << std::endl;
+            output_stream << INDENT INDENT " " << std::left << std::setw(stream_width)
+                          << std::to_string(EBPF_NATIVE_MAP_ENTRY_CURRENT_VERSION) + "," << "// Current Version."
+                          << std::endl;
+            output_stream << INDENT INDENT " " << std::left << std::setw(stream_width)
+                          << std::to_string(EBPF_NATIVE_MAP_ENTRY_CURRENT_VERSION_SIZE) + ","
+                          << "// Struct size up to the last field." << std::endl;
+            output_stream << INDENT INDENT " " << std::left << std::setw(stream_width)
+                          << std::to_string(EBPF_NATIVE_MAP_ENTRY_CURRENT_VERSION_TOTAL_SIZE) + ","
+                          << "// Total struct size including padding." << std::endl;
+            output_stream << INDENT " }," << std::endl;
             output_stream << INDENT " {" << std::endl;
             output_stream << INDENT INDENT " " << std::left << std::setw(stream_width) << map_type + ","
                           << "// Type of map." << std::endl;
@@ -1809,6 +1845,9 @@ bpf_code_generator::emit_c_code(std::ostream& output_stream)
 
         for (const auto& [name, entry] : global_variable_sections_by_index) {
             output_stream << INDENT "{" << std::endl;
+            output_stream << INDENT INDENT ".header = {" << EBPF_NATIVE_GLOBAL_VARIABLE_SECTION_INFO_CURRENT_VERSION
+                          << ", " << EBPF_NATIVE_GLOBAL_VARIABLE_SECTION_INFO_CURRENT_VERSION_SIZE << ", "
+                          << EBPF_NATIVE_GLOBAL_VARIABLE_SECTION_INFO_CURRENT_VERSION_TOTAL_SIZE << "}," << std::endl;
             output_stream << INDENT INDENT ".name = " << name.quoted() << "," << std::endl;
             output_stream << INDENT INDENT ".size = " << std::to_string(entry.initial_data.size()) << "," << std::endl;
             output_stream << INDENT INDENT ".initial_data = &" << name.c_identifier() + "_initial_data," << std::endl;
@@ -1872,7 +1911,14 @@ bpf_code_generator::emit_c_code(std::ostream& output_stream)
             }
 
             for (const auto& [helper_name, id] : index_ordered_helpers) {
-                output_stream << INDENT "{" << id << ", " << helper_name.quoted() << "}," << std::endl;
+                output_stream << INDENT "{" << std::endl;
+                output_stream << INDENT " {" << EBPF_NATIVE_HELPER_FUNCTION_ENTRY_CURRENT_VERSION << ", "
+                              << EBPF_NATIVE_HELPER_FUNCTION_ENTRY_CURRENT_VERSION_SIZE << ", "
+                              << EBPF_NATIVE_HELPER_FUNCTION_ENTRY_CURRENT_VERSION_TOTAL_SIZE << "},"
+                              << " // Version header." << std::endl;
+                output_stream << INDENT " " << id << "," << std::endl;
+                output_stream << INDENT " " << helper_name.quoted() << "," << std::endl;
+                output_stream << INDENT "}," << std::endl;
             }
 
             output_stream << "};" << std::endl;
@@ -2025,6 +2071,10 @@ bpf_code_generator::emit_c_code(std::ostream& output_stream)
             auto program_info_hash_name = program_name.c_identifier() + "_program_info_hash";
             output_stream << INDENT "{" << std::endl;
             output_stream << INDENT INDENT << "0," << std::endl;
+            output_stream << INDENT INDENT "{" << EBPF_NATIVE_PROGRAM_ENTRY_CURRENT_VERSION << ", "
+                          << EBPF_NATIVE_PROGRAM_ENTRY_CURRENT_VERSION_SIZE << ", "
+                          << EBPF_NATIVE_PROGRAM_ENTRY_CURRENT_VERSION_TOTAL_SIZE << "},"
+                          << " // Version header." << std::endl;
             output_stream << INDENT INDENT << program_name.c_identifier() << "," << std::endl;
             output_stream << INDENT INDENT << program.pe_section_name.quoted() << "," << std::endl;
             output_stream << INDENT INDENT << program.elf_section_name.quoted() << "," << std::endl;
@@ -2104,6 +2154,9 @@ bpf_code_generator::emit_c_code(std::ostream& output_stream)
         output_stream << "static map_initial_values_t _map_initial_values_array[] = {" << std::endl;
         for (const auto& [name, values] : map_initial_values) {
             output_stream << INDENT "{" << std::endl;
+            output_stream << INDENT INDENT << ".header = {" << EBPF_NATIVE_MAP_INITIAL_VALUES_CURRENT_VERSION << ", "
+                          << EBPF_NATIVE_MAP_INITIAL_VALUES_CURRENT_VERSION_SIZE << ", "
+                          << EBPF_NATIVE_MAP_INITIAL_VALUES_CURRENT_VERSION_TOTAL_SIZE << "}," << std::endl;
             output_stream << INDENT INDENT << ".name = " << name.quoted() << "," << std::endl;
             output_stream << INDENT INDENT << ".count = " << values.size() << "," << std::endl;
             output_stream << INDENT INDENT << ".values = "

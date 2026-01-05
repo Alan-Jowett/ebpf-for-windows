@@ -47,7 +47,7 @@ static const NPI_CLIENT_CHARACTERISTICS _bpf2c_npi_client_characteristics = {
      &_bpf2c_npi_id,
      &_bpf2c_module_id,
      0,
-     &metadata_table}};
+     NULL}};
 
 static NTSTATUS
 _bpf2c_query_npi_module_id(
@@ -140,17 +140,11 @@ _bpf2c_npi_client_attach_provider(
         return STATUS_INVALID_PARAMETER;
     }
 
-#pragma warning(push)
-#pragma warning( \
-    disable : 6387) // Param 3 does not adhere to the specification for the function 'NmrClientAttachProvider'
-    // As per MSDN, client dispatch can be NULL, but SAL does not allow it.
-    // https://docs.microsoft.com/en-us/windows-hardware/drivers/ddi/netioddk/nf-netioddk-nmrclientattachprovider
     status = NmrClientAttachProvider(
-        nmr_binding_handle, client_context, NULL, &provider_binding_context, &provider_dispatch_table);
+        nmr_binding_handle, client_context, &metadata_table, &provider_binding_context, &provider_dispatch_table);
     if (status != STATUS_SUCCESS) {
         goto Done;
     }
-#pragma warning(pop)
     _bpf2c_nmr_provider_handle = nmr_binding_handle;
 
 Done:
@@ -225,7 +219,7 @@ tcp_mt_connect4(void* context, const program_runtime_context_t* runtime_context)
 
     // EBPF_OP_LDXW pc=0 dst=r2 src=r1 offset=44 imm=0
 #line 27 "sample/cgroup_mt_connect4.c"
-    r2 = *(uint32_t*)(uintptr_t)(r1 + OFFSET(44));
+    READ_ONCE_32(r2, r1, OFFSET(44));
     // EBPF_OP_MOV64_IMM pc=1 dst=r0 src=r0 offset=0 imm=1
 #line 27 "sample/cgroup_mt_connect4.c"
     r0 = IMMEDIATE(1);
@@ -238,7 +232,7 @@ tcp_mt_connect4(void* context, const program_runtime_context_t* runtime_context)
     }
     // EBPF_OP_LDXH pc=3 dst=r2 src=r1 offset=40 imm=0
 #line 33 "sample/cgroup_mt_connect4.c"
-    r2 = *(uint16_t*)(uintptr_t)(r1 + OFFSET(40));
+    READ_ONCE_16(r2, r1, OFFSET(40));
     // EBPF_OP_MOV64_IMM pc=4 dst=r3 src=r0 offset=0 imm=7459
 #line 33 "sample/cgroup_mt_connect4.c"
     r3 = IMMEDIATE(7459);
@@ -291,7 +285,7 @@ tcp_mt_connect4(void* context, const program_runtime_context_t* runtime_context)
     r2 += IMMEDIATE(-6141);
     // EBPF_OP_STXH pc=16 dst=r1 src=r2 offset=40 imm=0
 #line 54 "sample/cgroup_mt_connect4.c"
-    *(uint16_t*)(uintptr_t)(r1 + OFFSET(40)) = (uint16_t)r2;
+    WRITE_ONCE_16(r1, (uint16_t)r2, OFFSET(40));
 label_1:
     // EBPF_OP_EXIT pc=17 dst=r0 src=r0 offset=0 imm=0
 #line 58 "sample/cgroup_mt_connect4.c"
@@ -305,6 +299,7 @@ label_1:
 static program_entry_t _programs[] = {
     {
         0,
+        {1, 144, 144}, // Version header.
         tcp_mt_connect4,
         "cgroup~1",
         "cgroup/connect4",
@@ -330,8 +325,8 @@ _get_programs(_Outptr_result_buffer_(*count) program_entry_t** programs, _Out_ s
 static void
 _get_version(_Out_ bpf2c_version_t* version)
 {
-    version->major = 0;
-    version->minor = 21;
+    version->major = 1;
+    version->minor = 1;
     version->revision = 0;
 }
 

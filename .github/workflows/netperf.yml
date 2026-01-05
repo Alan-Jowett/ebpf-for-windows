@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 
 # This is a workflow which runs the performance tests with profiling enabled.
-
+---
 name: Performance Tests on netperf
 
 on:
@@ -30,11 +30,11 @@ permissions:
   contents: read
 
 jobs:
-    netperf:
-      runs-on: windows-latest
-      steps:
+  netperf:
+    runs-on: windows-latest
+    steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@4d991eb9b905ef189e4c376166672c3f2f230481 # v2.11.0
+        uses: step-security/harden-runner@df199fb7be9f65074067a9eb93f12bb4c5547cf2  # v2.13.3
         with:
           egress-policy: audit
 
@@ -53,13 +53,13 @@ jobs:
           gh run download $run_id --dir netperf --pattern ebpf* --repo microsoft/netperf
 
       - name: upload_results_azure_2022_x64
-        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4
         with:
-            name: Test-Logs-netperf_azure_2022_x64
-            path: netperf/ebpf_azure_2022_x64/ebpf.csv
+          name: Test-Logs-netperf_azure_2022_x64
+          path: netperf/ebpf_azure_2022_x64/ebpf.csv
 
       - name: upload_results_lab_2022_x64
-        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4
         with:
-            name: Test-Logs-netperf_lab_2022_x64
-            path: netperf/ebpf_lab_2022_x64/ebpf.csv
+          name: Test-Logs-netperf_lab_2022_x64
+          path: netperf/ebpf_lab_2022_x64/ebpf.csv

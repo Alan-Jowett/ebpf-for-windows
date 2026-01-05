@@ -18,6 +18,8 @@
 #define min(a, b) (((a) < (b)) ? (a) : (b))
 #pragma warning(pop)
 
+typedef prevail::EbpfInst ebpf_inst;
+
 #include "windows_platform_common.hpp"
 
 #include <errno.h>
@@ -45,7 +47,7 @@ typedef struct _map_cache
     ebpf_handle_t handle;
     uint32_t id;
     size_t section_offset;
-    EbpfMapDescriptor verifier_map_descriptor;
+    prevail::EbpfMapDescriptor verifier_map_descriptor;
     ebpf_pin_type_t pinning;
     uint32_t inner_id;
 
@@ -55,7 +57,8 @@ typedef struct _map_cache
     {
     }
 
-    _map_cache(ebpf_handle_t handle, size_t section_offset, EbpfMapDescriptor descriptor, ebpf_pin_type_t pinning)
+    _map_cache(
+        ebpf_handle_t handle, size_t section_offset, prevail::EbpfMapDescriptor descriptor, ebpf_pin_type_t pinning)
         : handle(handle), id(EBPF_ID_NONE), section_offset(section_offset), verifier_map_descriptor(descriptor),
           pinning(pinning), inner_id(EBPF_ID_NONE)
     {
@@ -192,8 +195,8 @@ ebpf_result_to_errno(ebpf_result_t result)
 _Must_inspect_result_ ebpf_result_t
 ebpf_object_get_info(
     ebpf_handle_t handle,
-    _Inout_updates_bytes_to_(*info_size, *info_size) void* info,
-    _Inout_ uint32_t* info_size,
+    _Inout_updates_bytes_to_opt_(*info_size, *info_size) void* info,
+    _Inout_opt_ uint32_t* info_size,
     _Out_opt_ ebpf_object_type_t* type) noexcept;
 
 _Must_inspect_result_ ebpf_result_t
@@ -233,7 +236,10 @@ ebpf_clear_thread_local_storage() noexcept;
 bool
 ebpf_verify_program(
     std::ostream& os,
-    _In_ const InstructionSeq& prog,
-    _In_ const program_info& info,
-    _In_ const ebpf_verifier_options_t& options,
+    _In_ const prevail::InstructionSeq& prog,
+    _In_ const prevail::ProgramInfo& info,
+    _In_ const prevail::ebpf_verifier_options_t& options,
     _Out_ ebpf_api_verifier_stats_t* stats);
+
+prevail::ebpf_verifier_options_t
+ebpf_get_default_verifier_options(ebpf_verification_verbosity_t verbosity = EBPF_VERIFICATION_VERBOSITY_NORMAL);

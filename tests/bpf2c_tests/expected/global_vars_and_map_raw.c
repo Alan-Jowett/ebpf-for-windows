@@ -15,7 +15,13 @@ _get_hash(_Outptr_result_buffer_maybenull_(*size) const uint8_t** hash, _Out_ si
 
 #pragma data_seg(push, "maps")
 static map_entry_t _maps[] = {
-    {0,
+    {
+     {0, 0},
+     {
+         1,                 // Current Version.
+         80,                // Struct size up to the last field.
+         80,                // Total struct size including padding.
+     },
      {
          BPF_MAP_TYPE_HASH, // Type of map.
          4,                 // Size in bytes of a map key.
@@ -27,7 +33,13 @@ static map_entry_t _maps[] = {
          0,                 // The id of the inner map template.
      },
      "some_config_map"},
-    {0,
+    {
+     {0, 0},
+     {
+         1,                  // Current Version.
+         80,                 // Struct size up to the last field.
+         80,                 // Total struct size including padding.
+     },
      {
          BPF_MAP_TYPE_ARRAY, // Type of map.
          4,                  // Size in bytes of a map key.
@@ -54,6 +66,7 @@ const char global__bss_initial_data[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
 #pragma data_seg(push, "global_variables")
 static global_variable_section_info_t _global_variable_sections[] = {
     {
+        .header = {1, 48, 48},
         .name = "global_.bss",
         .size = 24,
         .initial_data = &global__bss_initial_data,
@@ -71,8 +84,16 @@ _get_global_variable_sections(
 }
 
 static helper_function_entry_t GlobalVariableAndMapTest_helpers[] = {
-    {1, "helper_id_1"},
-    {22, "helper_id_22"},
+    {
+     {1, 40, 40}, // Version header.
+     1,
+     "helper_id_1",
+    },
+    {
+     {1, 40, 40}, // Version header.
+     22,
+     "helper_id_22",
+    },
 };
 
 static GUID GlobalVariableAndMapTest_program_type_guid = {
@@ -118,7 +139,7 @@ GlobalVariableAndMapTest(void* context, const program_runtime_context_t* runtime
     r1 = IMMEDIATE(0);
     // EBPF_OP_STXW pc=1 dst=r10 src=r1 offset=-4 imm=0
 #line 43 "sample/undocked/global_vars_and_map.c"
-    *(uint32_t*)(uintptr_t)(r10 + OFFSET(-4)) = (uint32_t)r1;
+    WRITE_ONCE_32(r10, (uint32_t)r1, OFFSET(-4));
     // EBPF_OP_MOV64_REG pc=2 dst=r2 src=r10 offset=0 imm=0
 #line 43 "sample/undocked/global_vars_and_map.c"
     r2 = r10;
@@ -187,6 +208,7 @@ label_1:
 static program_entry_t _programs[] = {
     {
         0,
+        {1, 144, 144}, // Version header.
         GlobalVariableAndMapTest,
         "sample~1",
         "sample_ext",
@@ -212,8 +234,8 @@ _get_programs(_Outptr_result_buffer_(*count) program_entry_t** programs, _Out_ s
 static void
 _get_version(_Out_ bpf2c_version_t* version)
 {
-    version->major = 0;
-    version->minor = 21;
+    version->major = 1;
+    version->minor = 1;
     version->revision = 0;
 }
 

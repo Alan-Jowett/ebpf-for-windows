@@ -5,10 +5,13 @@
 -->
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003" TreatAsLocalProperty="Platform">
   <PropertyGroup Label="Version">
-    <EbpfVersion_Major>0</EbpfVersion_Major>
-    <EbpfVersion_Minor>21</EbpfVersion_Minor>
+    <EbpfVersion_Major>1</EbpfVersion_Major>
+    <EbpfVersion_Minor>1</EbpfVersion_Minor>
     <EbpfVersion_Revision>0</EbpfVersion_Revision>
-    <EbpfVersion>$(EbpfVersion_Major).$(EbpfVersion_Minor).$(EbpfVersion_Revision)</EbpfVersion>
+    <EbpfVersion_Modifier/>
+    <EbpfVersionNoModifier>$(EbpfVersion_Major).$(EbpfVersion_Minor).$(EbpfVersion_Revision)</EbpfVersionNoModifier>
+    <EbpfVersion Condition="'$(EbpfVersion_Modifier)' == ''">$(EbpfVersion_Major).$(EbpfVersion_Minor).$(EbpfVersion_Revision)</EbpfVersion>
+    <EbpfVersion Condition="'$(EbpfVersion_Modifier)' != ''">$(EbpfVersion_Major).$(EbpfVersion_Minor).$(EbpfVersion_Revision)-$(EbpfVersion_Modifier)</EbpfVersion>
   </PropertyGroup>
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|x64">
@@ -66,15 +69,15 @@
   </PropertyGroup>
   <!-- Libsancov.lib not supported on arm64 -->
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64' Or '$(Configuration)|$(Platform)'=='NativeOnlyRelease|x64'">
-    <FuzzerLibs>libsancov.lib;clang_rt.fuzzer_MD-x86_64.lib</FuzzerLibs>
+    <FuzzerLibs>libsancov.lib;clang_rt.fuzzer_MT-x86_64.lib</FuzzerLibs>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64' Or '$(Configuration)|$(Platform)'=='FuzzerDebug|x64' Or '$(Configuration)|$(Platform)'=='NativeOnlyDebug|x64'">
-    <FuzzerLibs>libsancov.lib;clang_rt.fuzzer_MDd-x86_64.lib</FuzzerLibs>
+    <FuzzerLibs>libsancov.lib;clang_rt.fuzzer_MTd-x86_64.lib</FuzzerLibs>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Fuzzer)'=='True' OR '$(Configuration)'=='FuzzerDebug'">
     <EnableASAN>true</EnableASAN>
     <EnableFuzzer>true</EnableFuzzer>
-    <FuzzerLibs>libsancov.lib;clang_rt.fuzzer_MDd-x86_64.lib</FuzzerLibs>
+    <FuzzerLibs>libsancov.lib;clang_rt.fuzzer_MTd-x86_64.lib</FuzzerLibs>
     <ClCompile>
       <AdditionalOptions>/fsanitize-coverage=inline-bool-flag /fsanitize-coverage=edge /fsanitize-coverage=trace-cmp /fsanitize-coverage=trace-div /DFUZZER_BUILD %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
@@ -82,10 +85,14 @@
   <PropertyGroup Condition="'$(Fuzzer)'!='True' And '$(Configuration)'!='FuzzerDebug'">
     <SpectreMitigation>Spectre</SpectreMitigation>
   </PropertyGroup>
+  <!-- Workaround for issue with WDK nuget package -->
+  <PropertyGroup>
+    <DriverCatalog_Enable>true</DriverCatalog_Enable>
+  </PropertyGroup>
   <!-- Select the best version of clang available. -->
   <!-- If $(VsInstallRoot)\VC\Tools\Llvm\bin\clang.exe exists, set ClangExe to that value -->
   <PropertyGroup Condition="Exists('$(VsInstallRoot)\VC\Tools\Llvm\bin\clang.exe')">
-    <ClangExec>$(VsInstallRoot)\VC\Tools\Llvm\bin\clang.exe</ClangExec>
+    <ClangExec>"$(VsInstallRoot)\VC\Tools\Llvm\bin\clang.exe"</ClangExec>
   </PropertyGroup>
   <!-- If $(ProgramFiles)\LLVM\bin\clang.exe exists, set ClangExe to that value -->
   <PropertyGroup Condition="Exists('$(ProgramFiles)\LLVM\bin\clang.exe')">
@@ -93,7 +100,7 @@
   </PropertyGroup>
   <!-- If $(SolutionDir)packages\llvm.tools\clang.exe exists, set ClangExe to that value -->
   <PropertyGroup Condition="Exists('$(SolutionDir)packages\llvm.tools\clang.exe')">
-    <ClangExec>$(SolutionDir)packages\llvm.tools\clang.exe</ClangExec>
+    <ClangExec>"$(SolutionDir)packages\llvm.tools\clang.exe"</ClangExec>
   </PropertyGroup>
   <!-- Set /allpdata only for the x64 platform. -->
   <PropertyGroup Condition="'$(Platform)'=='x64'">
@@ -131,13 +138,13 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)'=='Release' Or '$(Configuration)'=='NativeOnlyRelease'">
     <ClCompile>
-      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <WholeProgramOptimization Condition="'$(EnableAsan)' != 'true'">true</WholeProgramOptimization>
       <!-- /Ob3 enable hinting to link time code generation that a function should be inlined -->
       <AdditionalOptions>/Ob3 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
-      <AdditionalOptions Condition="'$(EnableASAN)' != 'true'">/spgo $(AllPDataOption) %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions Condition="'$(EnableASAN)' != 'true'">/NODEFAULTLIB:libucrt.lib /DEFAULTLIB:ucrt.lib /spgo $(AllPDataOption) %(AdditionalOptions)</AdditionalOptions>
       <LinkTimeCodeGeneration Condition="'$(EnableAsan)' != 'true'">UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
     </Link>
   </ItemDefinitionGroup>
@@ -145,8 +152,11 @@
     <ClCompile>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
-      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+      <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
     </ClCompile>
+    <Link>
+      <AdditionalOptions Condition="'$(EnableASAN)' != 'true'">/NODEFAULTLIB:libucrtd.lib /DEFAULTLIB:ucrtd.lib %(AdditionalOptions)</AdditionalOptions>
+    </Link>
   </ItemDefinitionGroup>
   <!-- Add the resource to applications, dlls, and drivers except if the resource file doesn't exist-->
   <ItemGroup Condition="('$(ConfigurationType)'=='Application' Or '$(ConfigurationType)'=='DynamicLibrary' Or '$(ConfigurationType)'=='Driver') And Exists('$(SolutionDir)resource\ebpf_resource.rc')">

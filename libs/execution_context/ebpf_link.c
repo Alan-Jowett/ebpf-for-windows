@@ -47,6 +47,7 @@ typedef struct _ebpf_link
     _Guarded_by_(lock) HANDLE nmr_client_handle;
     _Guarded_by_(lock) bool provider_attached;
     _Guarded_by_(lock) ebpf_link_state_t state;
+    _Guarded_by_(lock) bool in_legacy_mode;
 } ebpf_link_t;
 
 static NPI_CLIENT_ATTACH_PROVIDER_FN _ebpf_link_client_attach_provider;
@@ -76,14 +77,7 @@ _ebpf_link_instance_invoke(
     _In_ const void* extension_client_binding_context, _Inout_ void* program_context, _Out_ uint32_t* result);
 
 static ebpf_result_t
-_ebpf_link_instance_invoke_with_context_header(
-    _In_ const void* extension_client_binding_context, _Inout_ void* program_context, _Out_ uint32_t* result);
-
-static ebpf_result_t
 _ebpf_link_instance_invoke_batch_begin(size_t state_size, _Out_writes_(state_size) void* state);
-
-static ebpf_result_t
-_ebpf_link_instance_invoke_batch_begin_with_context_header(size_t state_size, _Out_writes_(state_size) void* state);
 
 static ebpf_result_t
 _ebpf_link_instance_invoke_batch(
@@ -93,19 +87,9 @@ _ebpf_link_instance_invoke_batch(
     _In_ const void* state);
 
 static ebpf_result_t
-_ebpf_link_instance_invoke_batch_with_context_header(
-    _In_ const void* extension_client_binding_context,
-    _Inout_ void* program_context,
-    _Out_ uint32_t* result,
-    _In_ const void* state);
-
-static ebpf_result_t
 _ebpf_link_instance_invoke_batch_end(_Inout_ void* state);
 
-static ebpf_result_t
-_ebpf_link_instance_invoke_batch_end_with_context_header(_Inout_ void* state);
-
-// Dispatch table when program information provider does not support context header.
+// Dispatch table.
 static const ebpf_extension_program_dispatch_table_t _ebpf_link_dispatch_table = {
     EBPF_LINK_DISPATCH_TABLE_VERSION_CURRENT,
     EBPF_LINK_DISPATCH_TABLE_FUNCTION_COUNT_CURRENT, // Count of functions. This should be updated when new functions
@@ -114,17 +98,6 @@ static const ebpf_extension_program_dispatch_table_t _ebpf_link_dispatch_table =
     _ebpf_link_instance_invoke_batch_begin,
     _ebpf_link_instance_invoke_batch,
     _ebpf_link_instance_invoke_batch_end,
-};
-
-// Dispatch table when program information provider supports context header.
-static const ebpf_extension_program_dispatch_table_t _ebpf_link_dispatch_table_with_context_header = {
-    EBPF_LINK_DISPATCH_TABLE_VERSION_CURRENT,
-    EBPF_LINK_DISPATCH_TABLE_FUNCTION_COUNT_CURRENT, // Count of functions. This should be updated when new functions
-                                                     // are added.
-    _ebpf_link_instance_invoke_with_context_header,
-    _ebpf_link_instance_invoke_batch_begin_with_context_header,
-    _ebpf_link_instance_invoke_batch_with_context_header,
-    _ebpf_link_instance_invoke_batch_end_with_context_header,
 };
 
 // Assert that the invoke function is aligned with ebpf_extension_dispatch_table_t->function.
@@ -211,11 +184,7 @@ _ebpf_link_client_attach_provider(
     link->link_type = attach_provider_data->link_type;
     link->bpf_attach_type = attach_provider_data->bpf_attach_type;
 
-    if (ebpf_program_supports_context_header(link->program)) {
-        client_dispatch_table = (void*)&_ebpf_link_dispatch_table_with_context_header;
-    } else {
-        client_dispatch_table = (void*)&_ebpf_link_dispatch_table;
-    }
+    client_dispatch_table = (void*)&_ebpf_link_dispatch_table;
 
     ebpf_lock_unlock(&link->lock, state);
     lock_held = false;
@@ -251,6 +220,25 @@ _ebpf_link_client_detach_provider(void* client_binding_context)
     ebpf_lock_unlock(&link->lock, state);
     EBPF_LOG_EXIT();
     return STATUS_SUCCESS;
+}
+
+static void
+_ebpf_link_notify_reference_count_zeroed(_In_opt_ _Post_invalid_ ebpf_core_object_t* object)
+{
+    ebpf_link_t* link = (ebpf_link_t*)object;
+
+    if (!link) {
+        return;
+    }
+
+    bool detach_required = false;
+    ebpf_lock_state_t state = ebpf_lock_lock(&link->lock);
+    ebpf_assert(link->in_legacy_mode == false);
+    detach_required = (link->state == EBPF_LINK_STATE_ATTACHED);
+    ebpf_lock_unlock(&link->lock, state);
+    if (detach_required) {
+        ebpf_link_detach_program(link);
+    }
 }
 
 static void
@@ -319,8 +307,8 @@ ebpf_link_create(
 
     // Note: This must be the last thing done in this function as it inserts the object into the global list.
     // After this point, the object can be accessed by other threads.
-    ebpf_result_t result =
-        EBPF_OBJECT_INITIALIZE(&local_link->object, EBPF_OBJECT_LINK, _ebpf_link_free, NULL, NULL, NULL);
+    ebpf_result_t result = EBPF_OBJECT_INITIALIZE(
+        &local_link->object, EBPF_OBJECT_LINK, _ebpf_link_free, _ebpf_link_notify_reference_count_zeroed, NULL, NULL);
     if (result != EBPF_SUCCESS) {
         EBPF_LOG_MESSAGE_ERROR(
             EBPF_TRACELOG_LEVEL_ERROR, EBPF_TRACELOG_KEYWORD_LINK, "ebpf_object_initialize failed for link", result);
@@ -371,7 +359,7 @@ ebpf_link_attach_program(_Inout_ ebpf_link_t* link, _Inout_ ebpf_program_t* prog
     link->client_data.prog_attach_flags = ebpf_program_get_flags(link->program);
 
     // Attach the program to the link.
-    ebpf_program_attach_link(program, link);
+    ebpf_program_attach_link(program);
     link_attached_to_program = true;
 
     ebpf_lock_unlock(&link->lock, state);
@@ -427,7 +415,7 @@ Done:
         }
 
         if (link_attached_to_program) {
-            ebpf_program_detach_link(program, link);
+            ebpf_program_detach_link(program);
             link_attached_to_program = false;
             link->program = NULL;
         }
@@ -446,8 +434,7 @@ ebpf_link_detach_program(_Inout_ ebpf_link_t* link)
     EBPF_LOG_ENTRY();
     ebpf_lock_state_t state;
     bool lock_held = false;
-
-    EBPF_OBJECT_ACQUIRE_REFERENCE(&link->object);
+    bool link_disconnected = false;
 
     state = ebpf_lock_lock(&link->lock);
     lock_held = true;
@@ -455,6 +442,11 @@ ebpf_link_detach_program(_Inout_ ebpf_link_t* link)
     if (link->state != EBPF_LINK_STATE_ATTACHED) {
         EBPF_LOG_MESSAGE(EBPF_TRACELOG_LEVEL_ERROR, EBPF_TRACELOG_KEYWORD_LINK, "Link is not attached to a program.");
         goto Done;
+    }
+
+    if (link->in_legacy_mode) {
+        link_disconnected = true;
+        link->in_legacy_mode = false;
     }
 
     _ebpf_link_set_state(link, EBPF_LINK_STATE_DETACHING);
@@ -478,7 +470,7 @@ ebpf_link_detach_program(_Inout_ ebpf_link_t* link)
 
     link->nmr_client_handle = NULL;
 
-    ebpf_program_detach_link(link->program, link);
+    ebpf_program_detach_link(link->program);
 
     ebpf_free((void*)link->client_data.data);
 
@@ -486,12 +478,14 @@ ebpf_link_detach_program(_Inout_ ebpf_link_t* link)
     link->client_data.data_size = 0;
     link->program = NULL;
 
+    if (link_disconnected) {
+        EBPF_OBJECT_RELEASE_REFERENCE(&link->object);
+    }
+
 Done:
     if (lock_held) {
         ebpf_lock_unlock(&link->lock, state);
     }
-
-    EBPF_OBJECT_RELEASE_REFERENCE(&link->object);
 
     EBPF_RETURN_VOID();
 }
@@ -520,83 +514,6 @@ _ebpf_link_instance_invoke_batch_begin(size_t state_size, _Out_writes_(state_siz
 {
     ebpf_execution_context_state_t* execution_context_state = (ebpf_execution_context_state_t*)state;
     bool epoch_entered = false;
-    ebpf_result_t return_value;
-    if (state_size < sizeof(ebpf_execution_context_state_t)) {
-        return_value = EBPF_INVALID_ARGUMENT;
-        goto Done;
-    }
-
-    memset(execution_context_state, 0, sizeof(ebpf_execution_context_state_t));
-
-    ebpf_get_execution_context_state(execution_context_state);
-    return_value = ebpf_state_store(ebpf_program_get_state_index(), (uintptr_t)state, execution_context_state);
-    if (return_value != EBPF_SUCCESS) {
-        goto Done;
-    }
-
-    ebpf_epoch_enter((ebpf_epoch_state_t*)(execution_context_state->epoch_state));
-    epoch_entered = true;
-
-Done:
-    if (return_value != EBPF_SUCCESS && epoch_entered) {
-        ebpf_epoch_exit((ebpf_epoch_state_t*)(execution_context_state->epoch_state));
-    }
-
-    return return_value;
-}
-
-static ebpf_result_t
-_ebpf_link_instance_invoke_batch_end(_Inout_ void* state)
-{
-    ebpf_execution_context_state_t* execution_context_state = (ebpf_execution_context_state_t*)state;
-    ebpf_assert_success(ebpf_state_store(ebpf_program_get_state_index(), 0, execution_context_state));
-    ebpf_epoch_exit((ebpf_epoch_state_t*)(execution_context_state->epoch_state));
-    return EBPF_SUCCESS;
-}
-
-static ebpf_result_t
-_ebpf_link_instance_invoke_batch(
-    _In_ const void* client_binding_context,
-    _Inout_ void* program_context,
-    _Out_ uint32_t* result,
-    _In_ const void* state)
-{
-    // No function entry exit traces as this is a high volume function.
-    ebpf_result_t return_value;
-    ebpf_link_t* link = (ebpf_link_t*)client_binding_context;
-
-    return_value =
-        ebpf_program_invoke(link->program, false, program_context, result, (ebpf_execution_context_state_t*)state);
-
-    EBPF_RETURN_RESULT(return_value);
-}
-
-static ebpf_result_t
-_ebpf_link_instance_invoke_with_context_header(
-    _In_ const void* extension_client_binding_context, _Inout_ void* program_context, _Out_ uint32_t* result)
-{
-    ebpf_execution_context_state_t state = {0};
-    ebpf_result_t return_value;
-    return_value =
-        _ebpf_link_instance_invoke_batch_begin_with_context_header(sizeof(ebpf_execution_context_state_t), &state);
-
-    if (return_value != EBPF_SUCCESS) {
-        goto Done;
-    }
-
-    return_value = _ebpf_link_instance_invoke_batch_with_context_header(
-        extension_client_binding_context, program_context, result, &state);
-    (void)_ebpf_link_instance_invoke_batch_end_with_context_header(&state);
-
-Done:
-    return return_value;
-}
-
-static ebpf_result_t
-_ebpf_link_instance_invoke_batch_begin_with_context_header(size_t state_size, _Out_writes_(state_size) void* state)
-{
-    ebpf_execution_context_state_t* execution_context_state = (ebpf_execution_context_state_t*)state;
-    bool epoch_entered = false;
     ebpf_result_t return_value = EBPF_SUCCESS;
     if (state_size < sizeof(ebpf_execution_context_state_t)) {
         return_value = EBPF_INVALID_ARGUMENT;
@@ -617,7 +534,7 @@ Done:
 }
 
 static ebpf_result_t
-_ebpf_link_instance_invoke_batch_end_with_context_header(_Inout_ void* state)
+_ebpf_link_instance_invoke_batch_end(_Inout_ void* state)
 {
     ebpf_execution_context_state_t* execution_context_state = (ebpf_execution_context_state_t*)state;
     ebpf_epoch_exit((ebpf_epoch_state_t*)(execution_context_state->epoch_state));
@@ -625,7 +542,7 @@ _ebpf_link_instance_invoke_batch_end_with_context_header(_Inout_ void* state)
 }
 
 static ebpf_result_t
-_ebpf_link_instance_invoke_batch_with_context_header(
+_ebpf_link_instance_invoke_batch(
     _In_ const void* client_binding_context,
     _Inout_ void* program_context,
     _Out_ uint32_t* result,
@@ -635,8 +552,7 @@ _ebpf_link_instance_invoke_batch_with_context_header(
     ebpf_result_t return_value;
     ebpf_link_t* link = (ebpf_link_t*)client_binding_context;
 
-    return_value =
-        ebpf_program_invoke(link->program, true, program_context, result, (ebpf_execution_context_state_t*)state);
+    return_value = ebpf_program_invoke(link->program, program_context, result, (ebpf_execution_context_state_t*)state);
 
     EBPF_RETURN_RESULT(return_value);
 }
@@ -646,10 +562,23 @@ ebpf_link_get_info(
     _In_ const ebpf_link_t* link, _Out_writes_to_(*info_size, *info_size) uint8_t* buffer, _Inout_ uint16_t* info_size)
 {
     EBPF_LOG_ENTRY();
-    struct bpf_link_info* info = (struct bpf_link_info*)buffer;
+    struct bpf_link_info local_link = {0};
+    struct bpf_link_info* info = &local_link;
+
+    if (*info_size == 0) {
+        *info_size = sizeof(*info);
+        EBPF_LOG_MESSAGE(
+            EBPF_TRACELOG_LEVEL_ERROR, EBPF_TRACELOG_KEYWORD_LINK, "ebpf_link_get_info buffer length is 0.");
+        EBPF_RETURN_RESULT(EBPF_INSUFFICIENT_BUFFER);
+    }
 
     if (*info_size < sizeof(*info)) {
-        EBPF_RETURN_RESULT(EBPF_INSUFFICIENT_BUFFER);
+        EBPF_LOG_MESSAGE_UINT64_UINT64(
+            EBPF_TRACELOG_LEVEL_WARNING,
+            EBPF_TRACELOG_KEYWORD_MAP,
+            "ebpf_link_get_info output buffer too small",
+            *info_size,
+            sizeof(*info));
     }
 
     ebpf_lock_state_t state = ebpf_lock_lock((ebpf_lock_t*)&link->lock);
@@ -670,7 +599,10 @@ ebpf_link_get_info(
     }
     ebpf_lock_unlock((ebpf_lock_t*)&link->lock, state);
 
-    *info_size = sizeof(*info);
+    // Copy the local link info to the user supplied buffer, as much as will fit.
+    uint16_t out_size = min(*info_size, sizeof(*info));
+    memcpy(buffer, info, out_size);
+    *info_size = out_size;
     EBPF_RETURN_RESULT(EBPF_SUCCESS);
 }
 
@@ -707,4 +639,56 @@ _Requires_lock_held_(link->lock) static void _ebpf_link_set_state(
     }
     UNREFERENCED_PARAMETER(old_state);
     link->state = new_state;
+}
+
+_Must_inspect_result_ ebpf_result_t
+ebpf_link_set_legacy_mode(_Inout_ ebpf_link_t* link)
+{
+    ebpf_result_t return_value = EBPF_SUCCESS;
+    ebpf_lock_state_t state;
+    state = ebpf_lock_lock(&link->lock);
+
+    if (link->state != EBPF_LINK_STATE_ATTACHED) {
+        return_value = EBPF_INVALID_STATE;
+    } else {
+        link->in_legacy_mode = true;
+        return_value = EBPF_SUCCESS;
+        // Add a reference to the link to account for legacy mode.
+        EBPF_OBJECT_ACQUIRE_REFERENCE(&link->object);
+    }
+    ebpf_lock_unlock(&link->lock, state);
+    EBPF_RETURN_RESULT(return_value);
+}
+
+void
+ebpf_link_terminate()
+{
+    EBPF_LOG_ENTRY();
+
+    // Enumerate all links and issue a detach on them.
+
+    ebpf_core_object_t* object = NULL;
+    ebpf_core_object_t* previous_object = NULL;
+
+    for (;;) {
+        EBPF_OBJECT_REFERENCE_NEXT_OBJECT(previous_object, EBPF_OBJECT_LINK, &object);
+
+        // Release the previous object reference after acquiring the next reference to avoid accessing a freed object.
+        if (previous_object) {
+            EBPF_OBJECT_RELEASE_REFERENCE(previous_object);
+            previous_object = NULL;
+        }
+
+        // If there are no more objects, we're done.
+        if (object == NULL) {
+            break;
+        }
+
+        // Detach the link from the program.
+        ebpf_link_t* link = (ebpf_link_t*)object;
+        ebpf_link_detach_program(link);
+        previous_object = object;
+    }
+
+    EBPF_LOG_EXIT();
 }

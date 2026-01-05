@@ -47,7 +47,7 @@ static const NPI_CLIENT_CHARACTERISTICS _bpf2c_npi_client_characteristics = {
      &_bpf2c_npi_id,
      &_bpf2c_module_id,
      0,
-     &metadata_table}};
+     NULL}};
 
 static NTSTATUS
 _bpf2c_query_npi_module_id(
@@ -140,17 +140,11 @@ _bpf2c_npi_client_attach_provider(
         return STATUS_INVALID_PARAMETER;
     }
 
-#pragma warning(push)
-#pragma warning( \
-    disable : 6387) // Param 3 does not adhere to the specification for the function 'NmrClientAttachProvider'
-    // As per MSDN, client dispatch can be NULL, but SAL does not allow it.
-    // https://docs.microsoft.com/en-us/windows-hardware/drivers/ddi/netioddk/nf-netioddk-nmrclientattachprovider
     status = NmrClientAttachProvider(
-        nmr_binding_handle, client_context, NULL, &provider_binding_context, &provider_dispatch_table);
+        nmr_binding_handle, client_context, &metadata_table, &provider_binding_context, &provider_dispatch_table);
     if (status != STATUS_SUCCESS) {
         goto Done;
     }
-#pragma warning(pop)
     _bpf2c_nmr_provider_handle = nmr_binding_handle;
 
 Done:
@@ -176,7 +170,13 @@ _get_hash(_Outptr_result_buffer_maybenull_(*size) const uint8_t** hash, _Out_ si
 
 #pragma data_seg(push, "maps")
 static map_entry_t _maps[] = {
-    {0,
+    {
+     {0, 0},
+     {
+         1,                 // Current Version.
+         80,                // Struct size up to the last field.
+         80,                // Total struct size including padding.
+     },
      {
          BPF_MAP_TYPE_HASH, // Type of map.
          2,                 // Size in bytes of a map key.
@@ -208,8 +208,16 @@ _get_global_variable_sections(
 }
 
 static helper_function_entry_t count_tcp_connect4_helpers[] = {
-    {1, "helper_id_1"},
-    {2, "helper_id_2"},
+    {
+     {1, 40, 40}, // Version header.
+     1,
+     "helper_id_1",
+    },
+    {
+     {1, 40, 40}, // Version header.
+     2,
+     "helper_id_2",
+    },
 };
 
 static GUID count_tcp_connect4_program_type_guid = {
@@ -254,7 +262,7 @@ count_tcp_connect4(void* context, const program_runtime_context_t* runtime_conte
     r0 = IMMEDIATE(1);
     // EBPF_OP_LDXW pc=1 dst=r2 src=r1 offset=44 imm=0
 #line 34 "sample/cgroup_count_connect4.c"
-    r2 = *(uint32_t*)(uintptr_t)(r1 + OFFSET(44));
+    READ_ONCE_32(r2, r1, OFFSET(44));
     // EBPF_OP_JNE_IMM pc=2 dst=r2 src=r0 offset=25 imm=6
 #line 34 "sample/cgroup_count_connect4.c"
     if (r2 != IMMEDIATE(6)) {
@@ -264,7 +272,7 @@ count_tcp_connect4(void* context, const program_runtime_context_t* runtime_conte
     }
     // EBPF_OP_LDXH pc=3 dst=r1 src=r1 offset=40 imm=0
 #line 40 "sample/cgroup_count_connect4.c"
-    r1 = *(uint16_t*)(uintptr_t)(r1 + OFFSET(40));
+    READ_ONCE_16(r1, r1, OFFSET(40));
     // EBPF_OP_JNE_IMM pc=4 dst=r1 src=r0 offset=23 imm=7459
 #line 40 "sample/cgroup_count_connect4.c"
     if (r1 != IMMEDIATE(7459)) {
@@ -277,7 +285,7 @@ count_tcp_connect4(void* context, const program_runtime_context_t* runtime_conte
     r1 = IMMEDIATE(8989);
     // EBPF_OP_STXH pc=6 dst=r10 src=r1 offset=-2 imm=0
 #line 46 "sample/cgroup_count_connect4.c"
-    *(uint16_t*)(uintptr_t)(r10 + OFFSET(-2)) = (uint16_t)r1;
+    WRITE_ONCE_16(r10, (uint16_t)r1, OFFSET(-2));
     // EBPF_OP_MOV64_REG pc=7 dst=r2 src=r10 offset=0 imm=0
 #line 46 "sample/cgroup_count_connect4.c"
     r2 = r10;
@@ -308,7 +316,7 @@ count_tcp_connect4(void* context, const program_runtime_context_t* runtime_conte
     r1 = IMMEDIATE(1);
     // EBPF_OP_STXDW pc=14 dst=r10 src=r1 offset=-16 imm=0
 #line 50 "sample/cgroup_count_connect4.c"
-    *(uint64_t*)(uintptr_t)(r10 + OFFSET(-16)) = (uint64_t)r1;
+    WRITE_ONCE_64(r10, (uint64_t)r1, OFFSET(-16));
     // EBPF_OP_MOV64_REG pc=15 dst=r2 src=r10 offset=0 imm=0
 #line 50 "sample/cgroup_count_connect4.c"
     r2 = r10;
@@ -342,13 +350,13 @@ count_tcp_connect4(void* context, const program_runtime_context_t* runtime_conte
 label_1:
     // EBPF_OP_LDXDW pc=24 dst=r1 src=r0 offset=0 imm=0
 #line 53 "sample/cgroup_count_connect4.c"
-    r1 = *(uint64_t*)(uintptr_t)(r0 + OFFSET(0));
+    READ_ONCE_64(r1, r0, OFFSET(0));
     // EBPF_OP_ADD64_IMM pc=25 dst=r1 src=r0 offset=0 imm=1
 #line 53 "sample/cgroup_count_connect4.c"
     r1 += IMMEDIATE(1);
     // EBPF_OP_STXDW pc=26 dst=r0 src=r1 offset=0 imm=0
 #line 53 "sample/cgroup_count_connect4.c"
-    *(uint64_t*)(uintptr_t)(r0 + OFFSET(0)) = (uint64_t)r1;
+    WRITE_ONCE_64(r0, (uint64_t)r1, OFFSET(0));
 label_2:
     // EBPF_OP_MOV64_IMM pc=27 dst=r0 src=r0 offset=0 imm=0
 #line 53 "sample/cgroup_count_connect4.c"
@@ -366,6 +374,7 @@ label_3:
 static program_entry_t _programs[] = {
     {
         0,
+        {1, 144, 144}, // Version header.
         count_tcp_connect4,
         "cgroup~1",
         "cgroup/connect4",
@@ -391,8 +400,8 @@ _get_programs(_Outptr_result_buffer_(*count) program_entry_t** programs, _Out_ s
 static void
 _get_version(_Out_ bpf2c_version_t* version)
 {
-    version->major = 0;
-    version->minor = 21;
+    version->major = 1;
+    version->minor = 1;
     version->revision = 0;
 }
 

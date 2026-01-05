@@ -101,21 +101,20 @@ structure from provided data and context buffers.
 context structure and populates the returned data and context buffers.
 * `required_irql`: IRQL at which the eBPF program is invoked by bpf_prog_test_run_opts.
 * `capabilities`: 32-bit integer describing the optional capabilities / features supported by the extension.
-   * `supports_context_header`: Flag indicating extension supports adding a context header at the start of each context passed to the eBPF program.
+    * No capabilities are currently defined.
+    * The first bit is reserved and must be zero.
 
-**Capabilities**
+#### `EBPF_CONTEXT_HEADER` eBPF Program Context Header
 
-`supports_context_header`:
-
-Flag indicating that extension supports adding a context header at the start of each context passed to the eBPF program.
-An extension can choose to opt in to support context header at the start of each program context structure that is
-passed to the eBPF program. To support this feature, the extension can use the macro `EBPF_CONTEXT_HEADER` to include
-the context header at the start of the program context structure. Even when the context header is added, the pointer
-passed to the eBPF program is after the context header.
+Extensions are required to add a context header at the start of each context passed to the eBPF program.
+This is required for all extensions to support for runtime state needed by helpers.
+To support this, the extension can use the macro `EBPF_CONTEXT_HEADER` to include
+the context header at the start of the program context structure. The context pointer passed to the
+eBPF program should point immediately after the context header.
 
 *Example*
 
-Below is an example of a sample extension where it is now including eBPF context header at the start of the original
+Below is an example of a sample extension including the eBPF context header at the start of the original
 context structure:
 
 ```c
@@ -126,6 +125,8 @@ typedef struct _sample_program_context
     uint8_t* data_end;
     uint32_t uint32_data;
     uint16_t uint16_data;
+    uint32_t helper_data_1;
+    uint32_t helper_data_2;
 } sample_program_context_t;
 
 // Program context including the context header.
@@ -135,8 +136,85 @@ typedef struct _sample_program_context_header
     sample_program_context_t context;
 } sample_program_context_header_t;
 ```
-The extension passes a pointer to `context` inside `sample_program_context_header_t`, and not a pointer to
-`sample_program_context_header_t`, when invoking the eBPF program.
+The extension passes a pointer to `context` inside `sample_program_context_header_t` and not a pointer to
+`sample_program_context_header_t` when invoking the eBPF program. The header is not accessible
+by the program.
+
+##### Pointer members in program contexts
+
+The sample program context above contains two pointer fields, `data_start` and `data_end`.
+If the intent of an extension is to provide compatibility with some program type that exists on Linux,
+and pointer members exist in the program context, there is a potential problem to be aware of.
+
+On Linux, "pointers" in some program contexts are defined as 32-bit integers, even on 64-bit platforms (with conversion
+done at program load time), whereas the example above will result in 64-bit pointers on
+64-bit platforms.  eBPF for Windows aims to provide source compatibility, but not binary compatibility.
+
+The issue may go unnoticed until verification of a program that works fine on Linux failing
+unexpectedly on Windows due to the program hard coding the context structure it expects, which of course won't
+match what the Windows extension uses, since the context has a different offset for `data_end`.
+
+As such, extensions intended to provide source-compatibility with Linux should minimally document this
+issue in discussing how to use the extension, and ideally show how to write cross-platform eBPF program
+code without using ifdefs.
+
+As an example, on Linux the BPF_XDP program type uses the `xdp_md` context which has:
+
+```
+struct xdp_md {
+    __u32 data;          /* Pointer to start of packet data */
+    __u32 data_end;      /* Pointer to end of packet data */
+...
+};
+
+```
+
+and a sample XDP program might have:
+
+```
+SEC("xdp")
+int xdp_prog(struct xdp_md *ctx)
+{
+    void *data = (void *)(long)ctx->data;
+    void *data_end = (void *)(long)ctx->data_end;
+
+    // Verify that data_end is at least as long as the size we need.
+    // ...
+
+    // Access memory pointed to by data.
+    // ...
+}
+```
+
+Meeting the eBPF for Windows goal of being source-compatible with Linux means that,
+however the `xdp_md` context is defined on Windows, the cast
+```
+   void *data_end = (void *)(long)ctx->data_end;
+```
+needs to work.
+
+As a second example to illustrate that the problem is not XDP-specific, on Linux the
+`__sk_buff` structure is defined as:
+```
+struct __sk_buff {
+...
+    __u32 data;
+    __u32 data_end;
+...
+};
+```
+
+and a sample TC classifier program might have:
+
+```
+SEC("classifier")
+int classifier_prog(struct __sk_buff *skb) {
+    void *data = (void *)(long)skb->data;
+    void *data_end = (void *)(long)skb->data_end;
+
+    // ...
+}
+```
 
 #### `ebpf_program_info_t` Struct
 The various fields of this structure should be set as follows:
@@ -152,8 +230,7 @@ The various fields of this structure should be set as follows:
 * `context_descriptor`: Pointer of type `ebpf_context_descriptor_t`.
 * `program_type`: GUID for the program type. This should be the same as the `NpiId` in `NPI_REGISTRATION_INSTANCE` as
 noted above.
-* `bpf_prog_type`: Set to the equivalent bpf program type integer. If there is no equivalent bpf program type, this
-field should be set to `0 (BPF_PROG_TYPE_UNSPEC)`.
+* `bpf_prog_type`: Set to the equivalent bpf program type integer. If there is no equivalent bpf program type, either add a value to the `bpf_prog_type` enum and assign it here or this field should be set to `0 (BPF_PROG_TYPE_UNSPEC)`.
 * `is_privileged`: Set to `FALSE`.
 
 #### `ebpf_context_descriptor_t` Struct
@@ -165,25 +242,25 @@ invoking an eBPF program. The various fields of this struct are as follows.
 * `end`: Offset (in bytes) to the field in the context structure that is pointing to the end of context data.
 * `meta`: Offset (in bytes) to the field in the context structure that is pointing to the beginning of context metadata.
 
-For example, for the XDP_TEST program types, the context data structure is as follows:
+For example, for the BPF_PROG_TYPE_SAMPLE program types, the context data structure is as follows:
 ```c
-// XDP_TEST hook.  We use "struct xdp_md" for cross-platform compatibility.
-typedef struct xdp_md
+// Sample extension program context.
+typedef struct _sample_program_context
 {
-    void* data;         ///< Pointer to start of packet data.
-    void* data_end;     ///< Pointer to end of packet data.
-    uint64_t data_meta; ///< Packet metadata.
-
-    /* size: 12, cachelines: 1, members: 3 */
-    /* last cacheline: 12 bytes */
-} xdp_md_t;
+    uint8_t* data_start;
+    uint8_t* data_end;
+    uint32_t uint32_data;
+    uint16_t uint16_data;
+    uint32_t helper_data_1;
+    uint32_t helper_data_2;
+} sample_program_context_t;
 ```
 The corresponding context descriptor looks like:
 ```c
-const ebpf_context_descriptor_t g_xdp_context_descriptor = {sizeof(xdp_md_t),
-                                                            EBPF_OFFSET_OF(xdp_md_t, data),
-                                                            EBPF_OFFSET_OF(xdp_md_t, data_end),
-                                                            EBPF_OFFSET_OF(xdp_md_t, data_meta)};
+const ebpf_context_descriptor_t g_sample_program_context_descriptor = {sizeof(sample_program_context_t),
+                                                            EBPF_OFFSET_OF(sample_program_context_t, data_start),
+                                                            EBPF_OFFSET_OF(sample_program_context_t, data_end),
+                                                            -1};
 ```
 If any of the data or metadata pointer fields are not present on the context structure, the offset value is set to -1
 in the context descriptor.
@@ -344,8 +421,8 @@ verification constraints are honored. All new fields that affect verification MU
 and all fields that do not affect verification MUST NOT be included.
 
 ### 2.3 Program Information NPI Client Attach and Detach Callbacks
-The eBPF Execution Context registers a Program Information NPI client module with the NMR for every eBPF program that
-gets loaded. The Execution Context will use the program type GUID of the program as the NPI ID of the client module.
+The eBPF execution context registers a Program Information NPI client module with the NMR for every eBPF program that
+gets loaded. The execution context will use the program type GUID of the program as the NPI ID of the client module.
 And as a result, upon eBPF program load, the associated Program Information NPI client module will attach with the
 corresponding Program Information NPI provider module in the extension. The Program Information NPI does not have any
 client or provider dispatch tables. Neither does the client's `NpiSpecificCharacteristics` have any data. So, no
@@ -357,7 +434,7 @@ When registering itself to the NMR, the Hook NPI provider should have the
 [`NPI_REGISTRATION_INSTANCE`](https://docs.microsoft.com/en-us/windows-hardware/drivers/ddi/netioddk/ns-netioddk-_npi_registration_instance)
 initialized as follows:
 * `NpiId`: This should be set to `EBPF_HOOK_EXTENSION_IID` defined in `ebpf_extension_uuids.h`.
-* `ModuleId`: This should be set to the attach type GUID.
+* `ModuleId`: This should be set to the attach type GUID. (See [ebpf_attach_provider_data_t Struct](eBpfExtensions.md#ebpf_attach_provider_data_t-struct))
 * `NpiSpecificCharacteristics`: Pointer to structure of type `ebpf_attach_provider_data_t`.
 
 #### `ebpf_attach_provider_data_t` Struct
@@ -365,16 +442,23 @@ This structure is used to specify the attach type supported by the extension for
 contains the following fields:
 * `supported_program_type`
 * `bpf_attach_type`
+* `link_type`
 
 The `supported_program_type` field of the struct should be filled with the `ebpf_program_type_t` (GUID) of the
-supported program type. While attaching an eBPF program to a hook instance, the Execution Context enforces that the
+supported program type. This must be the same as the value of the `ModuleId` field in `NPI_REGISTRATION_INSTANCE`.
+While attaching an eBPF program to a hook instance, the execution context enforces that the
 requested attach type is supported by the Hook NPI provider. If not, the eBPF program fails to attach to the hook.
 
-The `bpf_attach_type` field should contain the equivalent bpf attach type integer. If there is no equivalent bpf
-attach type, this field should be set to `0 (BPF_ATTACH_TYPE_UNSPEC)`.
+The `bpf_attach_type` field should contain the equivalent bpf attach type integer. If there is no equivalent bpf attach type, either add a value to the
+`bpf_attach_type_t` enum (defined in `ebpf_structs.h`) and assign it here or this field should be set to `0 (BPF_ATTACH_TYPE_UNSPEC)`.
+
+The `link_type` field should be set to a suitable value in `bpf_link_type` enum (defined in `ebpf_structs.h`). Depending on the hook,
+some optional attach parameters may be provided when an eBPF program attaches to the hook. For example, the XDP hook expects a network interface index
+passed in the attach parameters. This attach data is stored in the `bpf_link_info` struct. The `link_type` fields is used to determine
+which attach parameter is present in the link info.
 
 ### 2.5 Hook NPI Client Attach and Detach Callbacks
-The eBPF Execution Context registers a Hook NPI client module with the NMR for each program that is attached to a hook.
+The eBPF execution context registers a Hook NPI client module with the NMR for each program that is attached to a hook.
 The attach type GUID is used as the NPI of the client module. And as a result, when an eBPF program gets attached to
 a hook, the associated Hook NPI client module will attach to the corresponding Hook NPI provider module in the
 extension. The
@@ -385,7 +469,7 @@ structure from the passed in parameters:
 * `ClientDispatch`: Client dispatch table (see section 2.5 below).
 * `NpiSpecificCharacteristics`: Obtained from `ClientRegistrationInstance` parameter. This contains attach-type
 specific data that may be used by an extension for attaching an eBPF program. For example, when an eBPF program is
-being attached to an XDP_TEST hook, the network interface index can be passed via this parameter. This tells the extension
+being attached to an BPF_XDP hook, the network interface index can be passed via this parameter. This tells the extension
 to invoke the eBPF program whenever there are any inbound packets on that network interface. The attach parameter can
 be obtained as follows:
 ```c
@@ -469,12 +553,12 @@ The function pointer can be obtained from the client dispatch table as follows:
 ```c
 invoke_program = (ebpf_program_invoke_function_t)client_dispatch_table->function[0];
 ```
-When an extension invokes this function pointer, then the call flows through the eBPF Execution Context and eventually
+When an extension invokes this function pointer, then the call flows through the eBPF execution context and eventually
 invokes the eBPF program.  When invoking an eBPF program, the extension must supply the client binding context it
 obtained from the Hook NPI client as the `client_binding_context` parameter. For the second parameter `context`, it
 must pass the program type specific context data structure. Note that the Program Information NPI provider supplies
 the context descriptor (using the `ebpf_context_descriptor_t` type) to the eBPF verifier and JIT-compiler via the NPI
-client hosted by the Execution Context. The `result` output parameter holds the return value from the eBPF program
+client hosted by the execution context. The `result` output parameter holds the return value from the eBPF program
 post execution.
 
 In cases where the same eBPF program will be invoked sequentially with different context data (aka batch invocation),
@@ -496,7 +580,7 @@ associated with those helper functions. The Program Information NPI provider mus
 addresses for those functions. For these type of helpers, the helper function Id must be greater that 65535 (0xFFFF)
 for program type specific helper functions.
 2. General: The general helper functions can be invoked by eBPF programs of all types. Examples of this type of helper
-functions are the eBPF Map helper functions. These helper functions are implemented by the eBPF Execution Context
+functions are the eBPF Map helper functions. These helper functions are implemented by the eBPF execution context
 itself. However, if a program type so chooses, it may provide implementations for general helper functions. For that
 the extension would have to provide another Program Information NPI provider, which *does not* provide any program
 context descriptor. Instead, it only supplies the prototypes and addresses of the general helper functions. The NPI ID
@@ -514,11 +598,11 @@ The parameter and return types for these helper functions must adhere to the `eb
 `ebpf_return_type_t` enums.
 
 ### 2.8 Registering Program Types and Attach Types - eBPF Store
-The eBPF Execution Context loads an eBPF program from an ELF file that has program section(s) with section names. The
-prefix to these names determines the program type. For example, the section name `"xdp_test"` implies that the corresponding
-program type is `EBPF_PROGRAM_TYPE_XDP_TEST`.
+The eBPF execution context loads an eBPF program from an ELF file that has program section(s) with section names. The
+prefix to these names determines the program type. For example, the section name `"xdp"` implies that the corresponding
+program type is `BPF_PROG_TYPE_XDP`.
 
-The *Execution Context* discovers the program type associated with a section prefix by reading the data from the ***"eBPF store"***, which is currently kept in the Windows registry. An extension developer must author a user mode application which will use eBPF store APIs to update the program types it implements along with the associated section prefixes. eBPF store APIs are exported from ebpfapi.dll.
+The *execution context* discovers the program type associated with a section prefix by reading the data from the ***"eBPF store"***, which is currently kept in the Windows registry. An extension developer must author a user mode application which will use eBPF store APIs to update the program types it implements along with the associated section prefixes. eBPF store APIs are exported from ebpfapi.dll.
 
 To operate on the eBPF store, the user mode application needs to link with eBPFApi.dll and include the related `include\ebpf_store_helper.h` header file, both distributed within the [eBPF for Windows NuGet package](https://www.nuget.org/packages/eBPF-for-Windows/). With these, the application can use the following APIs to register program types, attach types, and helper functions:
 

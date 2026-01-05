@@ -17,6 +17,8 @@
 #include <mutex>
 #include <vector>
 
+using namespace prevail;
+
 extern "C"
 {
     _Must_inspect_result_ ebpf_result_t
@@ -35,10 +37,6 @@ extern "C"
 extern "C" size_t cxplat_fuzzing_memory_limit;
 
 static std::vector<std::pair<GUID, GUID>> _program_types = {
-    {
-        EBPF_PROGRAM_TYPE_XDP,
-        EBPF_ATTACH_TYPE_XDP,
-    },
     {
         EBPF_PROGRAM_TYPE_BIND,
         EBPF_ATTACH_TYPE_BIND,
@@ -351,7 +349,7 @@ class fuzz_wrapper
             }
 
             // BPF program that sets r0 to 0 and returns.
-            ebpf_inst instructions[] = {
+            prevail::EbpfInst instructions[] = {
                 {
                     .opcode = 0xb4, // mov r0, 0
                 },
@@ -464,6 +462,7 @@ fuzz_ioctl(std::vector<uint8_t>& random_buffer)
 {
     fuzz_wrapper fuzz_state;
     bool async = false;
+    bool privileged = false;
     std::vector<uint8_t> request;
     std::vector<uint8_t> reply;
     uint16_t reply_buffer_length = 0;
@@ -499,8 +498,8 @@ fuzz_ioctl(std::vector<uint8_t>& random_buffer)
     size_t minimum_request_size;
     size_t minimum_reply_size;
 
-    ebpf_result_t result =
-        ebpf_core_get_protocol_handler_properties(operation_id, &minimum_request_size, &minimum_reply_size, &async);
+    ebpf_result_t result = ebpf_core_get_protocol_handler_properties(
+        operation_id, &minimum_request_size, &minimum_reply_size, &async, &privileged);
     if (result != EBPF_SUCCESS) {
         return;
     }

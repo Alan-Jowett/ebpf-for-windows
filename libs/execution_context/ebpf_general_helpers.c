@@ -130,8 +130,9 @@ ebpf_helper_function_prototype_t ebpf_core_helper_function_prototype_array[] = {
      EBPF_RETURN_TYPE_INTEGER,
      {EBPF_ARGUMENT_TYPE_PTR_TO_CTX}},
     {EBPF_HELPER_FUNCTION_PROTOTYPE_HEADER,
-     BPF_FUNC_memcpy,
-     "bpf_memcpy",
+     BPF_FUNC_memcpy_s,
+     "bpf_memcpy", // Intentionally named bpf_memcpy (instead of bpf_memcpy_s) for backward compatibility with
+                   // signatures on existing programs, even though the function is implemented as bpf_memcpy_s.
      EBPF_RETURN_TYPE_INTEGER,
      {
          EBPF_ARGUMENT_TYPE_PTR_TO_WRITABLE_MEM,
@@ -140,8 +141,9 @@ ebpf_helper_function_prototype_t ebpf_core_helper_function_prototype_array[] = {
          EBPF_ARGUMENT_TYPE_CONST_SIZE_OR_ZERO,
      }},
     {EBPF_HELPER_FUNCTION_PROTOTYPE_HEADER,
-     BPF_FUNC_memcmp,
-     "bpf_memcmp",
+     BPF_FUNC_memcmp_s,
+     "bpf_memcmp", // Intentionally named bpf_memcmp (instead of bpf_memcmp_s) for backward compatibility with
+                   // signatures on existing programs, even though the function is implemented as bpf_memcmp_s.
      EBPF_RETURN_TYPE_INTEGER,
      {
          EBPF_ARGUMENT_TYPE_PTR_TO_READABLE_MEM,
@@ -155,8 +157,9 @@ ebpf_helper_function_prototype_t ebpf_core_helper_function_prototype_array[] = {
      EBPF_RETURN_TYPE_INTEGER,
      {EBPF_ARGUMENT_TYPE_PTR_TO_WRITABLE_MEM, EBPF_ARGUMENT_TYPE_CONST_SIZE_OR_ZERO, EBPF_ARGUMENT_TYPE_ANYTHING}},
     {EBPF_HELPER_FUNCTION_PROTOTYPE_HEADER,
-     BPF_FUNC_memmove,
-     "bpf_memmove",
+     BPF_FUNC_memmove_s,
+     "bpf_memmove", // Intentionally named bpf_memmove (instead of bpf_memmove_s) for backward compatibility with
+                    // signatures on existing programs, even though the function is implemented as bpf_memmove_s.
      EBPF_RETURN_TYPE_INTEGER,
      {
          EBPF_ARGUMENT_TYPE_PTR_TO_WRITABLE_MEM,
@@ -203,6 +206,25 @@ ebpf_helper_function_prototype_t ebpf_core_helper_function_prototype_array[] = {
      EBPF_RETURN_TYPE_INTEGER,
      {0}},
     {EBPF_HELPER_FUNCTION_PROTOTYPE_HEADER, BPF_FUNC_ktime_get_ms, "bpf_ktime_get_ms", EBPF_RETURN_TYPE_INTEGER, {0}},
+    {EBPF_HELPER_FUNCTION_PROTOTYPE_HEADER,
+     BPF_FUNC_perf_event_output,
+     "bpf_perf_event_output",
+     EBPF_RETURN_TYPE_INTEGER,
+     {EBPF_ARGUMENT_TYPE_PTR_TO_CTX,
+      EBPF_ARGUMENT_TYPE_PTR_TO_MAP,
+      EBPF_ARGUMENT_TYPE_ANYTHING,
+      EBPF_ARGUMENT_TYPE_PTR_TO_READABLE_MEM,
+      EBPF_ARGUMENT_TYPE_CONST_SIZE}},
+    {EBPF_HELPER_FUNCTION_PROTOTYPE_HEADER,
+     BPF_FUNC_get_current_process_start_key,
+     "bpf_get_current_process_start_key",
+     EBPF_RETURN_TYPE_INTEGER,
+     {EBPF_ARGUMENT_TYPE_DONTCARE}},
+    {EBPF_HELPER_FUNCTION_PROTOTYPE_HEADER,
+     BPF_FUNC_get_current_thread_create_time,
+     "bpf_get_current_thread_create_time",
+     EBPF_RETURN_TYPE_INTEGER,
+     {EBPF_ARGUMENT_TYPE_DONTCARE}}
 };
 
 #ifdef __cplusplus

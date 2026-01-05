@@ -16,8 +16,8 @@
 
 #include <stdlib.h>
 
-#define malloc(X) ebpf_allocate((X))
-#define calloc(X, Y) ebpf_allocate((X) * (Y))
+#define malloc(X) ebpf_allocate_with_tag((X), EBPF_POOL_TAG_DEFAULT)
+#define calloc(X, Y) ebpf_allocate_with_tag(((X) * (Y)), EBPF_POOL_TAG_DEFAULT)
 #define free(X) ebpf_free(X)
 
 #include <endian.h>
@@ -36,13 +36,15 @@
 
 #if !defined(NDEBUG)
 void
-_assert(const char* message, const char* file, unsigned line)
+ubpf_assert(const char* message, const char* file, unsigned line)
 {
     UNREFERENCED_PARAMETER(message);
     UNREFERENCED_PARAMETER(file);
     UNREFERENCED_PARAMETER(line);
     __fastfail(0);
 }
+#undef _assert
+#define _assert ubpf_assert
 #endif
 
 inline int

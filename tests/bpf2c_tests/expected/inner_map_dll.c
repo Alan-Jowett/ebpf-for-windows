@@ -45,7 +45,13 @@ _get_hash(_Outptr_result_buffer_maybenull_(*size) const uint8_t** hash, _Out_ si
 
 #pragma data_seg(push, "maps")
 static map_entry_t _maps[] = {
-    {0,
+    {
+     {0, 0},
+     {
+         1,                         // Current Version.
+         80,                        // Struct size up to the last field.
+         80,                        // Total struct size including padding.
+     },
      {
          BPF_MAP_TYPE_HASH_OF_MAPS, // Type of map.
          4,                         // Size in bytes of a map key.
@@ -57,7 +63,13 @@ static map_entry_t _maps[] = {
          11,                        // The id of the inner map template.
      },
      "outer_map"},
-    {0,
+    {
+     {0, 0},
+     {
+         1,                         // Current Version.
+         80,                        // Struct size up to the last field.
+         80,                        // Total struct size including padding.
+     },
      {
          BPF_MAP_TYPE_HASH_OF_MAPS, // Type of map.
          2,                         // Size in bytes of a map key.
@@ -69,7 +81,13 @@ static map_entry_t _maps[] = {
          21,                        // The id of the inner map template.
      },
      "outer_map2"},
-    {0,
+    {
+     {0, 0},
+     {
+         1,                  // Current Version.
+         80,                 // Struct size up to the last field.
+         80,                 // Total struct size including padding.
+     },
      {
          BPF_MAP_TYPE_ARRAY, // Type of map.
          4,                  // Size in bytes of a map key.
@@ -81,7 +99,13 @@ static map_entry_t _maps[] = {
          0,                  // The id of the inner map template.
      },
      "inner_map"},
-    {0,
+    {
+     {0, 0},
+     {
+         1,                  // Current Version.
+         80,                 // Struct size up to the last field.
+         80,                 // Total struct size including padding.
+     },
      {
          BPF_MAP_TYPE_ARRAY, // Type of map.
          4,                  // Size in bytes of a map key.
@@ -113,7 +137,11 @@ _get_global_variable_sections(
 }
 
 static helper_function_entry_t lookup_update_helpers[] = {
-    {1, "helper_id_1"},
+    {
+     {1, 40, 40}, // Version header.
+     1,
+     "helper_id_1",
+    },
 };
 
 static GUID lookup_update_program_type_guid = {
@@ -163,10 +191,10 @@ lookup_update(void* context, const program_runtime_context_t* runtime_context)
     r7 = IMMEDIATE(0);
     // EBPF_OP_STXW pc=1 dst=r10 src=r7 offset=-4 imm=0
 #line 54 "sample/undocked/inner_map.c"
-    *(uint32_t*)(uintptr_t)(r10 + OFFSET(-4)) = (uint32_t)r7;
+    WRITE_ONCE_32(r10, (uint32_t)r7, OFFSET(-4));
     // EBPF_OP_STXH pc=2 dst=r10 src=r7 offset=-6 imm=0
 #line 55 "sample/undocked/inner_map.c"
-    *(uint16_t*)(uintptr_t)(r10 + OFFSET(-6)) = (uint16_t)r7;
+    WRITE_ONCE_16(r10, (uint16_t)r7, OFFSET(-6));
     // EBPF_OP_MOV64_REG pc=3 dst=r2 src=r10 offset=0 imm=0
 #line 55 "sample/undocked/inner_map.c"
     r2 = r10;
@@ -197,7 +225,7 @@ lookup_update(void* context, const program_runtime_context_t* runtime_context)
     }
     // EBPF_OP_STXW pc=10 dst=r10 src=r7 offset=-12 imm=0
 #line 62 "sample/undocked/inner_map.c"
-    *(uint32_t*)(uintptr_t)(r10 + OFFSET(-12)) = (uint32_t)r7;
+    WRITE_ONCE_32(r10, (uint32_t)r7, OFFSET(-12));
     // EBPF_OP_MOV64_REG pc=11 dst=r2 src=r10 offset=0 imm=0
 #line 62 "sample/undocked/inner_map.c"
     r2 = r10;
@@ -229,7 +257,7 @@ label_1:
     r1 = IMMEDIATE(1);
     // EBPF_OP_STXW pc=17 dst=r0 src=r1 offset=0 imm=0
 #line 64 "sample/undocked/inner_map.c"
-    *(uint32_t*)(uintptr_t)(r0 + OFFSET(0)) = (uint32_t)r1;
+    WRITE_ONCE_32(r0, (uint32_t)r1, OFFSET(0));
     // EBPF_OP_MOV64_IMM pc=18 dst=r0 src=r0 offset=0 imm=0
 #line 64 "sample/undocked/inner_map.c"
     r0 = IMMEDIATE(0);
@@ -274,7 +302,7 @@ label_3:
     r1 = IMMEDIATE(0);
     // EBPF_OP_STXW pc=29 dst=r10 src=r1 offset=-16 imm=0
 #line 74 "sample/undocked/inner_map.c"
-    *(uint32_t*)(uintptr_t)(r10 + OFFSET(-16)) = (uint32_t)r1;
+    WRITE_ONCE_32(r10, (uint32_t)r1, OFFSET(-16));
     // EBPF_OP_MOV64_REG pc=30 dst=r2 src=r10 offset=0 imm=0
 #line 74 "sample/undocked/inner_map.c"
     r2 = r10;
@@ -319,6 +347,7 @@ label_4:
 static program_entry_t _programs[] = {
     {
         0,
+        {1, 144, 144}, // Version header.
         lookup_update,
         "sample~1",
         "sample_ext",
@@ -344,8 +373,8 @@ _get_programs(_Outptr_result_buffer_(*count) program_entry_t** programs, _Out_ s
 static void
 _get_version(_Out_ bpf2c_version_t* version)
 {
-    version->major = 0;
-    version->minor = 21;
+    version->major = 1;
+    version->minor = 1;
     version->revision = 0;
 }
 
