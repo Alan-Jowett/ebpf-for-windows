@@ -47,7 +47,7 @@ static const NPI_CLIENT_CHARACTERISTICS _bpf2c_npi_client_characteristics = {
      &_bpf2c_npi_id,
      &_bpf2c_module_id,
      0,
-     &metadata_table}};
+     NULL}};
 
 static NTSTATUS
 _bpf2c_query_npi_module_id(
@@ -140,17 +140,11 @@ _bpf2c_npi_client_attach_provider(
         return STATUS_INVALID_PARAMETER;
     }
 
-#pragma warning(push)
-#pragma warning( \
-    disable : 6387) // Param 3 does not adhere to the specification for the function 'NmrClientAttachProvider'
-    // As per MSDN, client dispatch can be NULL, but SAL does not allow it.
-    // https://docs.microsoft.com/en-us/windows-hardware/drivers/ddi/netioddk/nf-netioddk-nmrclientattachprovider
     status = NmrClientAttachProvider(
-        nmr_binding_handle, client_context, NULL, &provider_binding_context, &provider_dispatch_table);
+        nmr_binding_handle, client_context, &metadata_table, &provider_binding_context, &provider_dispatch_table);
     if (status != STATUS_SUCCESS) {
         goto Done;
     }
-#pragma warning(pop)
     _bpf2c_nmr_provider_handle = nmr_binding_handle;
 
 Done:
@@ -176,7 +170,13 @@ _get_hash(_Outptr_result_buffer_maybenull_(*size) const uint8_t** hash, _Out_ si
 
 #pragma data_seg(push, "maps")
 static map_entry_t _maps[] = {
-    {0,
+    {
+     {0, 0},
+     {
+         1,                       // Current Version.
+         80,                      // Struct size up to the last field.
+         80,                      // Total struct size including padding.
+     },
      {
          BPF_MAP_TYPE_PROG_ARRAY, // Type of map.
          4,                       // Size in bytes of a map key.
@@ -188,7 +188,13 @@ static map_entry_t _maps[] = {
          0,                       // The id of the inner map template.
      },
      "map"},
-    {0,
+    {
+     {0, 0},
+     {
+         1,                  // Current Version.
+         80,                 // Struct size up to the last field.
+         80,                 // Total struct size including padding.
+     },
      {
          BPF_MAP_TYPE_ARRAY, // Type of map.
          4,                  // Size in bytes of a map key.
@@ -220,7 +226,11 @@ _get_global_variable_sections(
 }
 
 static helper_function_entry_t callee_helpers[] = {
-    {1, "helper_id_1"},
+    {
+     {1, 40, 40}, // Version header.
+     1,
+     "helper_id_1",
+    },
 };
 
 static GUID callee_program_type_guid = {0xf788ef4a, 0x207d, 0x4dc3, {0x85, 0xcf, 0x0f, 0x2e, 0xa1, 0x07, 0x21, 0x3c}};
@@ -263,7 +273,7 @@ callee(void* context, const program_runtime_context_t* runtime_context)
     r1 = IMMEDIATE(0);
     // EBPF_OP_STXW pc=1 dst=r10 src=r1 offset=-4 imm=0
 #line 35 "sample/undocked/tail_call_same_section.c"
-    *(uint32_t*)(uintptr_t)(r10 + OFFSET(-4)) = (uint32_t)r1;
+    WRITE_ONCE_32(r10, (uint32_t)r1, OFFSET(-4));
     // EBPF_OP_MOV64_REG pc=2 dst=r2 src=r10 offset=0 imm=0
 #line 38 "sample/undocked/tail_call_same_section.c"
     r2 = r10;
@@ -308,8 +318,16 @@ label_1:
 #line __LINE__ __FILE__
 
 static helper_function_entry_t caller_helpers[] = {
-    {5, "helper_id_5"},
-    {1, "helper_id_1"},
+    {
+     {1, 40, 40}, // Version header.
+     5,
+     "helper_id_5",
+    },
+    {
+     {1, 40, 40}, // Version header.
+     1,
+     "helper_id_1",
+    },
 };
 
 static GUID caller_program_type_guid = {0xf788ef4a, 0x207d, 0x4dc3, {0x85, 0xcf, 0x0f, 0x2e, 0xa1, 0x07, 0x21, 0x3c}};
@@ -353,7 +371,7 @@ caller(void* context, const program_runtime_context_t* runtime_context)
     r2 = IMMEDIATE(0);
     // EBPF_OP_STXW pc=1 dst=r10 src=r2 offset=-4 imm=0
 #line 35 "sample/undocked/tail_call_same_section.c"
-    *(uint32_t*)(uintptr_t)(r10 + OFFSET(-4)) = (uint32_t)r2;
+    WRITE_ONCE_32(r10, (uint32_t)r2, OFFSET(-4));
     // EBPF_OP_LDDW pc=2 dst=r2 src=r1 offset=0 imm=1
 #line 38 "sample/undocked/tail_call_same_section.c"
     r2 = POINTER(runtime_context->map_data[0].address);
@@ -399,7 +417,7 @@ caller(void* context, const program_runtime_context_t* runtime_context)
     r1 = IMMEDIATE(1);
     // EBPF_OP_STXW pc=13 dst=r0 src=r1 offset=0 imm=0
 #line 43 "sample/undocked/tail_call_same_section.c"
-    *(uint32_t*)(uintptr_t)(r0 + OFFSET(0)) = (uint32_t)r1;
+    WRITE_ONCE_32(r0, (uint32_t)r1, OFFSET(0));
 label_1:
     // EBPF_OP_MOV64_IMM pc=14 dst=r0 src=r0 offset=0 imm=6
 #line 46 "sample/undocked/tail_call_same_section.c"
@@ -416,6 +434,7 @@ label_1:
 static program_entry_t _programs[] = {
     {
         0,
+        {1, 144, 144}, // Version header.
         callee,
         "sample~1",
         "sample_ext",
@@ -430,6 +449,7 @@ static program_entry_t _programs[] = {
     },
     {
         0,
+        {1, 144, 144}, // Version header.
         caller,
         "sample~2",
         "sample_ext",
@@ -455,8 +475,8 @@ _get_programs(_Outptr_result_buffer_(*count) program_entry_t** programs, _Out_ s
 static void
 _get_version(_Out_ bpf2c_version_t* version)
 {
-    version->major = 0;
-    version->minor = 21;
+    version->major = 1;
+    version->minor = 1;
     version->revision = 0;
 }
 

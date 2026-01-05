@@ -7,7 +7,7 @@
 #
 # If you add or remove any tests that use reusable-test.yml on a pull request,
 # you must update codecov.yml to match.
-
+---
 name: CI/CD
 
 on:
@@ -19,9 +19,10 @@ on:
   merge_group:
   # Permit manual runs of the workflow.
   workflow_dispatch:
-  # Run on push so we can capture the baseline code coverage.
   push:
-    branches: [ main ]
+    branches: [main]   # Run on push to main, so we can capture the baseline code coverage.
+    tags:
+      - 'Release-v*'  # Run on release tags.
 
 concurrency:
   # Cancel any in-progress instance of this workflow (CI/CD) for the same PR.
@@ -32,11 +33,11 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  id-token: write # Required to log in to Azure.
+  id-token: write  # Required to log in to Azure.
   contents: read
   checks: read  # Required by reusable-test.yml to check build status.
-  security-events: write # Required by codeql task.
-  issues: write # Required to create issues.
+  security-events: write  # Required by codeql task.
+  issues: write  # Required to create issues.
 
 jobs:
   # Jobs to run on pull, push, and schedule.
@@ -54,7 +55,6 @@ jobs:
       generate_release_package: true
       build_msi: true
       build_nuget: true
-      build_options: /p:ReleaseJIT='True'
       configurations: '["Debug", "FuzzerDebug", "Release"]'
 
   onebranch:
@@ -149,6 +149,24 @@ jobs:
       leak_detection: true
       configurations: '["NativeOnlyDebug", "NativeOnlyRelease"]'
 
+  # Run the unit tests for NativeOnly build in GitHub.
+  unit_tests_native_only_arm64:
+    # Always run this job.
+    needs: regular_native-only
+    uses: ./.github/workflows/reusable-test.yml
+    with:
+      name: unit_tests
+      # Don't run appverif on ARM64 until it is fixed.
+      # Exclude [processes] test that CodeCoverage can't work with.
+      test_command: .\unit_tests.exe -d yes ~[processes]
+      build_artifact: Build-ARM64-native-only
+      environment: '["windows-11-arm"]'
+      code_coverage: false  # No code coverage on ARM64.
+      gather_dumps: true
+      capture_etw: true
+      leak_detection: true
+      configurations: '["NativeOnlyDebug", "NativeOnlyRelease"]'
+
   # Run the netebpfext unit tests in GitHub.
   netebpf_ext_unit_tests:
     # Always run this job.
@@ -182,14 +200,26 @@ jobs:
       gather_dumps: true
       capture_etw: true
 
+  # Job to read BPF conformance version from central file.
+  get_bpf_conformance_version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.read_version.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v4.2.2
+      - name: Read BPF conformance version
+        id: read_version
+        run: echo "version=$(cat .github/bpf-conformance-version.txt)" >> $GITHUB_OUTPUT
+
   # Run the bpf2c conformance tests in GitHub.
   bpf2c_conformance:
     # Always run this job.
-    needs: regular
+    needs: [regular, get_bpf_conformance_version]
     if: github.event_name == 'schedule' || github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch'
     uses: ./.github/workflows/reusable-test.yml
     with:
-      pre_test: Invoke-WebRequest https://github.com/Alan-Jowett/bpf_conformance/releases/download/v0.0.6/bpf_conformance_runner.exe -OutFile bpf_conformance_runner.exe
+      pre_test: Invoke-WebRequest https://github.com/Alan-Jowett/bpf_conformance/releases/download/${{ needs.get_bpf_conformance_version.outputs.version }}/bpf_conformance_runner.exe -OutFile bpf_conformance_runner.exe
       test_command: .\bpf_conformance_runner.exe --test_file_directory %SOURCE_ROOT%\external\ebpf-verifier\external\bpf_conformance\tests --cpu_version v4 --plugin_path bpf2c_plugin.exe --debug true --plugin_options "--include %SOURCE_ROOT%\include"
       name: bpf2c_conformance
       build_artifact: Build-x64
@@ -199,154 +229,75 @@ jobs:
       gather_dumps: true
       capture_etw: true
 
-  # Run the driver tests on self-hosted runners.
-  driver_ws2019:
-    # Always run this job.
-    # Only run this on repos that have self-host runners.
+  driver_tests:
     needs: regular
     if: github.repository == 'microsoft/ebpf-for-windows' && (github.event_name == 'schedule' || github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch')
     uses: ./.github/workflows/reusable-test.yml
+    strategy:
+      matrix:
+        image:
+          - 'server2022'
+          - 'server23h2'
+          - 'server2025'
     with:
-      pre_test: .\setup_ebpf_cicd_tests.ps1 -KmTracing $true -KmTraceType "file"
-      test_command: .\execute_ebpf_cicd_tests.ps1 -TestMode "CI/CD"
-      post_test: .\cleanup_ebpf_cicd_tests.ps1 -KmTracing $true
-      name: driver_ws2019
+      pre_test: .\setup_ebpf_cicd_tests.ps1 -GranularTracing
+      test_command: .\execute_ebpf_cicd_tests.ps1 -TestMode "CI/CD" -GranularTracing
+      post_test: .\cleanup_ebpf_cicd_tests.ps1
+      name: driver_${{ matrix.image }}
       build_artifact: Build-x64
-      environment: '["ebpf_cicd_tests_ws2019"]'
-      # driver test copies dumps to testlog folder.
+      environment: '["self-hosted", "1ES.Pool=ebpf-cicd-runner-pool-server-2019", "1ES.ImageOverride=${{ matrix.image }}"]'
+      # Driver test copies dumps to testlog folder.
       gather_dumps: false
-      # driver tests manually gather code coverage
+      # Driver tests manually gather code coverage.
       code_coverage: false
+      # Skip ETW tracing as the individual testcases will capture their own traces.
+      capture_etw: false
 
-  # Run the driver tests on self-hosted runners.
-  driver_ws2022:
-    # Always run this job.
-    # Only run this on repos that have self-host runners.
-    needs: regular
+  driver_native_only_tests:
+    needs: regular_native-only
     if: github.repository == 'microsoft/ebpf-for-windows' && (github.event_name == 'schedule' || github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch')
     uses: ./.github/workflows/reusable-test.yml
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - 'server2022'
+          - 'server23h2'
+          - 'server2025'
     with:
-      pre_test: .\setup_ebpf_cicd_tests.ps1 -KmTracing $true -KmTraceType "file"
-      test_command: .\execute_ebpf_cicd_tests.ps1 -TestMode "CI/CD"
-      post_test: .\cleanup_ebpf_cicd_tests.ps1 -KmTracing $true
-      name: driver_ws2022
-      build_artifact: Build-x64
-      environment: '["ebpf_cicd_tests_ws2022"]'
-      # driver test copies dumps to testlog folder.
+      pre_test: .\setup_ebpf_cicd_tests.ps1 -EnableHVCI "On" -GranularTracing
+      test_command: .\execute_ebpf_cicd_tests.ps1 -TestMode "CI/CD" -GranularTracing
+      post_test: .\cleanup_ebpf_cicd_tests.ps1
+      name: driver_${{ matrix.image }}
+      build_artifact: Build-x64-native-only
+      environment: '["self-hosted", "1ES.Pool=ebpf-cicd-runner-pool-server-2019", "1ES.ImageOverride=${{ matrix.image }}"]'
+      # Driver test copies dumps to testlog folder.
       gather_dumps: false
-      # driver tests manually gather code coverage
+      # Driver tests manually gather code coverage.
       code_coverage: false
+      configurations: '["NativeOnlyDebug", "NativeOnlyRelease"]'
+      # Skip ETW tracing as the individual testcases will capture their own traces.
+      capture_etw: false
 
-  # Run the driver tests on self-hosted runners.
-  driver_ws23h2:
-    # Only run during daily scheduled run
-    needs: regular
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    uses: ./.github/workflows/reusable-test.yml
-    with:
-      pre_test: .\setup_ebpf_cicd_tests.ps1 -KmTracing $true -KmTraceType "file"
-      test_command: .\execute_ebpf_cicd_tests.ps1 -TestMode "CI/CD"
-      post_test: .\cleanup_ebpf_cicd_tests.ps1 -KmTracing $true
-      name: driver_ws23h2
-      build_artifact: Build-x64
-      environment: '["self-hosted", "1ES.Pool=ebpf-cicd-runner-pool-server-2019", "1ES.ImageOverride=server23h2"]'
-      # driver test copies dumps to testlog folder.
-      gather_dumps: false
-      # driver tests manually gather code coverage
-      code_coverage: false
-
-  # Run the driver tests on self-hosted runners.
-  driver_ws2025:
-    # Only run during daily scheduled run
-    needs: regular
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    uses: ./.github/workflows/reusable-test.yml
-    with:
-      pre_test: .\setup_ebpf_cicd_tests.ps1 -KmTracing $true -KmTraceType "file"
-      test_command: .\execute_ebpf_cicd_tests.ps1 -TestMode "CI/CD"
-      post_test: .\cleanup_ebpf_cicd_tests.ps1 -KmTracing $true
-      name: driver_ws2025
-      build_artifact: Build-x64
-      environment: '["self-hosted", "1ES.Pool=ebpf-cicd-runner-pool-server-2019", "1ES.ImageOverride=server2025"]'
-      # driver test copies dumps to testlog folder.
-      gather_dumps: false
-      # driver tests manually gather code coverage
-      code_coverage: false
-
-  # Run the native-only driver tests on self-hosted runners.
-  driver_native_only_ws2019:
-    # Always run this job.
-    # Only run this on repos that have self-host runners.
+  driver_native_only_arm64_tests:
     needs: regular_native-only
     if: github.repository == 'microsoft/ebpf-for-windows' && (github.event_name == 'schedule' || github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch')
     uses: ./.github/workflows/reusable-test.yml
     with:
-      pre_test: .\setup_ebpf_cicd_tests.ps1 -KmTracing $true -KmTraceType "file"
-      test_command: .\execute_ebpf_cicd_tests.ps1 -TestMode "CI/CD"
-      post_test: .\cleanup_ebpf_cicd_tests.ps1 -KmTracing $true
-      name: driver_native_only_ws2019
-      build_artifact: Build-x64-native-only
-      environment: '["ebpf_cicd_tests_ws2019"]'
-      # driver test copies dumps to testlog folder.
+      build_platform: 'ARM64'
+      pre_test: .\setup_ebpf_cicd_tests.ps1 -ExecuteOnHost -Architecture arm64 -GranularTracing
+      test_command: .\execute_ebpf_cicd_tests.ps1 -TestMode "CI/CD" -ExecuteOnHost -GranularTracing
+      post_test: .\cleanup_ebpf_cicd_tests.ps1 -ExecuteOnHost
+      name: driver_native_only_arm64
+      build_artifact: Build-ARM64-native-only
+      environment: '["windows-11-arm"]'
+      # Driver test copies dumps to testlog folder.
       gather_dumps: false
-      # driver tests manually gather code coverage
+      # Driver tests manually gather code coverage.
       code_coverage: false
       configurations: '["NativeOnlyDebug", "NativeOnlyRelease"]'
-
-  driver_native_only_ws2022:
-    # Always run this job.
-    # Only run this on repos that have self-host runners.
-    needs: regular_native-only
-    if: github.repository == 'microsoft/ebpf-for-windows' && (github.event_name == 'schedule' || github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch')
-    uses: ./.github/workflows/reusable-test.yml
-    with:
-      pre_test: .\setup_ebpf_cicd_tests.ps1 -KmTracing $true -KmTraceType "file"
-      test_command: .\execute_ebpf_cicd_tests.ps1 -TestMode "CI/CD"
-      post_test: .\cleanup_ebpf_cicd_tests.ps1 -KmTracing $true
-      name: driver_native_only_ws2022
-      build_artifact: Build-x64-native-only
-      environment: '["ebpf_cicd_tests_ws2022"]'
-      # driver test copies dumps to testlog folder.
-      gather_dumps: false
-      # driver tests manually gather code coverage
-      code_coverage: false
-      configurations: '["NativeOnlyDebug", "NativeOnlyRelease"]'
-
-  driver_native_only_ws23h2:
-    # Only run during daily scheduled run
-    needs: regular_native-only
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    uses: ./.github/workflows/reusable-test.yml
-    with:
-      pre_test: .\setup_ebpf_cicd_tests.ps1 -KmTracing $true -KmTraceType "file"
-      test_command: .\execute_ebpf_cicd_tests.ps1 -TestMode "CI/CD"
-      post_test: .\cleanup_ebpf_cicd_tests.ps1 -KmTracing $true
-      name: driver_native_only_ws23h2
-      build_artifact: Build-x64-native-only
-      environment: '["self-hosted", "1ES.Pool=ebpf-cicd-runner-pool-server-2019", "1ES.ImageOverride=server23h2"]'
-      # driver test copies dumps to testlog folder.
-      gather_dumps: false
-      # driver tests manually gather code coverage
-      code_coverage: false
-      configurations: '["NativeOnlyDebug", "NativeOnlyRelease"]'
-
-  driver_native_only_ws2025:
-    # Only run during daily scheduled run
-    needs: regular_native-only
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    uses: ./.github/workflows/reusable-test.yml
-    with:
-      pre_test: .\setup_ebpf_cicd_tests.ps1 -KmTracing $true -KmTraceType "file"
-      test_command: .\execute_ebpf_cicd_tests.ps1 -TestMode "CI/CD"
-      post_test: .\cleanup_ebpf_cicd_tests.ps1 -KmTracing $true
-      name: driver_native_only_ws2025
-      build_artifact: Build-x64-native-only
-      environment: '["self-hosted", "1ES.Pool=ebpf-cicd-runner-pool-server-2019", "1ES.ImageOverride=server2025"]'
-      # driver test copies dumps to testlog folder.
-      gather_dumps: false
-      # driver tests manually gather code coverage
-      code_coverage: false
-      configurations: '["NativeOnlyDebug", "NativeOnlyRelease"]'
+      # Skip ETW tracing as the individual testcases will capture their own traces.
+      capture_etw: false
 
   # Run the regression driver tests on self-hosted runners (only for 2022).
   regression_driver_ws2022:
@@ -356,16 +307,18 @@ jobs:
     if: github.repository == 'microsoft/ebpf-for-windows' && (github.event_name == 'schedule' || github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch')
     uses: ./.github/workflows/reusable-test.yml
     with:
-      pre_test: .\setup_ebpf_cicd_tests.ps1 -KmTracing $true -KmTraceType "file" -TestMode "Regression" -RegressionArtifactsVersion "0.17.0"
-      test_command: .\execute_ebpf_cicd_tests.ps1 -TestMode "Regression"
-      post_test: .\cleanup_ebpf_cicd_tests.ps1 -KmTracing $true
+      pre_test: .\setup_ebpf_cicd_tests.ps1 -TestMode "Regression" -RegressionArtifactsVersion "1.0.0-rc1" -GranularTracing
+      test_command: .\execute_ebpf_cicd_tests.ps1 -TestMode "Regression" -GranularTracing
+      post_test: .\cleanup_ebpf_cicd_tests.ps1
       name: regression_driver_ws2022
       build_artifact: Build-x64
-      environment: '["ebpf_cicd_tests_ws2022"]'
-      # driver test copies dumps to testlog folder.
+      environment: '["self-hosted", "1ES.Pool=ebpf-cicd-runner-pool-server-2019", "1ES.ImageOverride=server2022"]'
+      # Driver test copies dumps to testlog folder.
       gather_dumps: false
-      # driver tests manually gather code coverage
+      # Driver tests manually gather code coverage.
       code_coverage: false
+      # Skip ETW tracing as the individual testcases will capture their own traces.
+      capture_etw: false
 
   ossar:
     # Always run this job.
@@ -428,8 +381,20 @@ jobs:
 
   execution_context_fuzzer:
     needs: regular
-    # Always run this job.
-    if: github.event_name == 'schedule' || github.event_name == 'pull_request' || github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+    uses: ./.github/workflows/reusable-test.yml
+    with:
+      name: execution_context_fuzzer
+      test_command: .\execution_context_fuzzer.exe execution_context_fuzzer_corpus -use_value_profile=1 -runs=1000 -artifact_prefix=Artifacts\
+      build_artifact: Build-x64
+      environment: '["windows-2022"]'
+      code_coverage: false
+      gather_dumps: true
+      configurations: '["FuzzerDebug"]'
+
+  execution_context_fuzzer_scheduled:
+    needs: regular
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     uses: ./.github/workflows/reusable-test.yml
     with:
       name: execution_context_fuzzer
@@ -443,7 +408,6 @@ jobs:
   # Run the verifier fuzzer.
   verifier_fuzzer:
     needs: regular
-    # Always run this job.
     if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
     uses: ./.github/workflows/reusable-test.yml
     with:
@@ -472,7 +436,7 @@ jobs:
   core_helper_fuzzer:
     needs: regular
     # Always run this job.
-    if: github.event_name == 'schedule' || github.event_name == 'pull_request' || github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
     uses: ./.github/workflows/reusable-test.yml
     with:
       name: core_helper_fuzzer
@@ -483,10 +447,23 @@ jobs:
       gather_dumps: true
       configurations: '["FuzzerDebug"]'
 
-  netebpfext_fuzzer:
+  core_helper_fuzzer_scheduled:
     needs: regular
     # Always run this job.
-    if: github.event_name == 'schedule' || github.event_name == 'pull_request' || github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/reusable-test.yml
+    with:
+      name: core_helper_fuzzer
+      test_command: .\core_helper_fuzzer core_helper_corpus -max_len=139 -runs=3000 -use_value_profile=1 -artifact_prefix=Artifacts\
+      build_artifact: Build-x64
+      environment: '["windows-2022"]'
+      code_coverage: false
+      gather_dumps: true
+      configurations: '["FuzzerDebug"]'
+
+  netebpfext_fuzzer:
+    needs: regular
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
     uses: ./.github/workflows/reusable-test.yml
     with:
       name: netebpfext_fuzzer
@@ -497,10 +474,23 @@ jobs:
       gather_dumps: true
       configurations: '["FuzzerDebug"]'
 
+  netebpfext_fuzzer_scheduled:
+    needs: regular
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/reusable-test.yml
+    with:
+      name: netebpfext_fuzzer
+      test_command: .\netebpfext_fuzzer netebpfext_corpus -max_len=12 -runs=3000 -use_value_profile=1 -artifact_prefix=Artifacts\
+      build_artifact: Build-x64
+      environment: '["windows-2022"]'
+      code_coverage: false
+      gather_dumps: true
+      configurations: '["FuzzerDebug"]'
+
   # Run Cilium regression tests in GitHub.
   cilium_tests:
     needs: regular
-    # Only run on schedule and pull request.
+    # Always run this.
     if: github.event_name == 'schedule' || github.event_name == 'pull_request' || github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch'
     uses: ./.github/workflows/reusable-test.yml
     with:
@@ -514,7 +504,7 @@ jobs:
   # Run the quick stress tests in GitHub.
   stress:
     needs: regular
-    # Only run on schedule and pull request.
+    # Always run this test.
     if: github.event_name == 'schedule' || github.event_name == 'pull_request' || github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch'
     uses: ./.github/workflows/reusable-test.yml
     with:
@@ -535,7 +525,9 @@ jobs:
     with:
       name: unit_tests
       # Exclude [processes] test that ASAN can't work with.
-      test_command: .\unit_tests.exe -d yes ~[processes]
+      # Exclude ~printk, ~recursive_tail_call, and ~sequential_tail_call tests as they don't work with ASAN due to
+      # as usersim is linked with static CRT libraries which breaks stdout redirection.
+      test_command: .\unit_tests.exe -d yes ~[processes] ~printk ~recursive_tail_call ~sequential_tail_call
       build_artifact: Build-x64-Sanitize
       environment: '["windows-2022"]'
       code_coverage: false
@@ -587,19 +579,6 @@ jobs:
       leak_detection: false
       gather_dumps: true
       capture_etw: true
-
-  # Additional jobs to run on a schedule only (skip push and pull request).
-  # ---------------------------------------------------------------------------
-  codeql:
-    # Only run during daily scheduled run
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    uses: ./.github/workflows/reusable-build.yml
-    with:
-      ref: ${{ github.ref }}
-      repository: ${{ github.repository }}
-      build_artifact: Build-x64-CodeQl
-      build_codeql: true
-
 
   # Run the complete fault injection simulator in GitHub.
   # Runs on a schedule as this takes a long time to run.
@@ -659,7 +638,7 @@ jobs:
       test_command: .\execute_ebpf_cicd_tests.ps1 -TestMode "Stress"
       post_test: .\cleanup_ebpf_cicd_tests.ps1 -KmTracing $true
       build_artifact: Build-x64
-      environment: '["ebpf_cicd_tests_ws2019"]'
+      environment: '["self-hosted", "1ES.Pool=ebpf-cicd-runner-pool-server-2019", "1ES.ImageOverride=server2022"]'
       code_coverage: false
       # For this test, we only want kernel mode dumps and not user mode dumps.
       gather_dumps: false
@@ -676,7 +655,7 @@ jobs:
       test_command: .\execute_ebpf_cicd_tests.ps1 -TestMode "Stress" -Options @("RestartExtension")
       post_test: .\cleanup_ebpf_cicd_tests.ps1 -KmTracing $true
       build_artifact: Build-x64
-      environment: '["ebpf_cicd_tests_ws2019"]'
+      environment: '["self-hosted", "1ES.Pool=ebpf-cicd-runner-pool-server-2019", "1ES.ImageOverride=server2022"]'
       code_coverage: false
       # For this test, we only want kernel mode dumps and not user mode dumps.
       gather_dumps: false

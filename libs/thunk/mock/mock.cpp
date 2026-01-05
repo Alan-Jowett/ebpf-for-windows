@@ -1,9 +1,7 @@
 // Copyright (c) eBPF for Windows contributors
 // SPDX-License-Identifier: MIT
 
-#if !defined(CONFIG_BPF_JIT_DISABLED) || !defined(CONFIG_BPF_INTERPRETER_DISABLED)
 #include "api_service.h"
-#endif
 #include "ebpf_api.h"
 #include "mock.h"
 #if !defined(CONFIG_BPF_JIT_DISABLED) || !defined(CONFIG_BPF_INTERPRETER_DISABLED)
@@ -19,8 +17,8 @@ std::function<decltype(DuplicateHandle)> duplicate_handle_handler;
 std::function<decltype(DeviceIoControl)> device_io_control_handler;
 std::function<decltype(_get_osfhandle)> get_osfhandle_handler;
 std::function<decltype(_open_osfhandle)> open_osfhandle_handler;
-std::function<decltype(_create_service)> create_service_handler;
-std::function<decltype(_delete_service)> delete_service_handler;
+std::function<decltype(Platform::_create_service)> create_service_handler;
+std::function<decltype(Platform::_delete_service)> delete_service_handler;
 
 namespace Platform {
 bool
@@ -182,13 +180,10 @@ _query_service_status(SC_HANDLE service_handle, _Inout_ SERVICE_STATUS* status)
 }
 
 uint32_t
-_stop_service(SC_HANDLE service_handle)
+_stop_and_delete_service(SC_HANDLE service_handle, const wchar_t* service_name)
 {
-    // TODO: (Issue# 852) Just a stub currently in order to compile.
-    // Will be replaced by a proper mock.
-
-    UNREFERENCED_PARAMETER(service_handle);
-    return ERROR_SUCCESS;
+    UNREFERENCED_PARAMETER(service_name);
+    return _delete_service(service_handle);
 }
 
 } // namespace Platform
@@ -223,3 +218,19 @@ ebpf_rpc_load_program(
     return result;
 }
 #endif
+
+_Must_inspect_result_ ebpf_result_t
+ebpf_rpc_authorize_native_module(_In_ const GUID* module_id, _In_z_ const char* image_path)
+{
+    ebpf_result_t result = EBPF_SUCCESS;
+    HANDLE image_handle = INVALID_HANDLE_VALUE;
+
+    result = ebpf_verify_signature_and_open_file(image_path, &image_handle);
+    if (result != EBPF_SUCCESS) {
+        return result;
+    }
+
+    result = ebpf_authorize_native_module(module_id, image_handle);
+    CloseHandle(image_handle);
+    return result;
+}

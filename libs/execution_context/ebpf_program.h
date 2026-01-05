@@ -131,7 +131,7 @@ extern "C"
      *
      * @param[in] program Program that loaded the extension.
      * @param[out] program_info Pointer to the output allocated program info. Must be freed by caller by calling
-     * ebpf_program_free_program_info().
+     * ebpf_program_free_program_info(). Must hold a reference on the program information provider.
      * @retval EBPF_SUCCESS The operation was successful.
      * @retval EBPF_INVALID_ARGUMENT One or more arguments are invalid.
      * @retval EBPF_ARITHMETIC_OVERFLOW An arithmetic overflow has occurred.
@@ -200,7 +200,6 @@ extern "C"
      * @brief Invoke an ebpf_program_t instance.
      *
      * @param[in] program Program to invoke.
-     * @param[in] use_context_header Whether to use a context header to store state information.
      * @param[in,out] context Pointer to eBPF context for this program.
      * @param[out] result Output from the program.
      * @param[in] execution_state Execution context state.
@@ -211,7 +210,6 @@ extern "C"
     _Must_inspect_result_ ebpf_result_t
     ebpf_program_invoke(
         _In_ const ebpf_program_t* program,
-        bool use_context_header,
         _Inout_ void* context,
         _Out_ uint32_t* result,
         _Inout_ ebpf_execution_context_state_t* execution_state);
@@ -273,22 +271,20 @@ extern "C"
     ebpf_program_set_program_info_hash(_Inout_ ebpf_program_t* program);
 
     /**
-     * @brief Attach a link object to an eBPF program.
+     * @brief Notify the program that a link object has been attached to it.
      *
      * @param[in, out] program Program to attach to the link object.
-     * @param[in, out] link The link object.
      */
     void
-    ebpf_program_attach_link(_Inout_ ebpf_program_t* program, _Inout_ ebpf_link_t* link);
+    ebpf_program_attach_link(_Inout_ ebpf_program_t* program);
 
     /**
-     * @brief Detach a link object from the eBPF program it is attached to.
+     * @brief Notify the program that a link object has been detached from it.
      *
-     * @param[in, out] program Program to detach to the link object from.
-     * @param[in, out] link The link object.
+     * @param[in, out] program Program to detach from the link object.
      */
     void
-    ebpf_program_detach_link(_Inout_ ebpf_program_t* program, _Inout_ ebpf_link_t* link);
+    ebpf_program_detach_link(_Inout_ ebpf_program_t* program);
 
     /**
      * @brief Store the pointer to the program to execute on tail call.
@@ -437,16 +433,6 @@ extern "C"
     ebpf_program_get_state_index();
 
     /**
-     * @brief Get whether the program information provider supports the context header.
-     *
-     * @param[in] program Pointer to the program object.
-     *
-     * @retval true The program supports the context header.
-     * @retval false The program does not support the context header.
-     */
-    bool
-    ebpf_program_supports_context_header(_In_ const ebpf_program_t* program);
-
     /**
      * @brief Set the runtime state in the program context.
      *
@@ -487,6 +473,18 @@ extern "C"
     void
     ebpf_program_set_flags(_Inout_ ebpf_program_t* program, uint64_t flags);
 
+    /**
+     * @brief Get the data start and end pointers from the program context.
+     *
+     * @note Extension must support context headers.
+     *
+     * @param[in] program_context Pointer to the program context.
+     * @param[out] data_start Pointer to the start of the context data. Must be non-null.
+     * @param[out] data_end Pointer to the end of the context data (after the last byte). Must be non-null.
+     */
+    void
+    ebpf_program_get_context_data(
+        _In_ const void* program_context, _Out_ const uint8_t** data_start, _Out_ const uint8_t** data_end);
 #ifdef __cplusplus
 }
 #endif

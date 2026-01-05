@@ -45,7 +45,13 @@ _get_hash(_Outptr_result_buffer_maybenull_(*size) const uint8_t** hash, _Out_ si
 
 #pragma data_seg(push, "maps")
 static map_entry_t _maps[] = {
-    {0,
+    {
+     {0, 0},
+     {
+         1,                          // Current Version.
+         80,                         // Struct size up to the last field.
+         80,                         // Total struct size including padding.
+     },
      {
          BPF_MAP_TYPE_ARRAY_OF_MAPS, // Type of map.
          4,                          // Size in bytes of a map key.
@@ -57,7 +63,13 @@ static map_entry_t _maps[] = {
          10,                         // The id of the inner map template.
      },
      "outer_map"},
-    {0,
+    {
+     {0, 0},
+     {
+         1,                 // Current Version.
+         80,                // Struct size up to the last field.
+         80,                // Total struct size including padding.
+     },
      {
          BPF_MAP_TYPE_HASH, // Type of map.
          4,                 // Size in bytes of a map key.
@@ -89,7 +101,11 @@ _get_global_variable_sections(
 }
 
 static helper_function_entry_t lookup_helpers[] = {
-    {1, "helper_id_1"},
+    {
+     {1, 40, 40}, // Version header.
+     1,
+     "helper_id_1",
+    },
 };
 
 static GUID lookup_program_type_guid = {0xf788ef4a, 0x207d, 0x4dc3, {0x85, 0xcf, 0x0f, 0x2e, 0xa1, 0x07, 0x21, 0x3c}};
@@ -134,7 +150,7 @@ lookup(void* context, const program_runtime_context_t* runtime_context)
     r6 = IMMEDIATE(0);
     // EBPF_OP_STXW pc=1 dst=r10 src=r6 offset=-4 imm=0
 #line 38 "sample/undocked/map_in_map_legacy_id.c"
-    *(uint32_t*)(uintptr_t)(r10 + OFFSET(-4)) = (uint32_t)r6;
+    WRITE_ONCE_32(r10, (uint32_t)r6, OFFSET(-4));
     // EBPF_OP_MOV64_REG pc=2 dst=r2 src=r10 offset=0 imm=0
 #line 38 "sample/undocked/map_in_map_legacy_id.c"
     r2 = r10;
@@ -162,7 +178,7 @@ lookup(void* context, const program_runtime_context_t* runtime_context)
     }
     // EBPF_OP_STXW pc=8 dst=r10 src=r6 offset=-8 imm=0
 #line 41 "sample/undocked/map_in_map_legacy_id.c"
-    *(uint32_t*)(uintptr_t)(r10 + OFFSET(-8)) = (uint32_t)r6;
+    WRITE_ONCE_32(r10, (uint32_t)r6, OFFSET(-8));
     // EBPF_OP_MOV64_REG pc=9 dst=r2 src=r10 offset=0 imm=0
 #line 41 "sample/undocked/map_in_map_legacy_id.c"
     r2 = r10;
@@ -194,7 +210,7 @@ lookup(void* context, const program_runtime_context_t* runtime_context)
 label_1:
     // EBPF_OP_LDXW pc=15 dst=r6 src=r0 offset=0 imm=0
 #line 44 "sample/undocked/map_in_map_legacy_id.c"
-    r6 = *(uint32_t*)(uintptr_t)(r0 + OFFSET(0));
+    READ_ONCE_32(r6, r0, OFFSET(0));
 label_2:
     // EBPF_OP_MOV64_REG pc=16 dst=r0 src=r6 offset=0 imm=0
 #line 48 "sample/undocked/map_in_map_legacy_id.c"
@@ -211,6 +227,7 @@ label_2:
 static program_entry_t _programs[] = {
     {
         0,
+        {1, 144, 144}, // Version header.
         lookup,
         "sample~1",
         "sample_ext",
@@ -236,8 +253,8 @@ _get_programs(_Outptr_result_buffer_(*count) program_entry_t** programs, _Out_ s
 static void
 _get_version(_Out_ bpf2c_version_t* version)
 {
-    version->major = 0;
-    version->minor = 21;
+    version->major = 1;
+    version->minor = 1;
     version->revision = 0;
 }
 

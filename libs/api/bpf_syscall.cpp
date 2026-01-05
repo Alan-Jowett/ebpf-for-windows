@@ -12,26 +12,26 @@
 #include <sal.h>
 #include <stdexcept>
 
+static void
+check_zero(_In_reads_bytes_(end) const void* buffer, size_t start, size_t end)
+{
+    const unsigned char* p = (const unsigned char*)buffer + start;
+    const unsigned char* e = (const unsigned char*)buffer + end;
+
+    for (; p < e; p++) {
+        if ((*p) != 0) {
+            throw std::runtime_error("Non-zero tail");
+        }
+    }
+}
+
 template <typename T> class ExtensibleStruct
 {
   private:
     void* _source;
     size_t _copy_size;
-    T _temporary;
+    T _temporary{};
     T* _pointer;
-
-    static void
-    check_tail(_In_reads_bytes_(end) const void* buffer, size_t start, size_t end)
-    {
-        const unsigned char* p = (const unsigned char*)buffer + start;
-        const unsigned char* e = (const unsigned char*)buffer + end;
-
-        for (; p < e; p++) {
-            if ((*p) != 0) {
-                throw std::runtime_error("Non-zero tail");
-            }
-        }
-    }
 
   public:
     ExtensibleStruct(_In_reads_bytes_(size) void* pointer, size_t size) : _source(pointer)
@@ -39,7 +39,7 @@ template <typename T> class ExtensibleStruct
         if (size >= sizeof(T)) {
             // Forward compatibility: allow a larger input as long as the
             // unknown fields are all zero.
-            check_tail(pointer, sizeof(T), size);
+            check_zero(pointer, sizeof(T), size);
             _copy_size = 0;
             _pointer = (T*)pointer;
         } else {
@@ -100,16 +100,9 @@ convert_to_sys_link_info(_Out_ sys_bpf_link_info_t* sys, _In_ const struct bpf_l
 static int
 obj_get_info_by_fd(_In_ sys_bpf_obj_info_attr_t* attr)
 {
-    union
-    {
-        struct bpf_map_info map;
-        struct bpf_prog_info prog;
-        struct bpf_link_info link;
-    } tmp = {};
-    uint32_t info_size = sizeof(tmp);
     ebpf_object_type_t type;
 
-    ebpf_result_t result = ebpf_object_get_info_by_fd((fd_t)attr->bpf_fd, &tmp, &info_size, &type);
+    ebpf_result_t result = ebpf_object_get_info_by_fd((fd_t)attr->bpf_fd, nullptr, 0, &type);
     if (result != EBPF_SUCCESS) {
         return libbpf_result_err(result);
     }
@@ -117,52 +110,55 @@ obj_get_info_by_fd(_In_ sys_bpf_obj_info_attr_t* attr)
     switch (type) {
     case EBPF_OBJECT_MAP: {
         ExtensibleStruct<sys_bpf_map_info_t> info((void*)attr->info, (size_t)attr->info_len);
+        struct bpf_map_info map;
 
-        convert_to_map_info(&tmp.map, &info);
+        convert_to_map_info(&map, &info);
 
-        info_size = sizeof(tmp.map);
-        result = ebpf_object_get_info_by_fd((fd_t)attr->bpf_fd, &tmp.map, &info_size, nullptr);
+        uint32_t info_size = sizeof(map);
+        result = ebpf_object_get_info_by_fd((fd_t)attr->bpf_fd, &map, &info_size, nullptr);
         if (result != EBPF_SUCCESS) {
             return libbpf_result_err(result);
         }
 
-        convert_to_sys_map_info(&info, &tmp.map);
+        convert_to_sys_map_info(&info, &map);
         return 0;
     }
 
     case EBPF_OBJECT_PROGRAM: {
         ExtensibleStruct<sys_bpf_prog_info_t> info((void*)attr->info, (size_t)attr->info_len);
         sys_bpf_prog_info_t* sys = &info;
+        struct bpf_prog_info prog;
 
         if (sys->jited_prog_len != 0 || sys->xlated_prog_len != 0 || sys->jited_prog_insns != 0 ||
             sys->xlated_prog_insns != 0) {
             return -EINVAL;
         }
 
-        convert_to_prog_info(&tmp.prog, &info);
+        convert_to_prog_info(&prog, &info);
 
-        info_size = sizeof(tmp.prog);
-        result = ebpf_object_get_info_by_fd((fd_t)attr->bpf_fd, &tmp.prog, &info_size, nullptr);
+        uint32_t info_size = sizeof(prog);
+        result = ebpf_object_get_info_by_fd((fd_t)attr->bpf_fd, &prog, &info_size, nullptr);
         if (result != EBPF_SUCCESS) {
             return libbpf_result_err(result);
         }
 
-        convert_to_sys_prog_info(&info, &tmp.prog);
+        convert_to_sys_prog_info(&info, &prog);
         return 0;
     }
 
     case EBPF_OBJECT_LINK: {
         ExtensibleStruct<sys_bpf_link_info_t> info((void*)attr->info, (size_t)attr->info_len);
+        struct bpf_link_info link;
 
-        convert_to_link_info(&tmp.link, &info);
+        convert_to_link_info(&link, &info);
 
-        info_size = sizeof(tmp.link);
-        result = ebpf_object_get_info_by_fd((fd_t)attr->bpf_fd, &tmp.link, &info_size, nullptr);
+        uint32_t info_size = sizeof(link);
+        result = ebpf_object_get_info_by_fd((fd_t)attr->bpf_fd, &link, &info_size, nullptr);
         if (result != EBPF_SUCCESS) {
             return libbpf_result_err(result);
         }
 
-        convert_to_sys_link_info(&info, &tmp.link);
+        convert_to_sys_link_info(&info, &link);
         return 0;
     }
 
@@ -308,17 +304,34 @@ bpf(int cmd, union bpf_attr* attr, unsigned int size)
             return bpf_prog_get_next_id(next_id_attr->start_id, &next_id_attr->next_id);
         }
         case BPF_PROG_LOAD: {
+#if !defined(CONFIG_BPF_JIT_DISABLED) || !defined(CONFIG_BPF_INTERPRETER_DISABLED)
             ExtensibleStruct<sys_bpf_prog_load_attr_t> prog_load_attr((void*)attr, (size_t)size);
+
+            check_zero(
+                &prog_load_attr,
+                offsetof(sys_bpf_prog_load_attr_t, prog_ifindex),
+                offsetof(sys_bpf_prog_load_attr_t, log_true_size));
 
             if (prog_load_attr->prog_flags != 0) {
                 return -EINVAL;
             }
 
-            struct bpf_prog_load_opts opts = {
-                .kern_version = prog_load_attr->kern_version,
-                .log_size = prog_load_attr->log_size,
-                .log_buf = (char*)prog_load_attr->log_buf,
-            };
+            if (prog_load_attr->log_level > 1) {
+                // Only allow BPF_LOG_LEVEL_BRANCH for now.
+                // Keep in mind that log_level is a bitmask!
+                return -EINVAL;
+            }
+
+            if (!!prog_load_attr->log_level != !!prog_load_attr->log_buf) {
+                // log_buf is only allowed when log_level is set, and vice versa.
+                return -EINVAL;
+            }
+
+            const ebpf_program_type_t* program_type = ebpf_get_ebpf_program_type(prog_load_attr->prog_type);
+            if (program_type == nullptr) {
+                return -EINVAL;
+            }
+
             const char* name = prog_load_attr->prog_name;
             size_t name_length;
 
@@ -331,13 +344,28 @@ bpf(int cmd, union bpf_attr* attr, unsigned int size)
                 name = "";
             }
 
-            return bpf_prog_load(
-                prog_load_attr->prog_type,
+            fd_t program_fd = ebpf_fd_invalid;
+            uint32_t log_size = prog_load_attr->log_size;
+            ebpf_result_t result = ebpf_program_load_bytes(
+                program_type,
                 name,
-                (const char*)prog_load_attr->license,
-                (const struct bpf_insn*)prog_load_attr->insns,
+                EBPF_EXECUTION_ANY,
+                reinterpret_cast<const ebpf_inst*>(prog_load_attr->insns),
                 prog_load_attr->insn_cnt,
-                &opts);
+                reinterpret_cast<char*>(prog_load_attr->log_buf),
+                log_size,
+                &program_fd,
+                &prog_load_attr->log_true_size);
+            if (result != EBPF_SUCCESS) {
+                return -ebpf_result_to_errno(result);
+            }
+
+            return program_fd;
+#else
+            // Allow distinguishing this from ERROR_CALL_NOT_IMPLEMENTED.
+            SetLastError(ERROR_NOT_SUPPORTED);
+            return -EINVAL;
+#endif
         }
         case BPF_PROG_TEST_RUN: {
             ExtensibleStruct<sys_bpf_prog_run_attr_t> prog_run((void*)attr, (size_t)size);

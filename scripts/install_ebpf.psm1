@@ -6,6 +6,7 @@ param ([Parameter(Mandatory=$True)] [string] $WorkingDirectory,
 
 Push-Location $WorkingDirectory
 Import-Module $PSScriptRoot\common.psm1 -Force -ArgumentList ($LogFileName) -WarningAction SilentlyContinue
+Import-Module $PSScriptRoot\tracing_utils.psm1 -Force -ArgumentList ($LogFileName, $WorkingDirectory) -WarningAction SilentlyContinue
 
 $MsiPath = Join-Path $WorkingDirectory "ebpf-for-windows.msi"
 
@@ -39,16 +40,6 @@ $EbpfDrivers = @{
 
 # eBPF Debug Runtime DLLs.
 $VCDebugRuntime = @(
-    "concrt140d.dll",
-    "msvcp140d.dll",
-    "msvcp140d_atomic_wait.dll",
-    "msvcp140d_codecvt_ids.dll",
-    "msvcp140_1d.dll",
-    "msvcp140_2d.dll",
-    "vccorlib140d.dll",
-    "vcruntime140d.dll",
-    "vcruntime140_1d.dll",
-    "vcruntime140_threadsd.dll",
     "ucrtbased.dll"
 )
 
@@ -154,7 +145,13 @@ function Stop-DriverWithTimeout {
 }
 
 # This function specifically tests that all eBPF drivers and services can be stopped.
-function Stop-eBPFComponents {
+function Stop-eBPFServiceAndDrivers {
+    param([parameter(Mandatory=$false)] [bool] $GranularTracing = $false)
+
+    if ($GranularTracing) {
+        Start-WPRTrace
+    }
+
     # First, stop user mode service, so that EbpfCore does not hang on stop.
     if (Get-Service "eBPFSvc" -ErrorAction SilentlyContinue) {
         try {
@@ -172,6 +169,10 @@ function Stop-eBPFComponents {
             Stop-DriverWithTimeout -DriverName $_.Key
         }
     }
+
+    if ($GranularTracing) {
+        Stop-WPRTrace -FileName "stop_ebpf"
+    }
 }
 
 function Print-eBPFComponentsStatus([string] $message = "")
@@ -188,11 +189,28 @@ function Install-eBPFComponents
     param([parameter(Mandatory=$true)] [bool] $KmTracing,
           [parameter(Mandatory=$true)] [string] $KmTraceType,
           [parameter(Mandatory=$false)] [bool] $KMDFVerifier = $false,
-          [parameter(Mandatory=$true)] [string] $TestMode)
+          [parameter(Mandatory=$true)] [string] $TestMode,
+          [parameter(Mandatory=$false)] [switch] $SkipRebootOperations,
+          [parameter(Mandatory=$false)] [bool] $GranularTracing = $false)
 
     # Print the status of the eBPF drivers and services before installation.
     # This is useful for detecting issues with the runner baselines.
     Print-eBPFComponentsStatus "Querying the status of eBPF drivers and services before the installation (none should be present)..." | Out-Null
+
+    # Start granular tracing before installation if enabled.
+    if ($GranularTracing) {
+        Start-WPRTrace -KmTracing $KmTracing -KmTraceType $KmTraceType
+    }
+
+    # Start the Windows Installer service.
+    Write-Log("Starting the Windows Installer service...")
+    $service = Get-Service -Name "msiserver" -ErrorAction SilentlyContinue
+    if ($service -and $service.Status -ne "Running") {
+        Start-Service -Name "msiserver" -ErrorAction Stop
+        Write-Log("Windows Installer service started successfully!") -ForegroundColor Green
+    } else {
+        Write-Log("Windows Installer service is already running or not present.") -ForegroundColor Yellow
+    }
 
     # Copy the VC debug runtime DLLs to the system32 directory,
     # so that debug versions of the MSI can be installed (i.e., export_program_info.exe will not fail).
@@ -213,8 +231,8 @@ function Install-eBPFComponents
     }
 
     # Install the MSI package.
-    $arguments = "/i $MsiPath ADDLOCAL=ALL /qn /norestart /l*v msi-install.log"
-    Write-Log("Installing the eBPF MSI package: 'msiexec.exe $arguments'...")
+    $arguments = @("/i", $MsiPath, "ADDLOCAL=ALL", "/qn", "/norestart", "/l*v", "msi-install.log")
+    Write-Log("Installing the eBPF MSI package: 'msiexec.exe $($arguments -join ' ')'...")
     $process = Start-Process -FilePath msiexec.exe -ArgumentList $arguments -Wait -PassThru
     if ($process.ExitCode -ne 0) {
         Write-Log("MSI installation FAILED. Exit code: $($process.ExitCode).") -ForegroundColor Red
@@ -330,11 +348,11 @@ function Install-eBPFComponents
     if (Test-Path -Path "export_program_info_sample.exe") {
         $TestCommand = "$pwd\PsExec64.exe"
         $Arguments = "-accepteula -nobanner -s -w `"$pwd`" `"$pwd\export_program_info_sample.exe`""
-        Start-Process -NoNewWindow -Wait "$TestCommand" -ArgumentList "$Arguments"
-        if ($LASTEXITCODE -ne 0) {
-            throw ("Failed to run 'export_program_info_sample.exe as SYSTEM'.");
+        $PsExecProc = Start-Process -Wait -PassThru -FilePath "$TestCommand" -ArgumentList $Arguments
+        if ($PsExecProc.ExitCode -ne 0) {
+            throw ("Running 'export_program_info_sample.exe' as SYSTEM failed with exit code $($PsExecProc.ExitCode).");
         } else {
-            Write-Log "'export_program_info_sample.exe' succeeded." -ForegroundColor Green
+            Write-Log "Running 'export_program_info_sample.exe' as SYSTEM succeeded." -ForegroundColor Green
         }
     }
 
@@ -343,11 +361,19 @@ function Install-eBPFComponents
 
     # Optionally enable KMDF verifier and tag tracking.
     if ($KMDFVerifier) {
-        Enable-KMDFVerifier
+        if (-not $SkipRebootOperations) {
+            Enable-KMDFVerifier
+        } else {
+            Write-Log "SkipRebootOperations enabled - skipping KMDF verifier configuration" -ForegroundColor Yellow
+        }
     }
 
-    # Start KM tracing.
-    Start-WPRTrace -KmTracing $KmTracing -KmTraceType $KmTraceType
+    if ($GranularTracing) {
+        Stop-WPRTrace -FileName "install_ebpf"
+    } else {
+        # Start regular KM tracing if not using granular tracing
+        Start-WPRTrace -KmTracing $KmTracing -KmTraceType $KmTraceType
+    }
 }
 
 function Uninstall-eBPFComponents
@@ -404,8 +430,8 @@ function Uninstall-eBPFComponents
     Write-Log("Clearing export program info for the sample driver completed successfully!") -ForegroundColor Green
 
     # Uninstall the MSI package.
-    $arguments = "/x $MsiPath /qn /norestart /l*v msi-uninstall.log"
-    Write-Log("Uninstalling eBPF MSI package at 'msiexec.exe $arguments'...")
+    $arguments = @("/x", $MsiPath, "/qn", "/norestart", "/l*v", "msi-uninstall.log")
+    Write-Log("Uninstalling eBPF MSI package at 'msiexec.exe $($arguments -join ' ')'...")
     $process = Start-Process -FilePath msiexec.exe -ArgumentList $arguments -Wait -PassThru
     if ($process.ExitCode -eq 0) {
         Write-Log("Uninstallation successful!") -ForegroundColor Green

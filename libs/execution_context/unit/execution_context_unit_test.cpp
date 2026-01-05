@@ -10,6 +10,7 @@
 #include "ebpf_object.h"
 #include "ebpf_program.h"
 #include "ebpf_ring_buffer.h"
+#include "execution_context_unit_test_jit.h"
 #include "helpers.h"
 #include "test_helper.hpp"
 
@@ -17,105 +18,34 @@
 #include <optional>
 #include <set>
 
-#if !defined(CONFIG_BPF_JIT_DISABLED)
-typedef struct _free_trampoline_table
+extern "C"
 {
+    // program context descriptor helpers
+    // - Defined in ebpf_program.c, declared here for unit testing.
     void
-    operator()(_In_opt_ _Post_invalid_ ebpf_trampoline_table_t* table)
-    {
-        if (table != nullptr) {
-            ebpf_free_trampoline_table(table);
-        }
-    }
-} free_trampoline_table_t;
+    ebpf_program_set_header_context_descriptor(
+        _In_ const ebpf_context_descriptor_t* context_descriptor, _Inout_ void* program_context);
+    void
+    ebpf_program_get_header_context_descriptor(
+        _In_ const void* program_context, _Outptr_ const ebpf_context_descriptor_t** context_descriptor);
+}
 
-typedef std::unique_ptr<ebpf_trampoline_table_t, free_trampoline_table_t> ebpf_trampoline_table_ptr;
-#endif
-
-typedef class _ebpf_async_wrapper
+struct scoped_cpu_affinity
 {
-  public:
-    _ebpf_async_wrapper()
+    scoped_cpu_affinity(uint32_t i) : old_affinity_mask{}
     {
-        _event = CreateEvent(nullptr, false, false, nullptr);
-        if (_event == INVALID_HANDLE_VALUE) {
-            throw std::bad_alloc();
-        }
-        if (ebpf_async_set_completion_callback(this, _ebpf_async_wrapper::completion_callback) != EBPF_SUCCESS) {
-            throw std::runtime_error("ebpf_async_set_completion_callback failed");
-        }
+        affinity_set = ebpf_set_current_thread_cpu_affinity(i, &old_affinity_mask) == EBPF_SUCCESS;
+        REQUIRE(affinity_set);
     }
-    ~_ebpf_async_wrapper()
+    ~scoped_cpu_affinity()
     {
-        if (!_completed) {
-            ebpf_async_complete(this, 0, EBPF_CANCELED);
+        if (affinity_set) {
+            ebpf_restore_current_thread_cpu_affinity(&old_affinity_mask);
         }
     }
-
-    ebpf_result_t
-    get_result()
-    {
-        return _result;
-    }
-
-    bool
-    get_completed()
-    {
-        return _completed;
-    }
-
-    size_t
-    get_reply_size()
-    {
-        return _reply_size;
-    }
-
-    void
-    wait()
-    {
-        REQUIRE(WaitForSingleObject(_event, INFINITE) == WAIT_OBJECT_0);
-    }
-
-  private:
-    static void
-    completion_callback(_In_ void* context, size_t reply_size, ebpf_result_t result)
-    {
-        ebpf_async_wrapper_t* async_wrapper = (ebpf_async_wrapper_t*)context;
-        async_wrapper->_result = result;
-        async_wrapper->_reply_size = reply_size;
-        async_wrapper->_completed = true;
-        SetEvent(async_wrapper->_event);
-    }
-    ebpf_result_t _result = EBPF_SUCCESS;
-    size_t _reply_size = 0;
-    bool _completed = false;
-    HANDLE _event;
-} ebpf_async_wrapper_t;
-
-class _ebpf_core_initializer
-{
-  public:
-    void
-    initialize()
-    {
-        REQUIRE(ebpf_core_initiate() == EBPF_SUCCESS);
-    }
-    ~_ebpf_core_initializer() { ebpf_core_terminate(); }
+    GROUP_AFFINITY old_affinity_mask;
+    bool affinity_set = false;
 };
-
-template <typename T> class ebpf_object_deleter
-{
-  public:
-    void
-    operator()(T* object)
-    {
-        EBPF_OBJECT_RELEASE_REFERENCE(reinterpret_cast<ebpf_core_object_t*>(object));
-    }
-};
-
-typedef std::unique_ptr<ebpf_map_t, ebpf_object_deleter<ebpf_map_t>> map_ptr;
-typedef std::unique_ptr<ebpf_program_t, ebpf_object_deleter<ebpf_program_t>> program_ptr;
-typedef std::unique_ptr<ebpf_link_t, ebpf_object_deleter<ebpf_link_t>> link_ptr;
 
 static const uint32_t _test_map_size = 512;
 
@@ -413,6 +343,15 @@ TEST_CASE("map_create_invalid", "[execution_context][negative]")
             {
                 BPF_MAP_TYPE_RINGBUF,
                 4, // Key size must be 0 for ring buffer.
+                20,
+                20,
+            },
+        },
+        {
+            "BPF_MAP_TYPE_PERF_EVENT_ARRAY",
+            {
+                BPF_MAP_TYPE_PERF_EVENT_ARRAY,
+                4, // Key size must be 0 for perf event array.
                 20,
                 20,
             },
@@ -1065,325 +1004,8 @@ TEST_CASE("map_crud_operations_stack", "[execution_context]")
         EBPF_OBJECT_NOT_FOUND);
 }
 
-#define TEST_FUNCTION_RETURN 42
-#define TOTAL_HELPER_COUNT 3
-
-uint32_t
-test_function()
-{
-    return TEST_FUNCTION_RETURN;
-}
-
-#if !defined(CONFIG_BPF_JIT_DISABLED)
-TEST_CASE("program", "[execution_context]")
-{
-    // single_instance_hook_t call ebpapi functions, which requires calling ebpf_api_initiate/ebpf_api_terminate.
-    _test_helper_end_to_end end_to_end;
-    end_to_end.initialize();
-
-    program_info_provider_t program_info_provider;
-    REQUIRE(program_info_provider.initialize(EBPF_PROGRAM_TYPE_SAMPLE) == EBPF_SUCCESS);
-    const cxplat_utf8_string_t program_name{(uint8_t*)("foo"), 3};
-    const cxplat_utf8_string_t section_name{(uint8_t*)("bar"), 3};
-    const ebpf_program_parameters_t program_parameters{
-        EBPF_PROGRAM_TYPE_SAMPLE, EBPF_ATTACH_TYPE_SAMPLE, program_name, section_name};
-    program_ptr program;
-    {
-        ebpf_program_t* local_program = nullptr;
-        REQUIRE(ebpf_program_create(&program_parameters, &local_program) == EBPF_SUCCESS);
-        program.reset(local_program);
-    }
-
-    ebpf_map_definition_in_memory_t map_definition{BPF_MAP_TYPE_HASH, sizeof(uint32_t), sizeof(uint64_t), 10};
-    map_ptr map;
-    {
-        ebpf_map_t* local_map;
-        cxplat_utf8_string_t map_name = {0};
-        REQUIRE(
-            ebpf_map_create(&map_name, &map_definition, (uintptr_t)ebpf_handle_invalid, &local_map) == EBPF_SUCCESS);
-        map.reset(local_map);
-    }
-
-    ebpf_program_info_t* program_info;
-
-    ebpf_program_type_t returned_program_type = ebpf_program_type_uuid(program.get());
-    REQUIRE(
-        memcmp(&program_parameters.program_type, &returned_program_type, sizeof(program_parameters.program_type)) == 0);
-
-    REQUIRE(ebpf_program_get_program_info(program.get(), &program_info) == EBPF_SUCCESS);
-    REQUIRE(program_info != nullptr);
-    ebpf_program_free_program_info(program_info);
-
-    ebpf_map_t* maps[] = {map.get()};
-
-    REQUIRE(((ebpf_core_object_t*)map.get())->base.reference_count == 1);
-    REQUIRE(ebpf_program_associate_maps(program.get(), maps, EBPF_COUNT_OF(maps)) == EBPF_SUCCESS);
-    REQUIRE(((ebpf_core_object_t*)map.get())->base.reference_count == 2);
-
-    ebpf_trampoline_table_ptr table;
-    ebpf_result_t (*test_function)();
-    auto provider_function1 = []() { return (ebpf_result_t)TEST_FUNCTION_RETURN; };
-    ebpf_result_t (*function_pointer1)() = provider_function1;
-    uint32_t test_function_ids[] = {(EBPF_MAX_GENERAL_HELPER_FUNCTION + 1)};
-    const void* helper_functions[] = {(void*)function_pointer1};
-    ebpf_helper_function_addresses_t helper_function_addresses = {
-        EBPF_HELPER_FUNCTION_ADDRESSES_HEADER, EBPF_COUNT_OF(helper_functions), (uint64_t*)helper_functions};
-
-    {
-        ebpf_trampoline_table_t* local_table = nullptr;
-        REQUIRE(ebpf_allocate_trampoline_table(1, &local_table) == EBPF_SUCCESS);
-        table.reset(local_table);
-    }
-    REQUIRE(
-        ebpf_update_trampoline_table(
-            table.get(), EBPF_COUNT_OF(test_function_ids), test_function_ids, &helper_function_addresses) ==
-        EBPF_SUCCESS);
-    REQUIRE(
-        ebpf_get_trampoline_function(
-            table.get(), EBPF_MAX_GENERAL_HELPER_FUNCTION + 1, reinterpret_cast<void**>(&test_function)) ==
-        EBPF_SUCCESS);
-
-    // Size of the actual function is unknown, but we know the allocation is on page granularity.
-    REQUIRE(
-        ebpf_program_load_code(
-            program.get(), EBPF_CODE_JIT, nullptr, reinterpret_cast<uint8_t*>(test_function), PAGE_SIZE) ==
-        EBPF_SUCCESS);
-    uint32_t result = 0;
-    sample_program_context_t ctx{0};
-    ebpf_execution_context_state_t state{};
-    ebpf_get_execution_context_state(&state);
-    ebpf_result_t ebpf_result = ebpf_program_invoke(program.get(), false, &ctx, &result, &state);
-    REQUIRE(ebpf_result == EBPF_SUCCESS);
-    REQUIRE(result == TEST_FUNCTION_RETURN);
-
-    ebpf_program_test_run_options_t options = {0};
-    sample_program_context_t in_ctx{0};
-    sample_program_context_t out_ctx{0};
-    options.repeat_count = 10;
-    options.context_in = reinterpret_cast<uint8_t*>(&in_ctx);
-    options.context_size_in = sizeof(in_ctx);
-    options.context_out = reinterpret_cast<uint8_t*>(&out_ctx);
-    options.context_size_out = sizeof(out_ctx);
-
-    ebpf_async_wrapper_t async_context;
-    uint64_t unused_completion_context = 0;
-
-    REQUIRE(
-        ebpf_program_execute_test_run(
-            program.get(),
-            &options,
-            &async_context,
-            &unused_completion_context,
-            [](_In_ ebpf_result_t result,
-               _In_ const ebpf_program_t* program,
-               _In_ const ebpf_program_test_run_options_t* options,
-               _Inout_ void* completion_context,
-               _Inout_ void* async_context) {
-                ebpf_assert(program != nullptr);
-                ebpf_assert(options != nullptr);
-                ebpf_assert(completion_context != nullptr);
-                ebpf_assert(async_context != nullptr);
-                ebpf_async_complete(async_context, options->data_size_out, result);
-            }) == EBPF_PENDING);
-
-    async_context.wait();
-    REQUIRE(async_context.get_result() == EBPF_SUCCESS);
-    REQUIRE(async_context.get_completed() == true);
-
-    REQUIRE(options.return_value == TEST_FUNCTION_RETURN);
-    REQUIRE(options.duration > 0);
-
-    helper_function_address_t addresses[TOTAL_HELPER_COUNT] = {};
-    uint32_t helper_function_ids[] = {1, 3, 2};
-    REQUIRE(
-        ebpf_program_set_helper_function_ids(program.get(), EBPF_COUNT_OF(helper_function_ids), helper_function_ids) ==
-        EBPF_SUCCESS);
-    REQUIRE(
-        ebpf_program_get_helper_function_addresses(program.get(), EBPF_COUNT_OF(helper_function_ids), addresses) ==
-        EBPF_SUCCESS);
-    REQUIRE(addresses[0].address != 0);
-    REQUIRE(addresses[1].address != 0);
-    REQUIRE(addresses[2].address != 0);
-
-    link_ptr link;
-
-    // Correct attach type, but wrong program type.
-    {
-        single_instance_hook_t hook(EBPF_PROGRAM_TYPE_BIND, EBPF_ATTACH_TYPE_SAMPLE);
-        REQUIRE(hook.initialize() == EBPF_SUCCESS);
-        ebpf_link_t* local_link = nullptr;
-        REQUIRE(ebpf_link_create(EBPF_ATTACH_TYPE_SAMPLE, nullptr, 0, &local_link) == EBPF_SUCCESS);
-        link.reset(local_link);
-        REQUIRE(ebpf_link_attach_program(link.get(), program.get()) == EBPF_EXTENSION_FAILED_TO_LOAD);
-    }
-
-    // Wrong attach type, but correct program type.
-    {
-        single_instance_hook_t hook(EBPF_PROGRAM_TYPE_SAMPLE, EBPF_ATTACH_TYPE_BIND);
-        REQUIRE(hook.initialize() == EBPF_SUCCESS);
-        ebpf_link_t* local_link = nullptr;
-        REQUIRE(ebpf_link_create(EBPF_ATTACH_TYPE_SAMPLE, nullptr, 0, &local_link) == EBPF_SUCCESS);
-        link.reset(local_link);
-        REQUIRE(ebpf_link_attach_program(link.get(), program.get()) == EBPF_EXTENSION_FAILED_TO_LOAD);
-    }
-
-    // Correct attach type and correct program type.
-    {
-        single_instance_hook_t hook(EBPF_PROGRAM_TYPE_SAMPLE, EBPF_ATTACH_TYPE_SAMPLE);
-        REQUIRE(hook.initialize() == EBPF_SUCCESS);
-        ebpf_link_t* local_link = nullptr;
-        REQUIRE(ebpf_link_create(EBPF_ATTACH_TYPE_SAMPLE, nullptr, 0, &local_link) == EBPF_SUCCESS);
-        link.reset(local_link);
-
-        // Attach should succeed.
-        REQUIRE(ebpf_link_attach_program(link.get(), program.get()) == EBPF_SUCCESS);
-
-        // Not possible to attach again.
-
-        // First detach should succeed.
-        ebpf_link_detach_program(link.get());
-
-        // Second detach should be no-op.
-        ebpf_link_detach_program(link.get());
-    }
-
-    link.reset();
-
-    ebpf_free_trampoline_table(table.release());
-}
-#endif
-
-TEST_CASE("name size", "[execution_context]")
-{
-    _ebpf_core_initializer core;
-    core.initialize();
-    program_info_provider_t program_info_provider;
-    REQUIRE(program_info_provider.initialize(EBPF_PROGRAM_TYPE_BIND) == EBPF_SUCCESS);
-    const cxplat_utf8_string_t oversize_name{
-        (uint8_t*)("a234567890123456789012345678901234567890123456789012345678901234"), 64};
-    const cxplat_utf8_string_t section_name{(uint8_t*)("bar"), 3};
-    const ebpf_program_parameters_t program_parameters{
-        EBPF_PROGRAM_TYPE_BIND, EBPF_ATTACH_TYPE_BIND, oversize_name, section_name};
-    ebpf_program_t* local_program = nullptr;
-    REQUIRE(ebpf_program_create(&program_parameters, &local_program) == EBPF_INVALID_ARGUMENT);
-
-    ebpf_map_definition_in_memory_t map_definition{BPF_MAP_TYPE_HASH, sizeof(uint32_t), sizeof(uint64_t), 10};
-    ebpf_map_t* local_map;
-    REQUIRE(
-        ebpf_map_create(&oversize_name, &map_definition, (uintptr_t)ebpf_handle_invalid, &local_map) ==
-        EBPF_INVALID_ARGUMENT);
-}
-
-const uint16_t from_buffer[] = {0x4500, 0x0073, 0x0000, 0x4000, 0x4011, 0x0000, 0x2000, 0x0001, 0x2000, 0x000a};
-const uint16_t to_buffer[] = {0x4500, 0x0073, 0x0000, 0x4000, 0x4011, 0x0000, 0xc0a8, 0x0001, 0xc0a8, 0x00c7};
-
-TEST_CASE("test-csum-diff", "[execution_context]")
-{
-    int csum = ebpf_core_csum_diff(
-        from_buffer,
-        sizeof(from_buffer),
-        to_buffer,
-        sizeof(to_buffer),
-        ebpf_core_csum_diff(nullptr, 0, from_buffer, sizeof(from_buffer), 0));
-    REQUIRE(csum > 0);
-
-    // Fold checksum.
-    csum = (csum >> 16) + (csum & 0xFFFF);
-    csum = (csum >> 16) + (csum & 0xFFFF);
-    csum = (uint16_t)~csum;
-
-    // See: https://en.wikipedia.org/wiki/IPv4_header_checksum#Calculating_the_IPv4_header_checksum
-    REQUIRE(csum == 0xb861);
-}
-
-TEST_CASE("ring_buffer_async_query", "[execution_context]")
-{
-    _ebpf_core_initializer core;
-    core.initialize();
-    ebpf_map_definition_in_memory_t map_definition{BPF_MAP_TYPE_RINGBUF, 0, 0, 64 * 1024};
-    map_ptr map;
-    {
-        ebpf_map_t* local_map;
-        cxplat_utf8_string_t map_name = {0};
-        REQUIRE(
-            ebpf_map_create(&map_name, &map_definition, (uintptr_t)ebpf_handle_invalid, &local_map) == EBPF_SUCCESS);
-        map.reset(local_map);
-    }
-
-    struct _completion
-    {
-        uint8_t* buffer = nullptr;
-        size_t consumer_offset = 0;
-        ebpf_ring_buffer_map_async_query_result_t async_query_result = {};
-        uint64_t value{};
-    } completion;
-
-    REQUIRE(
-        ebpf_ring_buffer_map_query_buffer(map.get(), &completion.buffer, &completion.consumer_offset) == EBPF_SUCCESS);
-
-    REQUIRE(
-        ebpf_async_set_completion_callback(
-            &completion, [](_Inout_ void* context, size_t output_buffer_length, ebpf_result_t result) {
-                UNREFERENCED_PARAMETER(output_buffer_length);
-                auto completion = reinterpret_cast<_completion*>(context);
-                auto async_query_result = &completion->async_query_result;
-                auto record = ebpf_ring_buffer_next_record(
-                    completion->buffer, sizeof(uint64_t), async_query_result->consumer, async_query_result->producer);
-                completion->value = *(uint64_t*)(record->data);
-                REQUIRE(result == EBPF_SUCCESS);
-            }) == EBPF_SUCCESS);
-
-    ebpf_result_t result = ebpf_ring_buffer_map_async_query(map.get(), &completion.async_query_result, &completion);
-    if (result != EBPF_PENDING) {
-        REQUIRE(ebpf_async_reset_completion_callback(&completion) == EBPF_SUCCESS);
-    }
-    REQUIRE(result == EBPF_PENDING);
-
-    uint64_t value = 1;
-    REQUIRE(ebpf_ring_buffer_map_output(map.get(), reinterpret_cast<uint8_t*>(&value), sizeof(value)) == EBPF_SUCCESS);
-
-    REQUIRE(completion.value == value);
-
-    {
-        uint32_t key = 0;
-        uint32_t value2 = 0;
-        REQUIRE(
-            ebpf_map_update_entry(map.get(), sizeof(key), reinterpret_cast<uint8_t*>(&key), 0, nullptr, EBPF_ANY, 0) ==
-            EBPF_INVALID_ARGUMENT);
-
-        // Negative test cases.
-        REQUIRE(
-            ebpf_map_update_entry(
-                map.get(), 0, nullptr, sizeof(value2), reinterpret_cast<uint8_t*>(&value2), EBPF_ANY, 0) ==
-            EBPF_INVALID_ARGUMENT);
-
-        REQUIRE(ebpf_map_update_entry(map.get(), 0, nullptr, 0, nullptr, EBPF_ANY, 0) == EBPF_OPERATION_NOT_SUPPORTED);
-
-        REQUIRE(ebpf_map_get_program_from_entry(map.get(), sizeof(&key), reinterpret_cast<uint8_t*>(&key)) == nullptr);
-        REQUIRE(ebpf_map_get_program_from_entry(map.get(), 0, 0) == nullptr);
-
-        REQUIRE(
-            ebpf_map_find_entry(map.get(), sizeof(key), reinterpret_cast<uint8_t*>(&key), 0, nullptr, 0) ==
-            EBPF_INVALID_ARGUMENT);
-        REQUIRE(
-            ebpf_map_find_entry(map.get(), 0, nullptr, sizeof(value2), reinterpret_cast<uint8_t*>(&value2), 0) ==
-            EBPF_INVALID_ARGUMENT);
-
-        REQUIRE(ebpf_map_find_entry(map.get(), 0, nullptr, 0, nullptr, 0) == EBPF_OPERATION_NOT_SUPPORTED);
-        REQUIRE(ebpf_map_delete_entry(map.get(), 0, nullptr, 0) == EBPF_OPERATION_NOT_SUPPORTED);
-        REQUIRE(ebpf_map_next_key(map.get(), 0, nullptr, nullptr) == EBPF_OPERATION_NOT_SUPPORTED);
-        REQUIRE(ebpf_map_push_entry(map.get(), 0, nullptr, 0) == EBPF_OPERATION_NOT_SUPPORTED);
-        REQUIRE(ebpf_map_pop_entry(map.get(), 0, nullptr, 0) == EBPF_OPERATION_NOT_SUPPORTED);
-        REQUIRE(ebpf_map_peek_entry(map.get(), 0, nullptr, 0) == EBPF_OPERATION_NOT_SUPPORTED);
-    }
-}
-
 std::vector<GUID> _program_types = {
-    EBPF_PROGRAM_TYPE_XDP,
-    EBPF_PROGRAM_TYPE_BIND,
-    EBPF_PROGRAM_TYPE_CGROUP_SOCK_ADDR,
-    EBPF_PROGRAM_TYPE_SOCK_OPS,
-    EBPF_PROGRAM_TYPE_SAMPLE};
+    EBPF_PROGRAM_TYPE_BIND, EBPF_PROGRAM_TYPE_CGROUP_SOCK_ADDR, EBPF_PROGRAM_TYPE_SOCK_OPS, EBPF_PROGRAM_TYPE_SAMPLE};
 
 std::map<std::string, ebpf_map_definition_in_memory_t> _map_definitions = {
     {
@@ -1496,287 +1118,744 @@ std::map<std::string, ebpf_map_definition_in_memory_t> _map_definitions = {
             10,
         },
     },
-    {
-        "BPF_MAP_TYPE_STACK",
-        {
-            BPF_MAP_TYPE_PERCPU_ARRAY,
-            0,
-            20,
-            10,
-        },
-    },
 };
 
-void
-create_various_objects(std::vector<ebpf_handle_t>& program_handles, std::map<std::string, ebpf_handle_t>& map_handles)
+uint32_t
+test_function()
 {
-    for (const auto& type : _program_types) {
-        std::string name = "program name";
-        std::string file = "file name";
-        std::string section = "section name";
-        ebpf_program_parameters_t params{
-            type,
-            type,
-            {reinterpret_cast<uint8_t*>(name.data()), name.size()},
-            {reinterpret_cast<uint8_t*>(section.data()), section.size()},
-            {reinterpret_cast<uint8_t*>(file.data()), file.size()},
-            EBPF_CODE_NONE};
-        ebpf_handle_t handle;
-        REQUIRE(ebpf_program_create_and_initialize(&params, &handle) == EBPF_SUCCESS);
-        program_handles.push_back(handle);
+    return TEST_FUNCTION_RETURN;
+}
+
+TEST_CASE("name size", "[execution_context]")
+{
+    _ebpf_core_initializer core;
+    core.initialize();
+    program_info_provider_t program_info_provider;
+    REQUIRE(program_info_provider.initialize(EBPF_PROGRAM_TYPE_BIND) == EBPF_SUCCESS);
+    const cxplat_utf8_string_t oversize_name{
+        (uint8_t*)("a234567890123456789012345678901234567890123456789012345678901234"), 64};
+    const cxplat_utf8_string_t section_name{(uint8_t*)("bar"), 3};
+    const ebpf_program_parameters_t program_parameters{
+        EBPF_PROGRAM_TYPE_BIND, EBPF_ATTACH_TYPE_BIND, oversize_name, section_name};
+    ebpf_program_t* local_program = nullptr;
+    REQUIRE(ebpf_program_create(&program_parameters, &local_program) == EBPF_INVALID_ARGUMENT);
+
+    ebpf_map_definition_in_memory_t map_definition{BPF_MAP_TYPE_HASH, sizeof(uint32_t), sizeof(uint64_t), 10};
+    ebpf_map_t* local_map;
+    REQUIRE(
+        ebpf_map_create(&oversize_name, &map_definition, (uintptr_t)ebpf_handle_invalid, &local_map) ==
+        EBPF_INVALID_ARGUMENT);
+}
+
+const uint16_t from_buffer[] = {0x4500, 0x0073, 0x0000, 0x4000, 0x4011, 0x0000, 0x2000, 0x0001, 0x2000, 0x000a};
+const uint16_t to_buffer[] = {0x4500, 0x0073, 0x0000, 0x4000, 0x4011, 0x0000, 0xc0a8, 0x0001, 0xc0a8, 0x00c7};
+
+TEST_CASE("test-csum-diff", "[execution_context]")
+{
+    int csum = ebpf_core_csum_diff(
+        from_buffer,
+        sizeof(from_buffer),
+        to_buffer,
+        sizeof(to_buffer),
+        ebpf_core_csum_diff(nullptr, 0, from_buffer, sizeof(from_buffer), 0));
+    REQUIRE(csum > 0);
+
+    // Fold checksum.
+    csum = (csum >> 16) + (csum & 0xFFFF);
+    csum = (csum >> 16) + (csum & 0xFFFF);
+    csum = (uint16_t)~csum;
+
+    // See: https://en.wikipedia.org/wiki/IPv4_header_checksum#Calculating_the_IPv4_header_checksum
+    REQUIRE(csum == 0xb861);
+}
+
+TEST_CASE("ring_buffer_async_query", "[execution_context][ring_buffer]")
+{
+    _ebpf_core_initializer core;
+    core.initialize();
+    ebpf_map_definition_in_memory_t map_definition{BPF_MAP_TYPE_RINGBUF, 0, 0, 64 * 1024};
+    map_ptr map;
+    {
+        ebpf_map_t* local_map;
+        cxplat_utf8_string_t map_name = {0};
+        REQUIRE(
+            ebpf_map_create(&map_name, &map_definition, (uintptr_t)ebpf_handle_invalid, &local_map) == EBPF_SUCCESS);
+        map.reset(local_map);
     }
-    for (const auto& [name, def] : _map_definitions) {
-        cxplat_utf8_string_t utf8_name{reinterpret_cast<uint8_t*>(const_cast<char*>(name.data())), name.size()};
-        ebpf_handle_t handle;
-        ebpf_handle_t inner_handle = ebpf_handle_invalid;
-        if (def.inner_map_id != 0) {
-            inner_handle = map_handles.begin()->second;
+
+    struct _completion
+    {
+        uint8_t* buffer = nullptr;
+        uint32_t buffer_size = 64 * 1024;
+        size_t consumer_offset = 0;
+        ebpf_map_async_query_result_t async_query_result = {};
+        volatile uint64_t value{};
+    } completion;
+
+    REQUIRE(ebpf_map_query_buffer(map.get(), 0, &completion.buffer, &completion.consumer_offset) == EBPF_SUCCESS);
+    // Initialize consumer offset in async result used to track current position.
+    completion.async_query_result.consumer = completion.consumer_offset;
+
+    REQUIRE(
+        ebpf_async_set_completion_callback(
+            &completion, [](_Inout_ void* context, size_t output_buffer_length, ebpf_result_t result) {
+                UNREFERENCED_PARAMETER(output_buffer_length);
+                auto completion = reinterpret_cast<_completion*>(context);
+                auto async_query_result = &completion->async_query_result;
+                auto record = ebpf_ring_buffer_next_record(
+                    completion->buffer,
+                    completion->buffer_size,
+                    async_query_result->consumer,
+                    async_query_result->producer);
+                if (!ebpf_ring_buffer_record_is_locked(record)) {
+                    completion->value = *(uint64_t*)(record->data);
+                }
+                REQUIRE(result == EBPF_SUCCESS);
+            }) == EBPF_SUCCESS);
+
+    ebpf_result_t result = ebpf_map_async_query(map.get(), 0, &completion.async_query_result, &completion);
+    if (result != EBPF_PENDING) {
+        REQUIRE(ebpf_async_reset_completion_callback(&completion) == EBPF_SUCCESS);
+    }
+    REQUIRE(result == EBPF_PENDING);
+
+    uint64_t value = 1;
+    REQUIRE(ebpf_ring_buffer_map_output(map.get(), reinterpret_cast<uint8_t*>(&value), sizeof(value)) == EBPF_SUCCESS);
+
+    REQUIRE(completion.value == value);
+}
+
+TEST_CASE("ring_buffer_sync_query", "[execution_context][ring_buffer]")
+{
+    _ebpf_core_initializer core;
+    core.initialize();
+    ebpf_map_definition_in_memory_t map_definition{BPF_MAP_TYPE_RINGBUF, 0, 0, 64 * 1024};
+    map_ptr map;
+    {
+        ebpf_map_t* local_map;
+        cxplat_utf8_string_t map_name = {0};
+        REQUIRE(
+            ebpf_map_create(&map_name, &map_definition, (uintptr_t)ebpf_handle_invalid, &local_map) == EBPF_SUCCESS);
+        map.reset(local_map);
+    }
+
+    _wait_event event;
+    REQUIRE(ebpf_map_set_wait_handle_internal(map.get(), 0, event.handle(), 0) == EBPF_SUCCESS);
+
+    // Output a value to the ring buffer.
+    uint64_t value = 42;
+    REQUIRE(ebpf_ring_buffer_map_output(map.get(), reinterpret_cast<uint8_t*>(&value), sizeof(value)) == EBPF_SUCCESS);
+
+    // Map the ring buffer to get consumer and producer pointers.
+    volatile size_t* consumer = nullptr;
+    volatile size_t* producer = nullptr;
+    uint8_t* data = nullptr;
+    size_t data_size = 0;
+    REQUIRE(
+        ebpf_ring_buffer_map_map_user(
+            map.get(), (void**)&consumer, (void**)&producer, (const uint8_t**)&data, &data_size) == EBPF_SUCCESS);
+
+    // Use the mapped producer pointer to read the record.
+    auto record = ebpf_ring_buffer_next_record(data, 64 * 1024, *consumer, *producer);
+
+    REQUIRE(record != nullptr);
+    REQUIRE(!ebpf_ring_buffer_record_is_locked(record));
+    REQUIRE(!ebpf_ring_buffer_record_is_discarded(record));
+    REQUIRE(ebpf_ring_buffer_record_length(record) == sizeof(value));
+    REQUIRE(*(uint64_t*)(record->data) == value);
+
+    // Unmap the ring buffer.
+    REQUIRE(
+        ebpf_ring_buffer_map_unmap_user(map.get(), (const void*)consumer, (const void*)producer, (const void*)data) ==
+        EBPF_SUCCESS);
+}
+
+TEST_CASE("perf_event_array_unsupported_ops", "[execution_context][perf_event_array][negative]")
+{
+    _ebpf_core_initializer core;
+    core.initialize();
+    ebpf_map_definition_in_memory_t map_definition{BPF_MAP_TYPE_PERF_EVENT_ARRAY, 0, 0, 64 * 1024};
+    map_ptr map;
+    {
+        ebpf_map_t* local_map;
+        cxplat_utf8_string_t map_name = {0};
+        REQUIRE(
+            ebpf_map_create(&map_name, &map_definition, (uintptr_t)ebpf_handle_invalid, &local_map) == EBPF_SUCCESS);
+        map.reset(local_map);
+    }
+
+    uint32_t key = 0;
+    uint32_t value2 = 0;
+    REQUIRE(
+        ebpf_map_update_entry(map.get(), sizeof(key), reinterpret_cast<uint8_t*>(&key), 0, nullptr, EBPF_ANY, 0) ==
+        EBPF_INVALID_ARGUMENT);
+
+    // Negative test cases.
+    REQUIRE(
+        ebpf_map_update_entry(
+            map.get(), 0, nullptr, sizeof(value2), reinterpret_cast<uint8_t*>(&value2), EBPF_ANY, 0) ==
+        EBPF_INVALID_ARGUMENT);
+
+    REQUIRE(ebpf_map_update_entry(map.get(), 0, nullptr, 0, nullptr, EBPF_ANY, 0) == EBPF_OPERATION_NOT_SUPPORTED);
+
+    REQUIRE(ebpf_map_get_program_from_entry(map.get(), sizeof(&key), reinterpret_cast<uint8_t*>(&key)) == nullptr);
+    REQUIRE(ebpf_map_get_program_from_entry(map.get(), 0, 0) == nullptr);
+
+    REQUIRE(
+        ebpf_map_find_entry(map.get(), sizeof(key), reinterpret_cast<uint8_t*>(&key), 0, nullptr, 0) ==
+        EBPF_INVALID_ARGUMENT);
+    REQUIRE(
+        ebpf_map_find_entry(map.get(), 0, nullptr, sizeof(value2), reinterpret_cast<uint8_t*>(&value2), 0) ==
+        EBPF_INVALID_ARGUMENT);
+
+    REQUIRE(ebpf_map_find_entry(map.get(), 0, nullptr, 0, nullptr, 0) == EBPF_OPERATION_NOT_SUPPORTED);
+    REQUIRE(ebpf_map_delete_entry(map.get(), 0, nullptr, 0) == EBPF_OPERATION_NOT_SUPPORTED);
+    REQUIRE(ebpf_map_next_key(map.get(), 0, nullptr, nullptr) == EBPF_OPERATION_NOT_SUPPORTED);
+    REQUIRE(ebpf_map_push_entry(map.get(), 0, nullptr, 0) == EBPF_OPERATION_NOT_SUPPORTED);
+    REQUIRE(ebpf_map_pop_entry(map.get(), 0, nullptr, 0) == EBPF_OPERATION_NOT_SUPPORTED);
+    REQUIRE(ebpf_map_peek_entry(map.get(), 0, nullptr, 0) == EBPF_OPERATION_NOT_SUPPORTED);
+}
+
+struct perf_event_array_test_async_context_t
+{
+    uint8_t* buffer = NULL;
+    uint32_t buffer_size = 0;
+    uint32_t cpu_id = 0;
+    size_t consumer_offset = 0; // Offset of the consumer.
+    size_t offset_mismatch_count = 0;
+    size_t callback_count = 0;   // Number of callbacks received.
+    size_t record_count = 0;     // Number of records consumed.
+    size_t bad_record_count = 0; // Number of invalid records seen.
+    size_t empty_callbacks = 0;  // Number of times we got a callback but there was no record.
+    size_t discard_count = 0;    // Number of discarded records seen (should always be zero for perf event array).
+    size_t locked_count =
+        0; // Number of times we stopped reading because we saw a locked record instead of reaching the producer offset.
+    size_t lost_count = 0;   // Number of lost records.
+    size_t cancel_count = 0; // Number of times we were canceled.
+    uint64_t value = 0;      // Value of the record consumed.
+    ebpf_map_async_query_result_t async_query_result = {0};
+};
+
+/**
+ * @brief Callback function for async query completion.
+ *
+ * Collects counts for verifying the test.
+ *
+ * @param context The test context.
+ * @param output_buffer_length The length of the output buffer.
+ * @param result The result of the async query.
+ */
+void
+perf_event_array_test_async_complete(_Inout_ void* context, size_t output_buffer_length, ebpf_result_t result)
+{
+    UNREFERENCED_PARAMETER(output_buffer_length);
+    auto test_context = reinterpret_cast<perf_event_array_test_async_context_t*>(context);
+    auto async_query_result = &test_context->async_query_result;
+    test_context->callback_count++;
+    test_context->lost_count += async_query_result->lost_count;
+
+    if (result != EBPF_SUCCESS) {
+        REQUIRE(result == EBPF_CANCELED);
+        test_context->cancel_count++;
+        return;
+    }
+
+    if (async_query_result->consumer != test_context->consumer_offset) {
+        test_context->offset_mismatch_count++;
+        test_context->consumer_offset = async_query_result->consumer;
+    }
+    size_t consumer_offset = test_context->consumer_offset;
+    size_t producer_offset = async_query_result->producer;
+
+    size_t record_count = 0;
+    size_t discard_count = 0; // This should always be zero for perf event array.
+    while (auto record = ebpf_ring_buffer_next_record(
+               test_context->buffer, test_context->buffer_size, consumer_offset, producer_offset)) {
+        if (ebpf_ring_buffer_record_is_locked(record)) {
+            test_context->locked_count++;
+            break;
         }
-        REQUIRE(ebpf_core_create_map(&utf8_name, &def, inner_handle, &handle) == EBPF_SUCCESS);
-        map_handles.insert({name, handle});
+        if (ebpf_ring_buffer_record_is_discarded(record)) {
+            discard_count++; // Should always be zero for perf event array.
+        } else {
+            record_count++;
+        }
+        if (ebpf_ring_buffer_record_length(record) != sizeof(uint64_t)) {
+            test_context->bad_record_count++;
+        } else {
+            test_context->value = *(uint64_t*)(record->data);
+        }
+        consumer_offset += ebpf_ring_buffer_record_total_size(record);
+    }
+    test_context->consumer_offset = consumer_offset;
+    test_context->record_count += record_count;
+    test_context->discard_count += discard_count;
+    if (record_count == 0) {
+        test_context->empty_callbacks++;
     }
 }
 
-typedef struct empty_reply
+TEST_CASE("perf_event_array_output", "[execution_context][perf_event_array]")
 {
-} empty_reply_t;
+    _ebpf_core_initializer core;
+    core.initialize();
+    uint32_t buffer_size = 64 * 1024;
+    ebpf_map_definition_in_memory_t map_definition{BPF_MAP_TYPE_PERF_EVENT_ARRAY, 0, 0, buffer_size};
+    map_ptr map;
+    {
+        ebpf_map_t* local_map;
+        cxplat_utf8_string_t map_name = {0};
+        REQUIRE(
+            ebpf_map_create(&map_name, &map_definition, (uintptr_t)ebpf_handle_invalid, &local_map) == EBPF_SUCCESS);
+        map.reset(local_map);
+    }
+    uint32_t cpu_id = 0;
+    scoped_cpu_affinity cpu_affinity(cpu_id);
 
-static empty_reply_t _empty_reply;
-typedef std::vector<uint8_t> ebpf_protocol_buffer_t;
+    struct
+    {
+        EBPF_CONTEXT_HEADER; // Unused for this test.
+        int unused;
+    } context{0};
 
-template <typename request_t, typename reply_t = empty_reply_t>
-_Must_inspect_result_ ebpf_result_t
-invoke_protocol(
-    ebpf_operation_id_t operation_id,
-    request_t& request,
-    reply_t& reply = _empty_reply,
-    _Inout_opt_ void* async = nullptr)
+    void* ctx = &context.unused;
+
+    uint64_t flags = EBPF_MAP_FLAG_CURRENT_CPU;
+
+    perf_event_array_test_async_context_t completion;
+    completion.cpu_id = cpu_id;
+    completion.buffer_size = buffer_size;
+    REQUIRE(ebpf_map_query_buffer(map.get(), cpu_id, &completion.buffer, &completion.consumer_offset) == EBPF_SUCCESS);
+    REQUIRE(ebpf_async_set_completion_callback(&completion, perf_event_array_test_async_complete) == EBPF_SUCCESS);
+    REQUIRE(completion.consumer_offset == 0);
+    // Initialize consumer offset in async result used to track current position.
+    completion.async_query_result.consumer = completion.consumer_offset;
+
+    uint64_t value = 1;
+    REQUIRE(
+        ebpf_perf_event_array_map_output_with_capture(
+            ctx, map.get(), flags, reinterpret_cast<uint8_t*>(&value), sizeof(value)) == EBPF_SUCCESS);
+
+    ebpf_result_t result = ebpf_map_async_query(map.get(), cpu_id, &completion.async_query_result, &completion);
+    if (result != EBPF_PENDING) { // If async query failed synchronously, reset the completion callback.
+        REQUIRE(ebpf_async_reset_completion_callback(&completion) == EBPF_SUCCESS);
+    }
+    REQUIRE(result == EBPF_PENDING);
+
+    REQUIRE(completion.callback_count == 1);
+    REQUIRE(completion.lost_count == 0);
+    REQUIRE(completion.record_count == 1);
+    REQUIRE(completion.empty_callbacks == 0);
+    REQUIRE(completion.discard_count == 0);
+    REQUIRE(completion.locked_count == 0);
+    REQUIRE(completion.offset_mismatch_count == 0);
+    REQUIRE(completion.bad_record_count == 0);
+    REQUIRE(completion.cancel_count == 0);
+    uint64_t producer_offset = completion.async_query_result.producer;
+    uint64_t consumer_offset = completion.async_query_result.consumer;
+    REQUIRE(consumer_offset == 0);
+    REQUIRE(completion.consumer_offset == producer_offset);
+    REQUIRE(producer_offset == ((EBPF_OFFSET_OF(ebpf_ring_buffer_record_t, data) + sizeof(uint64_t) + 7) & ~7));
+    REQUIRE(ebpf_map_return_buffer(map.get(), cpu_id, completion.consumer_offset - consumer_offset) == EBPF_SUCCESS);
+
+    REQUIRE(completion.value == value);
+}
+
+TEST_CASE("perf_event_array_output_percpu", "[execution_context][perf_event_array]")
 {
-    uint32_t request_size;
-    void* request_ptr;
-    uint32_t reply_size;
-    void* reply_ptr;
-    bool variable_reply_size = false;
-
-    if constexpr (std::is_same<request_t, nullptr_t>::value) {
-        request_size = 0;
-        request_ptr = nullptr;
-    } else if constexpr (std::is_same<request_t, ebpf_protocol_buffer_t>::value) {
-        request_size = static_cast<uint32_t>(request.size());
-        request_ptr = request.data();
-    } else {
-        request_size = sizeof(request);
-        request_ptr = &request;
+    _ebpf_core_initializer core;
+    core.initialize();
+    constexpr uint32_t buffer_size = 64 * 1024;
+    ebpf_map_definition_in_memory_t map_definition{BPF_MAP_TYPE_PERF_EVENT_ARRAY, 0, 0, buffer_size};
+    map_ptr map;
+    {
+        ebpf_map_t* local_map;
+        cxplat_utf8_string_t map_name = {0};
+        REQUIRE(
+            ebpf_map_create(&map_name, &map_definition, (uintptr_t)ebpf_handle_invalid, &local_map) == EBPF_SUCCESS);
+        map.reset(local_map);
     }
 
-    if constexpr (std::is_same<reply_t, nullptr_t>::value) {
-        reply_size = 0;
-        reply_ptr = nullptr;
-    } else if constexpr (std::is_same<reply_t, ebpf_protocol_buffer_t>::value) {
-        reply_size = static_cast<uint32_t>(reply.size());
-        reply_ptr = reply.data();
-        variable_reply_size = true;
-    } else if constexpr (std::is_same<reply_t, empty_reply>::value) {
-        reply_size = 0;
-        reply_ptr = nullptr;
-    } else {
-        reply_size = static_cast<uint32_t>(sizeof(reply));
-        reply_ptr = &reply;
+    uint32_t ring_count = ebpf_get_cpu_count();
+    std::vector<perf_event_array_test_async_context_t> completions(ring_count);
+
+    auto cleanup = std::unique_ptr<void, std::function<void(void*)>>(
+        reinterpret_cast<void*>(1), // Dummy pointer, we only care about the deleter.
+        [&](void*) {
+            // Cleanup - in unique_ptr scope guard to ensure cleanup on failure.
+            // Note: In the success case all the operations will be completed, this handles fault injection cases.
+            // Counters
+            size_t cancel_count = 0;
+
+            for (auto& completion : completions) {
+                if (completion.buffer_size > 0) { // If buffer_size not set yet then we never started this query.
+                    // We try canceling each operation, but only ones that haven't completed will actually cancel.
+                    bool cancel_result = ebpf_async_cancel(&completion);
+                    if (cancel_result == true) {
+                        cancel_count++;
+                    }
+                    CHECK(cancel_result == false);
+                }
+            }
+            REQUIRE(cancel_count == 0);
+        });
+
+    // Map each ring and set up completion callbacks.
+    for (uint32_t cpu_id = 0; cpu_id < ring_count; cpu_id++) {
+        auto& completion = completions[cpu_id];
+        completion.cpu_id = cpu_id;
+
+        // Map the ring buffer for the current CPU.
+        REQUIRE(
+            ebpf_map_query_buffer(map.get(), cpu_id, &completion.buffer, &completion.consumer_offset) == EBPF_SUCCESS);
+
+        // Initialize the async query result.
+        completion.async_query_result.consumer = completion.consumer_offset;
+
+        // Set up the completion callback.
+        REQUIRE(ebpf_async_set_completion_callback(&completion, perf_event_array_test_async_complete) == EBPF_SUCCESS);
+
+        completion.buffer_size =
+            buffer_size; // After this point this completion callback will be cleaned up on failure.
+
+        // Start the async query.
+        ebpf_result_t result = ebpf_map_async_query(map.get(), cpu_id, &completion.async_query_result, &completion);
+        if (result != EBPF_PENDING) { // If async query failed synchronously, reset the completion callback.
+            REQUIRE(ebpf_async_reset_completion_callback(&completion) == EBPF_SUCCESS);
+        }
+        REQUIRE(result == EBPF_PENDING);
     }
-    auto header = reinterpret_cast<ebpf_operation_header_t*>(request_ptr);
-    header->id = operation_id;
-    header->length = static_cast<uint16_t>(request_size);
 
-    auto completion = [](void*, size_t, ebpf_result_t) {};
+    // Write the CPU ID to each ring.
+    for (uint32_t cpu_id = 0; cpu_id < ring_count; cpu_id++) {
+        scoped_cpu_affinity cpu_affinity(cpu_id);
 
-    return ebpf_core_invoke_protocol_handler(
-        operation_id,
-        request_ptr,
-        static_cast<uint16_t>(request_size),
-        reply_ptr,
-        static_cast<uint16_t>(reply_size),
-        async,
-        completion);
+        struct
+        {
+            EBPF_CONTEXT_HEADER; // Unused for this test.
+            int unused;
+        } context{0};
+
+        void* ctx = &context.unused;
+
+        uint64_t value = cpu_id;
+        uint64_t flags = EBPF_MAP_FLAG_CURRENT_CPU;
+
+        REQUIRE(
+            ebpf_perf_event_array_map_output_with_capture(
+                ctx, map.get(), flags, reinterpret_cast<uint8_t*>(&value), sizeof(value)) == EBPF_SUCCESS);
+    }
+
+    // Verify the value written to each ring.
+    for (uint32_t cpu_id = 0; cpu_id < ring_count; cpu_id++) {
+        auto& completion = completions[cpu_id];
+
+        REQUIRE(completion.callback_count == 1);
+        REQUIRE(completion.record_count == 1);
+        REQUIRE(completion.value == cpu_id);
+        REQUIRE(completion.lost_count == 0);
+        REQUIRE(completion.empty_callbacks == 0);
+        REQUIRE(completion.discard_count == 0);
+        REQUIRE(completion.locked_count == 0);
+        REQUIRE(completion.offset_mismatch_count == 0);
+        REQUIRE(completion.bad_record_count == 0);
+        REQUIRE(completion.cancel_count == 0);
+
+        // Return the buffer space.
+        REQUIRE(
+            ebpf_map_return_buffer(
+                map.get(), cpu_id, completion.consumer_offset - completion.async_query_result.consumer) ==
+            EBPF_SUCCESS);
+    }
 }
 
-extern bool _ebpf_platform_code_integrity_enabled;
-
-#define NEGATIVE_TEST_PROLOG()                                                        \
-    _ebpf_core_initializer core;                                                      \
-    core.initialize();                                                                \
-    std::vector<std::unique_ptr<_program_info_provider>> program_info_providers;      \
-    for (const auto& type : _program_types) {                                         \
-        program_info_providers.push_back(std::make_unique<_program_info_provider>()); \
-        REQUIRE(program_info_providers.back()->initialize(type) == EBPF_SUCCESS);     \
-    }                                                                                 \
-    std::vector<ebpf_handle_t> program_handles;                                       \
-    std::map<std::string, ebpf_handle_t> map_handles;                                 \
-    create_various_objects(program_handles, map_handles);
-
-#if defined(CONFIG_BPF_JIT_DISABLED) || defined(CONFIG_BPF_INTERPRETER_DISABLED)
-void
-test_blocked_by_policy(ebpf_operation_id_t operation)
+TEST_CASE("perf_event_array_output_capture", "[execution_context][perf_event_array]")
 {
-    NEGATIVE_TEST_PROLOG();
+    _ebpf_core_initializer core;
+    core.initialize();
+    constexpr uint32_t buffer_size = 64 * 1024;
+    ebpf_map_definition_in_memory_t map_definition{BPF_MAP_TYPE_PERF_EVENT_ARRAY, 0, 0, buffer_size};
+    map_ptr map;
+    {
+        ebpf_map_t* local_map;
+        cxplat_utf8_string_t map_name = {0};
+        REQUIRE(
+            ebpf_map_create(&map_name, &map_definition, (uintptr_t)ebpf_handle_invalid, &local_map) == EBPF_SUCCESS);
+        map.reset(local_map);
+    }
+    uint32_t cpu_id = 0;
+    scoped_cpu_affinity cpu_affinity(cpu_id);
 
-    ebpf_result_t expected_result = EBPF_BLOCKED_BY_POLICY;
+    size_t consumer_offset = 0;
+    uint8_t* buffer = nullptr;
+    REQUIRE(ebpf_map_query_buffer(map.get(), 0, &buffer, &consumer_offset) == EBPF_SUCCESS);
 
-    std::vector<uint8_t> request(sizeof(ebpf_operation_header_t));
-    std::vector<uint8_t> reply(sizeof(ebpf_operation_header_t));
+    std::vector<uint8_t> test_context_data(64);
+    for (size_t i = 0; i < test_context_data.size(); i++) {
+        test_context_data[i] = static_cast<uint8_t>(i * 3);
+    }
+    struct
+    {
+        EBPF_CONTEXT_HEADER; // Unused for this test.
+        uint8_t* data;
+        uint8_t* data_end;
+    } context{0};
+    context.data = test_context_data.data();
+    context.data_end = test_context_data.data() + test_context_data.size();
 
-    REQUIRE(invoke_protocol(operation, request, reply) == expected_result);
+    void* ctx = &context.data;
+    ebpf_context_descriptor_t context_descriptor = {0};
+    context_descriptor.size = sizeof(context);
+    context_descriptor.data = 0;
+    context_descriptor.end = EBPF_OFFSET_OF(decltype(context), data_end) - EBPF_OFFSET_OF(decltype(context), data);
 
-    // Use a request buffer larger than ebpf_operation_header_t, and try again.
-    request.resize(request.size() + 10);
-    REQUIRE(invoke_protocol(operation, request, reply) == expected_result);
+    ebpf_program_set_header_context_descriptor(&context_descriptor, ctx);
+
+    uint64_t capture_length = 10;
+    uint64_t flags = EBPF_MAP_FLAG_CURRENT_CPU |
+                     ((capture_length << EBPF_MAP_FLAG_CTX_LENGTH_SHIFT) & EBPF_MAP_FLAG_CTX_LENGTH_MASK);
+
+    perf_event_array_test_async_context_t completion;
+    completion.cpu_id = cpu_id;
+    completion.buffer_size = buffer_size;
+    REQUIRE(ebpf_map_query_buffer(map.get(), cpu_id, &completion.buffer, &completion.consumer_offset) == EBPF_SUCCESS);
+    REQUIRE(ebpf_async_set_completion_callback(&completion, perf_event_array_test_async_complete) == EBPF_SUCCESS);
+    REQUIRE(completion.consumer_offset == 0);
+    // Initialize consumer offset in async result used to track current position.
+    completion.async_query_result.consumer = completion.consumer_offset;
+
+    uint64_t value = 1;
+    REQUIRE(
+        ebpf_perf_event_array_map_output_with_capture(
+            ctx, map.get(), flags, reinterpret_cast<uint8_t*>(&value), sizeof(value)) == EBPF_SUCCESS);
+
+    ebpf_result_t result = ebpf_map_async_query(map.get(), cpu_id, &completion.async_query_result, &completion);
+    if (result != EBPF_PENDING) { // If async query failed synchronously, reset the completion callback.
+        REQUIRE(ebpf_async_reset_completion_callback(&completion) == EBPF_SUCCESS);
+    }
+    REQUIRE(result == EBPF_PENDING);
+
+    uint64_t total_data_length = sizeof(value) + capture_length;
+    CAPTURE(
+        capture_length,
+        completion.callback_count,
+        completion.lost_count,
+        completion.record_count,
+        completion.empty_callbacks,
+        completion.discard_count,
+        completion.locked_count,
+        completion.offset_mismatch_count,
+        completion.bad_record_count,
+        completion.cancel_count,
+        completion.consumer_offset,
+        completion.async_query_result.consumer,
+        completion.async_query_result.producer);
+
+    REQUIRE(completion.callback_count == 1);
+    REQUIRE(completion.lost_count == 0);
+    REQUIRE(completion.record_count == 1);
+    REQUIRE(completion.empty_callbacks == 0);
+    REQUIRE(completion.discard_count == 0);
+    REQUIRE(completion.locked_count == 0);
+    REQUIRE(completion.offset_mismatch_count == 0);
+    REQUIRE(completion.bad_record_count == 1); // The completion code expects 8 bytes, we added capture.
+    REQUIRE(completion.cancel_count == 0);
+    uint64_t producer_offset = completion.async_query_result.producer;
+    consumer_offset = completion.async_query_result.consumer;
+    REQUIRE(consumer_offset == 0);
+    REQUIRE(completion.consumer_offset == producer_offset);
+    REQUIRE(producer_offset == ((EBPF_OFFSET_OF(ebpf_ring_buffer_record_t, data) + (total_data_length) + 7) & ~7));
+
+    auto record =
+        ebpf_ring_buffer_next_record(completion.buffer, completion.buffer_size, consumer_offset, producer_offset);
+    REQUIRE(record != nullptr);
+    // We already checked the header in the completion, so we don't need to check it again.
+    REQUIRE(memcmp(record->data, &value, sizeof(value)) == 0);
+    REQUIRE(memcmp(record->data + sizeof(value), test_context_data.data(), capture_length) == 0);
+
+    REQUIRE(ebpf_map_return_buffer(map.get(), cpu_id, completion.consumer_offset - consumer_offset) == EBPF_SUCCESS);
 }
-#endif
 
-#if !defined(CONFIG_BPF_JIT_DISABLED)
-// These tests exist to verify ebpf_core's parsing of messages.
-// See libbpf_test.cpp for invalid parameter but correctly formed message cases.
-TEST_CASE("EBPF_OPERATION_RESOLVE_HELPER", "[execution_context][negative]")
+TEST_CASE("context_descriptor_header", "[platform][perf_event_array]")
 {
-    NEGATIVE_TEST_PROLOG();
+    // Confirm context descriptor header in program context works as expected.
 
-    std::vector<uint8_t> request(EBPF_OFFSET_OF(ebpf_operation_resolve_helper_request_t, helper_id) + sizeof(uint32_t));
-    std::vector<uint8_t> reply(
-        EBPF_OFFSET_OF(ebpf_operation_resolve_helper_reply_t, address) + sizeof(helper_function_address_t));
-    auto resolve_helper_request = reinterpret_cast<ebpf_operation_resolve_helper_request_t*>(request.data());
+    struct context_t
+    {
+        uint8_t* data;
+        uint8_t* data_end;
+    };
+    // Full context includes EBPF_CONTEXT_HEADER plus the program accessible portion.
+    struct full_context_t
+    {
+        EBPF_CONTEXT_HEADER;
+        context_t ctx;
+    } context;
 
-    // Invalid handle.
-    resolve_helper_request->program_handle = ebpf_handle_invalid;
-    REQUIRE(invoke_protocol(EBPF_OPERATION_RESOLVE_HELPER, request, reply) == EBPF_INVALID_OBJECT);
+    // ctx points to the bpf-program accessible portion (just after the header).
+    void* ctx = &context.ctx;
 
-    // Invalid helper id.
-    resolve_helper_request->program_handle = program_handles[0];
-    resolve_helper_request->helper_id[0] = UINT32_MAX;
-    REQUIRE(invoke_protocol(EBPF_OPERATION_RESOLVE_HELPER, request, reply) == EBPF_INVALID_ARGUMENT);
+    // The context descriptor tells the platform where to find the data pointers.
+    ebpf_context_descriptor_t context_descriptor = {
+        sizeof(context_t), EBPF_OFFSET_OF(context_t, data), EBPF_OFFSET_OF(context_t, data_end), -1};
+    ebpf_program_set_header_context_descriptor(&context_descriptor, ctx);
 
-    reply.resize(EBPF_OFFSET_OF(ebpf_operation_resolve_helper_reply_t, address));
-    // Reply too small.
-    REQUIRE(invoke_protocol(EBPF_OPERATION_RESOLVE_HELPER, request, reply) == EBPF_INVALID_ARGUMENT);
+    const ebpf_context_descriptor_t* test_ctx_descriptor;
+    ebpf_program_get_header_context_descriptor(ctx, &test_ctx_descriptor);
+    REQUIRE(test_ctx_descriptor == &context_descriptor);
 
-    // Set no helper functions.
-    request.resize(EBPF_OFFSET_OF(ebpf_operation_resolve_helper_request_t, helper_id));
-    resolve_helper_request = reinterpret_cast<ebpf_operation_resolve_helper_request_t*>(request.data());
-    REQUIRE(invoke_protocol(EBPF_OPERATION_RESOLVE_HELPER, request, reply) == EBPF_SUCCESS);
+    const uint8_t *data_start, *data_end;
 
-    // Set helper function multiple times.
-    request.resize(EBPF_OFFSET_OF(ebpf_operation_resolve_helper_request_t, helper_id) + sizeof(uint32_t));
-    reply.resize(EBPF_OFFSET_OF(ebpf_operation_resolve_helper_reply_t, address) + sizeof(uintptr_t));
-    resolve_helper_request = reinterpret_cast<ebpf_operation_resolve_helper_request_t*>(request.data());
-    resolve_helper_request->program_handle = program_handles[0];
-    resolve_helper_request->helper_id[0] = 1;
-    REQUIRE(invoke_protocol(EBPF_OPERATION_RESOLVE_HELPER, request, reply) == EBPF_INVALID_ARGUMENT);
+    context_descriptor = {
+        sizeof(context.ctx), EBPF_OFFSET_OF(context_t, data), EBPF_OFFSET_OF(context_t, data_end), -1};
+    context.ctx.data = (uint8_t*)((void*)0x0123456789abcdef);
+    context.ctx.data_end = (uint8_t*)((void*)0xfedcba9876543210);
+    ebpf_program_get_context_data(ctx, &data_start, &data_end);
+    REQUIRE(data_start == context.ctx.data);
+    REQUIRE(data_end == context.ctx.data_end);
 }
 
-TEST_CASE("EBPF_OPERATION_RESOLVE_MAP", "[execution_context][negative]")
+TEST_CASE("perf_event_array_async_query", "[execution_context][perf_event_array]")
 {
-    NEGATIVE_TEST_PROLOG();
+    _ebpf_core_initializer core;
+    core.initialize();
+    constexpr uint32_t buffer_size = 64 * 1024;
+    ebpf_map_definition_in_memory_t map_definition{BPF_MAP_TYPE_PERF_EVENT_ARRAY, 0, 0, buffer_size};
+    map_ptr map;
+    {
+        ebpf_map_t* local_map;
+        cxplat_utf8_string_t map_name = {0};
+        REQUIRE(
+            ebpf_map_create(&map_name, &map_definition, (uintptr_t)ebpf_handle_invalid, &local_map) == EBPF_SUCCESS);
+        map.reset(local_map);
+    }
 
-    std::vector<uint8_t> request(
-        EBPF_OFFSET_OF(ebpf_operation_resolve_map_request_t, map_handle) + sizeof(ebpf_handle_t) * 2);
-    std::vector<uint8_t> reply(EBPF_OFFSET_OF(ebpf_operation_resolve_helper_reply_t, address) + sizeof(uintptr_t) * 2);
-    auto resolve_map_request = reinterpret_cast<ebpf_operation_resolve_map_request_t*>(request.data());
+    struct _completion
+    {
+        uint8_t* buffer{};
+        uint32_t buffer_size{};
+        uint32_t cpu_id{};
+        size_t consumer_offset = 0;
+        size_t callback_count = 0;
+        size_t record_count = 0;
+        size_t norecord_count = 0;
+        size_t lost_count = 0;
+        size_t cancel_count = 0;
+        uint64_t value = 0;
+        ebpf_map_async_query_result_t async_query_result = {};
+    };
+    uint32_t ring_count = ebpf_get_cpu_count();
+    std::vector<_completion> completions(ring_count);
 
-    // Invalid handle.
-    resolve_map_request->program_handle = ebpf_handle_invalid;
-    REQUIRE(invoke_protocol(EBPF_OPERATION_RESOLVE_MAP, request, reply) == EBPF_INVALID_OBJECT);
+    uint64_t value = 1;
 
-    // 1 invalid map.
-    resolve_map_request->program_handle = program_handles[0];
-    resolve_map_request->map_handle[0] = ebpf_handle_invalid;
-    REQUIRE(invoke_protocol(EBPF_OPERATION_RESOLVE_MAP, request, reply) == EBPF_INVALID_OBJECT);
+    auto cleanup = std::unique_ptr<void, std::function<void(void*)>>(
+        reinterpret_cast<void*>(1), // Dummy pointer, we only care about the deleter.
+        [&](void*) {
+            // Cleanup - in unique_ptr scope guard to ensure cleanup on failure.
+            // This guard ensures cleanup on fault injection and also verifies the callback counters.
+            // Counters
+            size_t total_callback_count = 0;
+            size_t total_record_count = 0;
+            size_t total_norecord_count = 0;
+            size_t total_lost_count = 0;
+            size_t cancel_count = 0;
 
-    resolve_map_request->program_handle = program_handles[0];
-    resolve_map_request->map_handle[0] = map_handles["BPF_MAP_TYPE_HASH"];
-    resolve_map_request->map_handle[1] = ebpf_handle_invalid;
-    REQUIRE(invoke_protocol(EBPF_OPERATION_RESOLVE_MAP, request, reply) == EBPF_INVALID_OBJECT);
+            for (auto& completion : completions) {
+                if (completion.buffer_size > 0) { // If buffer_size not set yet then we never started this query.
+                    CAPTURE(
+                        completion.cpu_id,
+                        completion.record_count,
+                        completion.norecord_count,
+                        completion.cancel_count,
+                        completion.lost_count);
+                    CHECK(completion.callback_count <= 1);
+                    CHECK(completion.lost_count == 0);
+                    // We try canceling each operation, but only ones that haven't completed will actually cancel.
+                    bool must_cancel = completion.callback_count == 0;
+                    bool cancel_result = ebpf_async_cancel(&completion);
+                    if (cancel_result == true) {
+                        cancel_count++;
+                    }
+                    CHECK(cancel_result == must_cancel);
+                    total_callback_count += completion.callback_count;
+                    total_record_count += completion.record_count;
+                    total_norecord_count += completion.norecord_count;
+                    total_lost_count += completion.lost_count;
+                    if (completion.record_count > 0) {
+                        // This was the ring that got the record.
+                        CHECK(completion.record_count == 1);
+                        CHECK(completion.value == value);
+                    }
+                }
+            }
+        });
 
-    // Reply too small.
-    reply.resize(EBPF_OFFSET_OF(ebpf_operation_resolve_helper_reply_t, address) + sizeof(uintptr_t));
-    REQUIRE(invoke_protocol(EBPF_OPERATION_RESOLVE_MAP, request, reply) == EBPF_INVALID_ARGUMENT);
+    // Map each ring and set up completion callbacks.
+    for (uint32_t cpu_id = 0; cpu_id < ring_count; cpu_id++) {
+        auto& completion = completions[cpu_id];
+        completion.cpu_id = cpu_id;
+        // Map the ring memory.
+        REQUIRE(
+            ebpf_map_query_buffer(map.get(), completion.cpu_id, &completion.buffer, &completion.consumer_offset) ==
+            EBPF_SUCCESS);
 
-    // 0 maps.
-    request.resize(EBPF_OFFSET_OF(ebpf_operation_resolve_map_request_t, map_handle));
-    resolve_map_request = reinterpret_cast<ebpf_operation_resolve_map_request_t*>(request.data());
-    resolve_map_request->program_handle = program_handles[0];
-    REQUIRE(invoke_protocol(EBPF_OPERATION_RESOLVE_MAP, request, reply) == EBPF_INVALID_ARGUMENT);
+        // Set up the completion callback.
+        REQUIRE(
+            ebpf_async_set_completion_callback(
+                &completion, [](_Inout_ void* context, size_t output_buffer_length, ebpf_result_t result) {
+                    UNREFERENCED_PARAMETER(output_buffer_length);
+                    auto completion = reinterpret_cast<_completion*>(context);
+                    auto async_query_result = &completion->async_query_result;
+                    completion->callback_count++;
+                    completion->lost_count += async_query_result->lost_count;
+                    auto record = ebpf_ring_buffer_next_record(
+                        completion->buffer,
+                        completion->buffer_size,
+                        async_query_result->consumer,
+                        async_query_result->producer);
+                    if (record == nullptr) {
+                        completion->norecord_count++;
+                    } else if (!ebpf_ring_buffer_record_is_locked(record)) {
+                        completion->record_count++;
+                        completion->value = *(uint64_t*)(record->data);
+                    }
+                    if (result != EBPF_SUCCESS) {
+                        REQUIRE(result == EBPF_CANCELED);
+                        completion->cancel_count++;
+                    }
+                }) == EBPF_SUCCESS);
+
+        // Start the async query.
+        ebpf_result_t result = ebpf_map_async_query(map.get(), cpu_id, &completion.async_query_result, &completion);
+        if (result != EBPF_PENDING) { // If async query failed synchronously, reset the completion callback.
+            REQUIRE(ebpf_async_reset_completion_callback(&completion) == EBPF_SUCCESS);
+        }
+        completion.buffer_size = buffer_size; // After we set buffer_size the query will be cleaned up on exit.
+        REQUIRE(result == EBPF_PENDING);
+    }
+
+    // Confirm none of the completions have been called yet.
+    for (auto& completion : completions) {
+        REQUIRE(completion.callback_count == 0);
+    }
+
+    struct
+    {
+        EBPF_CONTEXT_HEADER; // Unused for this test.
+        int unused;
+    } context{0};
+
+    void* ctx = &context.unused;
+
+    // Write a single record.
+    uint64_t flags = EBPF_MAP_FLAG_CURRENT_CPU;
+    REQUIRE(
+        ebpf_perf_event_array_map_output_with_capture(
+            ctx, map.get(), flags, reinterpret_cast<uint8_t*>(&value), sizeof(value)) == EBPF_SUCCESS);
+
+    // Cleanup and final checks will be done in the scope_exit block above.
 }
-#else
-TEST_CASE("EBPF_OPERATION_RESOLVE_HELPER", "[execution_context][negative]")
-{
-    test_blocked_by_policy(EBPF_OPERATION_RESOLVE_HELPER);
-}
-
-TEST_CASE("EBPF_OPERATION_RESOLVE_MAP", "[execution_context][negative]")
-{
-    test_blocked_by_policy(EBPF_OPERATION_RESOLVE_MAP);
-}
-#endif // !defined(CONFIG_BPF_JIT_DISABLED)
-
-#if !defined(CONFIG_BPF_JIT_DISABLED) || !defined(CONFIG_BPF_INTERPRETER_DISABLED)
-TEST_CASE("EBPF_OPERATION_CREATE_PROGRAM", "[execution_context][negative]")
-{
-    NEGATIVE_TEST_PROLOG();
-
-    std::vector<uint8_t> request(EBPF_OFFSET_OF(ebpf_operation_create_program_request_t, data));
-    std::vector<uint8_t> reply(sizeof(ebpf_operation_create_program_reply_t));
-    auto create_program_request = reinterpret_cast<ebpf_operation_create_program_request_t*>(request.data());
-    create_program_request->program_type = _program_types[0];
-    create_program_request->section_name_offset = EBPF_OFFSET_OF(ebpf_operation_create_program_request_t, data);
-    create_program_request->program_name_offset = EBPF_OFFSET_OF(ebpf_operation_create_program_request_t, data);
-    // No name, no section offset, no filename - Should be permitted.
-    REQUIRE(invoke_protocol(EBPF_OPERATION_CREATE_PROGRAM, request, reply) == EBPF_SUCCESS);
-
-    request.resize(request.size() + 10);
-    create_program_request = reinterpret_cast<ebpf_operation_create_program_request_t*>(request.data());
-
-    // Section name before start of valid region.
-    create_program_request->section_name_offset = EBPF_OFFSET_OF(ebpf_operation_create_program_request_t, data) - 1;
-    create_program_request->program_name_offset = EBPF_OFFSET_OF(ebpf_operation_create_program_request_t, data);
-    REQUIRE(invoke_protocol(EBPF_OPERATION_CREATE_PROGRAM, request, reply) == EBPF_INVALID_ARGUMENT);
-
-    // Program name before start of valid region.
-    create_program_request->section_name_offset = EBPF_OFFSET_OF(ebpf_operation_create_program_request_t, data);
-    create_program_request->program_name_offset = EBPF_OFFSET_OF(ebpf_operation_create_program_request_t, data) - 1;
-    REQUIRE(invoke_protocol(EBPF_OPERATION_CREATE_PROGRAM, request, reply) == EBPF_INVALID_ARGUMENT);
-
-    // Section name past end of valid region.
-    create_program_request->section_name_offset = create_program_request->header.length + 1;
-    create_program_request->program_name_offset = EBPF_OFFSET_OF(ebpf_operation_create_program_request_t, data);
-    REQUIRE(invoke_protocol(EBPF_OPERATION_CREATE_PROGRAM, request, reply) == EBPF_INVALID_ARGUMENT);
-
-    // Section name past end of valid region.
-    create_program_request->section_name_offset = EBPF_OFFSET_OF(ebpf_operation_create_program_request_t, data);
-    create_program_request->program_name_offset = create_program_request->header.length + 1;
-    REQUIRE(invoke_protocol(EBPF_OPERATION_CREATE_PROGRAM, request, reply) == EBPF_INVALID_ARGUMENT);
-
-    request.resize(request.size() + 1024);
-    create_program_request = reinterpret_cast<ebpf_operation_create_program_request_t*>(request.data());
-
-    // Large file name.
-    create_program_request->section_name_offset = create_program_request->header.length;
-    create_program_request->program_name_offset = create_program_request->header.length;
-    REQUIRE(invoke_protocol(EBPF_OPERATION_CREATE_PROGRAM, request, reply) == EBPF_INVALID_ARGUMENT);
-
-    // Large section name - Permitted.
-    create_program_request->section_name_offset = EBPF_OFFSET_OF(ebpf_operation_create_program_request_t, data);
-    create_program_request->program_name_offset = create_program_request->header.length;
-    REQUIRE(invoke_protocol(EBPF_OPERATION_CREATE_PROGRAM, request, reply) == EBPF_SUCCESS);
-
-    // Large program name.
-    create_program_request->section_name_offset = EBPF_OFFSET_OF(ebpf_operation_create_program_request_t, data);
-    create_program_request->program_name_offset = EBPF_OFFSET_OF(ebpf_operation_create_program_request_t, data);
-    REQUIRE(invoke_protocol(EBPF_OPERATION_CREATE_PROGRAM, request, reply) == EBPF_INVALID_ARGUMENT);
-}
-#else
-TEST_CASE("EBPF_OPERATION_CREATE_PROGRAM", "[execution_context][negative]")
-{
-    test_blocked_by_policy(EBPF_OPERATION_CREATE_PROGRAM);
-}
-#endif // !defined(CONFIG_BPF_JIT_DISABLED) || !defined(CONFIG_BPF_INTERPRETER_DISABLED)
 
 TEST_CASE("EBPF_OPERATION_CREATE_MAP", "[execution_context][negative]")
 {
@@ -1823,57 +1902,6 @@ TEST_CASE("EBPF_OPERATION_CREATE_MAP", "[execution_context][negative]")
     create_map_request->inner_map_handle = program_handles[0];
     REQUIRE(invoke_protocol(EBPF_OPERATION_CREATE_MAP, request, reply) == EBPF_INVALID_ARGUMENT);
 }
-
-#if !defined(CONFIG_BPF_JIT_DISABLED) || !defined(CONFIG_BPF_INTERPRETER_DISABLED)
-TEST_CASE("EBPF_OPERATION_LOAD_CODE", "[execution_context][negative]")
-{
-
-    // Test with type jit.
-    {
-        NEGATIVE_TEST_PROLOG();
-
-        ebpf_operation_load_code_request_t load_code_request{
-            {sizeof(ebpf_operation_load_code_request_t), EBPF_OPERATION_LOAD_CODE},
-            program_handles[0],
-            EBPF_CODE_JIT,
-            static_cast<uint8_t>('0xcc')};
-
-        // Invalid handle.
-        load_code_request.program_handle = ebpf_handle_invalid;
-        REQUIRE(invoke_protocol(EBPF_OPERATION_LOAD_CODE, load_code_request) == EBPF_INVALID_OBJECT);
-        load_code_request.program_handle = program_handles[0];
-
-        load_code_request.code_type = EBPF_CODE_NATIVE;
-        REQUIRE(invoke_protocol(EBPF_OPERATION_LOAD_CODE, load_code_request) == EBPF_INVALID_ARGUMENT);
-        load_code_request.code_type = EBPF_CODE_JIT;
-
-        load_code_request.code_type = static_cast<ebpf_code_type_t>(-1);
-        REQUIRE(invoke_protocol(EBPF_OPERATION_LOAD_CODE, load_code_request) == EBPF_INVALID_ARGUMENT);
-        load_code_request.code_type = EBPF_CODE_JIT;
-    }
-
-    // HVCI can only be changed at init time.
-    _ebpf_platform_code_integrity_enabled = true;
-    {
-        NEGATIVE_TEST_PROLOG();
-
-        ebpf_operation_load_code_request_t load_code_request{
-            {sizeof(ebpf_operation_load_code_request_t), EBPF_OPERATION_LOAD_CODE},
-            program_handles[0],
-            EBPF_CODE_JIT,
-            static_cast<uint8_t>('0xcc')};
-
-        // HVCI on.
-        REQUIRE(invoke_protocol(EBPF_OPERATION_LOAD_CODE, load_code_request) == EBPF_BLOCKED_BY_POLICY);
-    }
-    _ebpf_platform_code_integrity_enabled = false;
-}
-#else
-TEST_CASE("EBPF_OPERATION_LOAD_CODE", "[execution_context][negative]")
-{
-    test_blocked_by_policy(EBPF_OPERATION_LOAD_CODE);
-}
-#endif // !defined(CONFIG_BPF_JIT_DISABLED) || !defined(CONFIG_BPF_INTERPRETER_DISABLED)
 
 TEST_CASE("EBPF_OPERATION_LOAD_NATIVE_MODULE", "[execution_context][negative]")
 {
@@ -2135,24 +2163,6 @@ TEST_CASE("EBPF_OPERATION_LINK_PROGRAM", "[execution_context][negative]")
     REQUIRE(invoke_protocol(EBPF_OPERATION_LINK_PROGRAM, request, reply) == EBPF_INVALID_ARGUMENT);
 }
 
-#if !defined(CONFIG_BPF_JIT_DISABLED)
-TEST_CASE("EBPF_OPERATION_GET_EC_FUNCTION", "[execution_context][negative]")
-{
-    NEGATIVE_TEST_PROLOG();
-    ebpf_operation_get_ec_function_request_t request;
-    ebpf_operation_get_ec_function_reply_t reply;
-
-    request.function = static_cast<ebpf_ec_function_t>(EBPF_EC_FUNCTION_LOG + 1);
-    // Wrong EC function.
-    REQUIRE(invoke_protocol(EBPF_OPERATION_GET_EC_FUNCTION, request, reply) == EBPF_INVALID_ARGUMENT);
-}
-#else
-TEST_CASE("EBPF_OPERATION_GET_EC_FUNCTION", "[execution_context][negative]")
-{
-    test_blocked_by_policy(EBPF_OPERATION_GET_EC_FUNCTION);
-}
-#endif
-
 TEST_CASE("EBPF_OPERATION_GET_PROGRAM_INFO", "[execution_context][negative]")
 {
     NEGATIVE_TEST_PROLOG();
@@ -2193,32 +2203,31 @@ TEST_CASE("EBPF_OPERATION_GET_OBJECT_INFO", "[execution_context][negative]")
     REQUIRE(invoke_protocol(EBPF_OPERATION_GET_OBJECT_INFO, request, reply) == EBPF_INVALID_OBJECT);
 }
 
-TEST_CASE("EBPF_OPERATION_RING_BUFFER_MAP_QUERY_BUFFER", "[execution_context][negative]")
+TEST_CASE("EBPF_OPERATION_MAP_QUERY_BUFFER", "[execution_context][ring_buffer][perf_event_array][negative]")
 {
     NEGATIVE_TEST_PROLOG();
-    ebpf_operation_ring_buffer_map_query_buffer_request_t request;
-    ebpf_operation_ring_buffer_map_query_buffer_reply_t reply;
+    ebpf_operation_map_query_buffer_request_t request;
+    ebpf_operation_map_query_buffer_reply_t reply;
 
     request.map_handle = ebpf_handle_invalid - 1;
-    REQUIRE(invoke_protocol(EBPF_OPERATION_RING_BUFFER_MAP_QUERY_BUFFER, request, reply) == EBPF_INVALID_OBJECT);
+    REQUIRE(invoke_protocol(EBPF_OPERATION_MAP_QUERY_BUFFER, request, reply) == EBPF_INVALID_OBJECT);
 
     request.map_handle = map_handles.begin()->second;
-    REQUIRE(invoke_protocol(EBPF_OPERATION_RING_BUFFER_MAP_QUERY_BUFFER, request, reply) == EBPF_INVALID_ARGUMENT);
+    REQUIRE(invoke_protocol(EBPF_OPERATION_MAP_QUERY_BUFFER, request, reply) == EBPF_OPERATION_NOT_SUPPORTED);
 }
 
-TEST_CASE("EBPF_OPERATION_RING_BUFFER_MAP_ASYNC_QUERY", "[execution_context][negative]")
+TEST_CASE("EBPF_OPERATION_MAP_ASYNC_QUERY", "[execution_context][ring_buffer][perf_event_array][negative]")
 {
     NEGATIVE_TEST_PROLOG();
-    ebpf_operation_ring_buffer_map_async_query_request_t request;
-    ebpf_operation_ring_buffer_map_async_query_reply_t reply;
+    ebpf_operation_map_async_query_request_t request;
+    ebpf_operation_map_async_query_reply_t reply;
     int async = 1;
 
     request.map_handle = ebpf_handle_invalid - 1;
-    REQUIRE(invoke_protocol(EBPF_OPERATION_RING_BUFFER_MAP_ASYNC_QUERY, request, reply, &async) == EBPF_INVALID_OBJECT);
+    REQUIRE(invoke_protocol(EBPF_OPERATION_MAP_ASYNC_QUERY, request, reply, &async) == EBPF_INVALID_OBJECT);
 
     request.map_handle = map_handles["BPF_MAP_TYPE_HASH"];
-    REQUIRE(
-        invoke_protocol(EBPF_OPERATION_RING_BUFFER_MAP_ASYNC_QUERY, request, reply, &async) == EBPF_INVALID_ARGUMENT);
+    REQUIRE(invoke_protocol(EBPF_OPERATION_MAP_ASYNC_QUERY, request, reply, &async) == EBPF_OPERATION_NOT_SUPPORTED);
 }
 
 TEST_CASE("EBPF_OPERATION_LOAD_NATIVE_MODULE short header", "[execution_context][negative]")
@@ -2346,7 +2355,7 @@ TEST_CASE("INVALID_PROGRAM_DATA", "[execution_context][negative]")
         EBPF_HELPER_FUNCTION_ADDRESSES_HEADER, EBPF_COUNT_OF(helper_functions), (uint64_t*)helper_functions};
 
     ebpf_program_data_t _test_program_data = {
-        EBPF_PROGRAM_DATA_HEADER, &_test_program_info, &helper_function_addresses};
+        EBPF_PROGRAM_DATA_HEADER, &_test_program_info, &helper_function_addresses, nullptr, nullptr, nullptr, 0, {0}};
 
     auto provider_attach_client_callback =
         [](HANDLE, void*, const NPI_REGISTRATION_INSTANCE*, void*, const void*, void**, const void**) -> NTSTATUS {

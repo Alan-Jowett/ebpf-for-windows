@@ -50,10 +50,13 @@ static TOKEN_VALUE _ebpf_pinned_type_enum[] = {
 
 std::vector<struct bpf_object*> _ebpf_netsh_objects;
 
+int // errno value
+_ebpf_program_detach_by_id(ebpf_id_t program_id);
+
 bool
 _prog_type_supports_interface(bpf_prog_type prog_type)
 {
-    return (prog_type == BPF_PROG_TYPE_XDP) || (prog_type == BPF_PROG_TYPE_XDP_TEST);
+    return (prog_type == BPF_PROG_TYPE_XDP);
 }
 
 bool
@@ -104,17 +107,6 @@ struct _program_unloader
 {
     struct bpf_object* object;
     ~_program_unloader() { bpf_object__close(object); }
-};
-
-struct _link_deleter
-{
-    struct bpf_link* link;
-    ~_link_deleter()
-    {
-        if (link != nullptr) {
-            ebpf_link_close(link);
-        }
-    }
 };
 
 // The following function uses windows specific input type to match
@@ -260,16 +252,11 @@ handle_ebpf_add_program(
         }
     }
 
-    struct bpf_link* link;
-    result = ebpf_program_attach(program, nullptr, attach_parameters, attach_parameters_size, &link);
+    result = ebpf_program_attach(program, nullptr, attach_parameters, attach_parameters_size, nullptr);
     if (result != EBPF_SUCCESS) {
         std::cerr << "error " << result << ": could not attach program" << std::endl;
         return ERROR_SUPPRESS_OUTPUT;
     }
-
-    // Link attached. Populate the deleter with link pointer, such that link
-    // object is closed when the function returns.
-    struct _link_deleter link_deleter = {link};
 
     if (pinned_type == PT_FIRST) {
         // The pinpath specified is like a "file" under which to pin programs.
@@ -343,6 +330,13 @@ _unpin_program_by_id(ebpf_id_t id)
         }
         Platform::_close(fd);
     }
+
+    status = _ebpf_program_detach_by_id(id);
+    if (status == ERROR_NOT_FOUND) {
+        // If there was no link to detach, that's OK.
+        status = NO_ERROR;
+    }
+
     return status;
 }
 
@@ -458,13 +452,9 @@ _ebpf_program_attach_by_id(
         }
     }
 
-    struct bpf_link* link;
     if (result == EBPF_SUCCESS) {
-        ebpf_result_t local_result =
-            ebpf_program_attach_by_fd(program_fd, &attach_type, attach_parameters, attach_parameters_size, &link);
-        if (local_result == EBPF_SUCCESS) {
-            ebpf_link_close(link);
-        }
+        result =
+            ebpf_program_attach_by_fd(program_fd, &attach_type, attach_parameters, attach_parameters_size, nullptr);
     }
 
     Platform::_close(program_fd);
@@ -837,4 +827,90 @@ handle_ebpf_show_programs(
         Platform::_close(program_fd);
     }
     return status;
+}
+
+template <typename F>
+unsigned long
+handle_ebpf_pinunpin_program_common(
+    LPCWSTR machine, LPWSTR* argv, DWORD current_index, DWORD argc, DWORD flags, LPCVOID data, BOOL* done, F&& f)
+{
+    UNREFERENCED_PARAMETER(machine);
+    UNREFERENCED_PARAMETER(flags);
+    UNREFERENCED_PARAMETER(data);
+    UNREFERENCED_PARAMETER(done);
+
+    TAG_TYPE tags[] = {
+        {TOKEN_ID, NS_REQ_PRESENT, FALSE},
+        {TOKEN_PINPATH, NS_REQ_ZERO, FALSE},
+    };
+    const int ID_INDEX = 0;
+    const int PINPATH_INDEX = 1;
+
+    unsigned long tag_type[_countof(tags)]{};
+
+    unsigned long status =
+        PreprocessCommand(nullptr, argv, current_index, argc, tags, _countof(tags), 0, _countof(tags), tag_type);
+    if (status != EBPF_SUCCESS) {
+        return status;
+    }
+
+    std::string pinpath;
+    uint32_t id = 0;
+
+    for (int i = 0; (status == NO_ERROR) && ((i + current_index) < argc); i++) {
+        switch (tag_type[i]) {
+        case PINPATH_INDEX:
+            pinpath = down_cast_from_wstring(std::wstring(argv[current_index + i]));
+            break;
+
+        case ID_INDEX:
+            id = wcstoul(argv[current_index + i], nullptr, 0);
+            break;
+        }
+    }
+
+    auto fd = bpf_prog_get_fd_by_id(id);
+    if (fd < 0)
+        return ERROR_INVALID_PARAMETER;
+
+    if (pinpath.empty()) {
+        bpf_prog_info info{};
+        uint32_t size = sizeof(info);
+        if (bpf_obj_get_info_by_fd(fd, &info, &size) == 0) {
+            pinpath = info.name;
+        }
+    }
+    if (!pinpath.empty()) {
+        status = f(fd, pinpath.c_str());
+    } else {
+        status = ERROR_INVALID_PARAMETER;
+    }
+    Platform::_close(fd);
+
+    return status;
+}
+
+// The following function uses windows specific type as an input to match
+// definition of "FN_HANDLE_CMD" in public file of NetSh.h
+unsigned long
+handle_ebpf_pin_program(
+    LPCWSTR machine, LPWSTR* argv, DWORD current_index, DWORD argc, DWORD flags, LPCVOID data, BOOL* done)
+{
+    return handle_ebpf_pinunpin_program_common(
+        machine, argv, current_index, argc, flags, data, done, [](auto fd, auto pinpath) {
+            return bpf_obj_pin(fd, pinpath);
+        });
+}
+
+// The following function uses windows specific type as an input to match
+// definition of "FN_HANDLE_CMD" in public file of NetSh.h
+unsigned long
+handle_ebpf_unpin_program(
+    LPCWSTR machine, LPWSTR* argv, DWORD current_index, DWORD argc, DWORD flags, LPCVOID data, BOOL* done)
+{
+    // Unpin program from a specific pin path (not all paths).
+    return handle_ebpf_pinunpin_program_common(
+        machine, argv, current_index, argc, flags, data, done, [](auto, auto pinpath) {
+            return ebpf_object_unpin(pinpath);
+        });
 }

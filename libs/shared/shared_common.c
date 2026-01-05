@@ -1,15 +1,15 @@
 // Copyright (c) eBPF for Windows contributors
 // SPDX-License-Identifier: MIT
 
+#include "bpf2c.h"
 #include "ebpf_program_types.h"
 #include "ebpf_serialize.h"
 #include "ebpf_shared_framework.h"
 #include "ebpf_tracelog.h"
 
-#define ARRAY_ELEM_INDEX(array, index, elem_size) (((uint8_t*)array) + (index * elem_size));
-
 enum _extension_object_type
 {
+    // eBPF extension object types.
     EBPF_ATTACH_PROVIDER_DATA = 0,
     EBPF_PROGRAM_TYPE_DESCRIPTOR,
     EBPF_HELPER_FUNCTION_PROTOTYPE,
@@ -17,11 +17,23 @@ enum _extension_object_type
     EBPF_HELPER_FUNCTION_ADDRESSES,
     EBPF_PROGRAM_DATA,
     EBPF_PROGRAM_SECTION,
+
+    // eBPF native module object types.
+    EBPF_NATIVE_HELPER_FUNCTION_ENTRY,
+    EBPF_NATIVE_HELPER_FUNCTION_DATA,
+    EBPF_NATIVE_MAP_ENTRY,
+    EBPF_NATIVE_MAP_DATA,
+    EBPF_NATIVE_PROGRAM_ENTRY,
+    EBPF_NATIVE_PROGRAM_RUNTIME_CONTEXT,
+    EBPF_NATIVE_MAP_INITIAL_VALUES,
+    EBPF_NATIVE_GLOBAL_VARIABLE_SECTION_INFO,
+    EBPF_NATIVE_GLOBAL_VARIABLE_SECTION_DATA,
 };
 
 // Supported version and sizes of the various extension data structures.
 
 uint16_t _supported_ebpf_extension_version[] = {
+    // eBPF extension object versions.
     EBPF_ATTACH_PROVIDER_DATA_CURRENT_VERSION,
     EBPF_PROGRAM_TYPE_DESCRIPTOR_CURRENT_VERSION,
     EBPF_HELPER_FUNCTION_PROTOTYPE_CURRENT_VERSION,
@@ -29,6 +41,17 @@ uint16_t _supported_ebpf_extension_version[] = {
     EBPF_HELPER_FUNCTION_ADDRESSES_CURRENT_VERSION,
     EBPF_PROGRAM_DATA_CURRENT_VERSION,
     EBPF_PROGRAM_SECTION_INFORMATION_CURRENT_VERSION,
+
+    // eBPF native module object versions.
+    EBPF_NATIVE_HELPER_FUNCTION_ENTRY_CURRENT_VERSION,
+    EBPF_NATIVE_HELPER_FUNCTION_DATA_CURRENT_VERSION,
+    EBPF_NATIVE_MAP_ENTRY_CURRENT_VERSION,
+    EBPF_NATIVE_MAP_DATA_CURRENT_VERSION,
+    EBPF_NATIVE_PROGRAM_ENTRY_CURRENT_VERSION,
+    EBPF_NATIVE_PROGRAM_RUNTIME_CONTEXT_CURRENT_VERSION,
+    EBPF_NATIVE_MAP_INITIAL_VALUES_CURRENT_VERSION,
+    EBPF_NATIVE_GLOBAL_VARIABLE_SECTION_INFO_CURRENT_VERSION,
+    EBPF_NATIVE_GLOBAL_VARIABLE_SECTION_DATA_CURRENT_VERSION,
 };
 
 #define EBPF_ATTACH_PROVIDER_DATA_SIZE_1 EBPF_SIZE_INCLUDING_FIELD(ebpf_attach_provider_data_t, link_type)
@@ -60,6 +83,36 @@ size_t _ebpf_program_data_supported_size[] = {EBPF_PROGRAM_DATA_SIZE_0, EBPF_PRO
 #define EBPF_PROGRAM_SECTION_SIZE_0 EBPF_SIZE_INCLUDING_FIELD(ebpf_program_section_info_t, bpf_attach_type)
 size_t _ebpf_program_section_supported_size[] = {EBPF_PROGRAM_SECTION_SIZE_0};
 
+#define EBPF_NATIVE_HELPER_FUNCTION_ENTRY_SIZE_0 EBPF_SIZE_INCLUDING_FIELD(helper_function_entry_t, name)
+size_t _ebpf_native_helper_function_entry_supported_size[] = {EBPF_NATIVE_HELPER_FUNCTION_ENTRY_SIZE_0};
+
+#define EBPF_NATIVE_HELPER_FUNCTION_DATA_SIZE_0 EBPF_SIZE_INCLUDING_FIELD(helper_function_data_t, tail_call)
+size_t _ebpf_native_helper_function_data_supported_size[] = {EBPF_NATIVE_HELPER_FUNCTION_DATA_SIZE_0};
+
+#define EBPF_NATIVE_MAP_ENTRY_SIZE_0 EBPF_SIZE_INCLUDING_FIELD(map_entry_t, name)
+size_t _ebpf_native_map_entry_supported_size[] = {EBPF_NATIVE_MAP_ENTRY_SIZE_0};
+
+#define EBPF_NATIVE_MAP_DATA_SIZE_0 EBPF_SIZE_INCLUDING_FIELD(map_data_t, address)
+size_t _ebpf_native_map_data_supported_size[] = {EBPF_NATIVE_MAP_DATA_SIZE_0};
+
+#define EBPF_NATIVE_PROGRAM_ENTRY_SIZE_0 EBPF_SIZE_INCLUDING_FIELD(program_entry_t, program_info_hash_type)
+size_t _ebpf_native_program_entry_supported_size[] = {EBPF_NATIVE_PROGRAM_ENTRY_SIZE_0};
+
+#define EBPF_NATIVE_PROGRAM_RUNTIME_CONTEXT_SIZE_0 \
+    EBPF_SIZE_INCLUDING_FIELD(program_runtime_context_t, global_variable_section_data)
+size_t _ebpf_native_program_runtime_context_supported_size[] = {EBPF_NATIVE_PROGRAM_RUNTIME_CONTEXT_SIZE_0};
+
+#define EBPF_NATIVE_MAP_INITIAL_VALUES_SIZE_0 EBPF_SIZE_INCLUDING_FIELD(map_initial_values_t, values)
+size_t _ebpf_native_map_initial_values_supported_size[] = {EBPF_NATIVE_MAP_INITIAL_VALUES_SIZE_0};
+
+#define EBPF_NATIVE_GLOBAL_VARIABLE_SECTION_INFO_SIZE_0 \
+    EBPF_SIZE_INCLUDING_FIELD(global_variable_section_info_t, initial_data)
+size_t _ebpf_native_global_variable_section_info_supported_size[] = {EBPF_NATIVE_GLOBAL_VARIABLE_SECTION_INFO_SIZE_0};
+
+#define EBPF_NATIVE_GLOBAL_VARIABLE_SECTION_DATA_SIZE_0 \
+    EBPF_SIZE_INCLUDING_FIELD(global_variable_section_data_t, address_of_map_value)
+size_t _ebpf_native_global_variable_section_data_supported_size[] = {EBPF_NATIVE_GLOBAL_VARIABLE_SECTION_DATA_SIZE_0};
+
 struct _ebpf_extension_data_structure_supported_sizes
 {
     size_t* supported_sizes;
@@ -73,6 +126,19 @@ struct _ebpf_extension_data_structure_supported_sizes _ebpf_extension_type_suppo
     {_ebpf_helper_function_addresses_supported_size, EBPF_COUNT_OF(_ebpf_helper_function_addresses_supported_size)},
     {_ebpf_program_data_supported_size, EBPF_COUNT_OF(_ebpf_program_data_supported_size)},
     {_ebpf_program_section_supported_size, EBPF_COUNT_OF(_ebpf_program_section_supported_size)},
+    {_ebpf_native_helper_function_entry_supported_size,
+     EBPF_COUNT_OF(_ebpf_native_helper_function_entry_supported_size)},
+    {_ebpf_native_helper_function_data_supported_size, EBPF_COUNT_OF(_ebpf_native_helper_function_data_supported_size)},
+    {_ebpf_native_map_entry_supported_size, EBPF_COUNT_OF(_ebpf_native_map_entry_supported_size)},
+    {_ebpf_native_map_data_supported_size, EBPF_COUNT_OF(_ebpf_native_map_data_supported_size)},
+    {_ebpf_native_program_entry_supported_size, EBPF_COUNT_OF(_ebpf_native_program_entry_supported_size)},
+    {_ebpf_native_program_runtime_context_supported_size,
+     EBPF_COUNT_OF(_ebpf_native_program_runtime_context_supported_size)},
+    {_ebpf_native_map_initial_values_supported_size, EBPF_COUNT_OF(_ebpf_native_map_initial_values_supported_size)},
+    {_ebpf_native_global_variable_section_info_supported_size,
+     EBPF_COUNT_OF(_ebpf_native_global_variable_section_info_supported_size)},
+    {_ebpf_native_global_variable_section_data_supported_size,
+     EBPF_COUNT_OF(_ebpf_native_global_variable_section_data_supported_size)},
 };
 
 static bool
@@ -133,8 +199,8 @@ ebpf_validate_helper_function_prototype_array(
         // Use "total_size" to calculate the actual size of the ebpf_helper_function_prototype_t struct.
         size_t helper_prototype_size = helper_prototype_array[0].header.total_size;
         for (uint32_t i = 0; i < count; i++) {
-            ebpf_helper_function_prototype_t* helper_prototype =
-                (ebpf_helper_function_prototype_t*)ARRAY_ELEM_INDEX(helper_prototype_array, i, helper_prototype_size);
+            ebpf_helper_function_prototype_t* helper_prototype = (ebpf_helper_function_prototype_t*)ARRAY_ELEMENT_INDEX(
+                helper_prototype_array, i, helper_prototype_size);
             if (!_ebpf_validate_helper_function_prototype(helper_prototype)) {
                 return false;
             }
@@ -203,6 +269,50 @@ ebpf_validate_program_section_info(_In_ const ebpf_program_section_info_t* secti
         (section_info->attach_type != NULL));
 }
 
+bool
+ebpf_validate_object_header_native_helper_function_entry(
+    _In_ const ebpf_extension_header_t* native_helper_function_entry_header)
+{
+    return (
+        (native_helper_function_entry_header != NULL) &&
+        _ebpf_validate_extension_object_header(EBPF_NATIVE_HELPER_FUNCTION_ENTRY, native_helper_function_entry_header));
+}
+
+bool
+ebpf_validate_object_header_native_map_entry(_In_ const ebpf_extension_header_t* native_map_entry_header)
+{
+    return (
+        (native_map_entry_header != NULL) &&
+        _ebpf_validate_extension_object_header(EBPF_NATIVE_MAP_ENTRY, native_map_entry_header));
+}
+
+bool
+ebpf_validate_object_header_native_program_entry(_In_ const ebpf_extension_header_t* native_program_entry_header)
+{
+    return (
+        (native_program_entry_header != NULL) &&
+        _ebpf_validate_extension_object_header(EBPF_NATIVE_PROGRAM_ENTRY, native_program_entry_header));
+}
+
+bool
+ebpf_validate_object_header_native_map_initial_values(
+    _In_ const ebpf_extension_header_t* native_map_initial_values_header)
+{
+    return (
+        (native_map_initial_values_header != NULL) &&
+        _ebpf_validate_extension_object_header(EBPF_NATIVE_MAP_INITIAL_VALUES, native_map_initial_values_header));
+}
+
+bool
+ebpf_validate_object_header_native_global_variable_section_info(
+    _In_ const ebpf_extension_header_t* native_global_variable_section_info_header)
+{
+    return (
+        (native_global_variable_section_info_header != NULL) &&
+        _ebpf_validate_extension_object_header(
+            EBPF_NATIVE_GLOBAL_VARIABLE_SECTION_INFO, native_global_variable_section_info_header));
+}
+
 ebpf_result_t
 ebpf_result_from_cxplat_status(cxplat_status_t status)
 {
@@ -238,7 +348,7 @@ _duplicate_program_descriptor(
     ebpf_context_descriptor_t* context_descriptor_copy = NULL;
 
     program_type_descriptor_copy =
-        (ebpf_program_type_descriptor_t*)ebpf_allocate(sizeof(ebpf_program_type_descriptor_t));
+        (ebpf_program_type_descriptor_t*)ebpf_allocate_with_tag(sizeof(ebpf_program_type_descriptor_t), EBPF_POOL_TAG_DEFAULT);
     if (program_type_descriptor_copy == NULL) {
         result = EBPF_NO_MEMORY;
         goto Exit;
@@ -258,7 +368,7 @@ _duplicate_program_descriptor(
         goto Exit;
     }
 
-    context_descriptor_copy = (ebpf_context_descriptor_t*)ebpf_allocate(sizeof(ebpf_context_descriptor_t));
+    context_descriptor_copy = (ebpf_context_descriptor_t*)ebpf_allocate_with_tag(sizeof(ebpf_context_descriptor_t), EBPF_POOL_TAG_DEFAULT);
     if (context_descriptor_copy == NULL) {
         result = EBPF_NO_MEMORY;
         goto Exit;
@@ -297,7 +407,7 @@ _duplicate_helper_function_prototype_array(
     helper_prototype_size = EBPF_PAD_8(helper_prototype_array[0].header.size);
 
     local_helper_prototype_array =
-        (ebpf_helper_function_prototype_t*)ebpf_allocate(count * sizeof(ebpf_helper_function_prototype_t));
+        (ebpf_helper_function_prototype_t*)ebpf_allocate_with_tag(count * sizeof(ebpf_helper_function_prototype_t), EBPF_POOL_TAG_DEFAULT);
     if (local_helper_prototype_array == NULL) {
         result = EBPF_NO_MEMORY;
         goto Exit;
@@ -305,7 +415,7 @@ _duplicate_helper_function_prototype_array(
 
     for (uint32_t i = 0; i < count; i++) {
         ebpf_helper_function_prototype_t* helper_prototype =
-            (ebpf_helper_function_prototype_t*)ARRAY_ELEM_INDEX(helper_prototype_array, i, helper_prototype_size);
+            (ebpf_helper_function_prototype_t*)ARRAY_ELEMENT_INDEX(helper_prototype_array, i, helper_prototype_size);
         memcpy(&local_helper_prototype_array[i], helper_prototype, helper_prototype_size);
         local_helper_prototype_array[i].header.version = EBPF_HELPER_FUNCTION_PROTOTYPE_CURRENT_VERSION;
         local_helper_prototype_array[i].header.size = EBPF_HELPER_FUNCTION_PROTOTYPE_CURRENT_VERSION_SIZE;
@@ -371,7 +481,7 @@ ebpf_duplicate_program_info(_In_ const ebpf_program_info_t* info, _Outptr_ ebpf_
 
     EBPF_LOG_ENTRY();
 
-    program_info = (ebpf_program_info_t*)ebpf_allocate(sizeof(ebpf_program_info_t));
+    program_info = (ebpf_program_info_t*)ebpf_allocate_with_tag(sizeof(ebpf_program_info_t), EBPF_POOL_TAG_DEFAULT);
     if (program_info == NULL) {
         result = EBPF_NO_MEMORY;
         goto Exit;
@@ -437,7 +547,7 @@ _duplicate_helper_function_addresses(
     *new_helper_function_addresses = NULL;
 
     helper_function_addresses_copy =
-        (ebpf_helper_function_addresses_t*)ebpf_allocate(sizeof(ebpf_helper_function_addresses_t));
+        (ebpf_helper_function_addresses_t*)ebpf_allocate_with_tag(sizeof(ebpf_helper_function_addresses_t), EBPF_POOL_TAG_DEFAULT);
     if (helper_function_addresses_copy == NULL) {
         result = EBPF_NO_MEMORY;
         goto Exit;
@@ -449,7 +559,7 @@ _duplicate_helper_function_addresses(
     helper_function_addresses_copy->header.total_size = EBPF_HELPER_FUNCTION_ADDRESSES_CURRENT_VERSION_TOTAL_SIZE;
 
     helper_function_addresses_copy->helper_function_address =
-        (uint64_t*)ebpf_allocate(helper_function_addresses->helper_function_count * sizeof(uint64_t));
+        (uint64_t*)ebpf_allocate_with_tag(helper_function_addresses->helper_function_count * sizeof(uint64_t), EBPF_POOL_TAG_DEFAULT);
     if (helper_function_addresses_copy->helper_function_address == NULL) {
         result = EBPF_NO_MEMORY;
         goto Exit;
@@ -493,7 +603,7 @@ ebpf_duplicate_program_data(
 
     EBPF_LOG_ENTRY();
 
-    program_data_copy = (ebpf_program_data_t*)ebpf_allocate(sizeof(ebpf_program_data_t));
+    program_data_copy = (ebpf_program_data_t*)ebpf_allocate_with_tag(sizeof(ebpf_program_data_t), EBPF_POOL_TAG_DEFAULT);
     if (program_data_copy == NULL) {
         result = EBPF_NO_MEMORY;
         goto Exit;
@@ -537,4 +647,90 @@ Exit:
     ebpf_program_data_free(program_data_copy);
 
     EBPF_RETURN_RESULT(result);
+}
+
+ebpf_result_t
+ebpf_canonicalize_path(_Out_writes_(output_size) char* output, size_t output_size, _In_z_ const char* input)
+{
+    const int DEVICE_PREFIX_SIZE = 4; // Length of "BPF:".
+    if (strcpy_s(output, output_size, "BPF:") != 0) {
+        return EBPF_INVALID_ARGUMENT;
+    }
+    if (input[0] != '/' && input[0] != '\\') {
+        // A relative path is relative to the root.
+        if (strcat_s(output, output_size, "\\") != 0) {
+            return EBPF_INSUFFICIENT_BUFFER;
+        }
+    }
+
+    // Add the BPF: prefix if not already present.
+    if (_strnicmp(input, "BPF:", DEVICE_PREFIX_SIZE) == 0) {
+        if (strcat_s(output, output_size, input + DEVICE_PREFIX_SIZE) != 0) {
+            return EBPF_INSUFFICIENT_BUFFER;
+        }
+    } else {
+        if (strcat_s(output, output_size, input) != 0) {
+            return EBPF_INSUFFICIENT_BUFFER;
+        }
+    }
+
+    for (int i = DEVICE_PREFIX_SIZE; output[i] != 0; i++) {
+        if (output[i] == '/') {
+            // Convert slashes to backslashes.
+            output[i] = '\\';
+        } else if (output[i] == ':') {
+            // Disallow ':' in mid-path.
+            return EBPF_INVALID_ARGUMENT;
+        }
+    }
+
+    // Remove other prefix aliases from the beginning.
+    if (_strnicmp(output + DEVICE_PREFIX_SIZE, "\\ebpf\\global\\", 13) == 0) {
+        char* next = output + DEVICE_PREFIX_SIZE + 13;
+        memmove(output + DEVICE_PREFIX_SIZE + 1, next, strlen(next) + 1);
+    }
+
+    for (int i = DEVICE_PREFIX_SIZE; output[i] != 0;) {
+        if (strncmp(output + i, "\\\\", 2) == 0) {
+            char* next = output + i + 2;
+            memmove(output + i + 1, next, strlen(next) + 1);
+
+            // Stay at this position for the next loop iteration.
+        } else if (strncmp(output + i, "\\.\\", 3) == 0) {
+            char* next = output + i + 3;
+            memmove(output + i + 1, next, strlen(next) + 1);
+        } else if (strncmp(output + i, "\\..\\", 4) == 0) {
+            int previous_index = i - 1;
+            for (; previous_index >= DEVICE_PREFIX_SIZE; previous_index--) {
+                if (output[previous_index] == '\\') {
+                    // Back up to the previous separator.
+                    char* next = output + i + 4;
+                    memmove(output + previous_index + 1, next, strlen(next) + 1);
+                    i = previous_index;
+                    break;
+                }
+            }
+            if (previous_index < DEVICE_PREFIX_SIZE) {
+                return EBPF_INVALID_ARGUMENT;
+            }
+        } else if (strcmp(output + i, "\\..") == 0) {
+            int previous_index = i - 1;
+            for (; previous_index >= DEVICE_PREFIX_SIZE; previous_index--) {
+                if (output[previous_index] == '\\') {
+                    // Terminate the string at the previous separator.
+                    output[previous_index] = 0;
+                    i = previous_index;
+                    break;
+                }
+            }
+            if (previous_index < DEVICE_PREFIX_SIZE) {
+                return EBPF_INVALID_ARGUMENT;
+            }
+        } else {
+            // Advance to the next character in the path.
+            i++;
+        }
+    }
+
+    return EBPF_SUCCESS;
 }

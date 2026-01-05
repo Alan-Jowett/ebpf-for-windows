@@ -1,15 +1,15 @@
 # Copyright (c) eBPF for Windows contributors
 # SPDX-License-Identifier: MIT
-
+---
 name: Scorecards
 
 on:
   push:
-    branches: [ main, 'gh-readonly-queue/main/**' ]
+    branches: [main, 'gh-readonly-queue/main/**']
   pull_request:
-    branches: [ main, 'gh-readonly-queue/main/**' ]
+    branches: [main, 'gh-readonly-queue/main/**']
   merge_group:
-    branches: [ main, 'gh-readonly-queue/main/**' ]
+    branches: [main, 'gh-readonly-queue/main/**']
 
 concurrency:
   # Cancel any Scorecards workflow currently in progress for the same PR.
@@ -33,7 +33,7 @@ jobs:
 
     steps:
       - name: Harden Runner
-        uses: step-security/harden-runner@4d991eb9b905ef189e4c376166672c3f2f230481 # v2.11.0
+        uses: step-security/harden-runner@df199fb7be9f65074067a9eb93f12bb4c5547cf2  # v2.13.3
         with:
           disable-sudo: true
           egress-policy: block
@@ -43,16 +43,19 @@ jobs:
             www.bestpractices.dev:443
             github.com:443
             api.deps.dev:443
+            fulcio.sigstore.dev:443
+            tuf-repo-cdn.sigstore.dev:443
+            rekor.sigstore.dev:443
 
       - name: "Checkout code"
         if: github.ref_name == 'main'
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
         with:
           persist-credentials: false
 
       - name: "Run analysis"
         if: github.ref_name == 'main'
-        uses: ossf/scorecard-action@f49aabe0b5af0936a0987cfb85d86b75731b0186 # v2.4.1
+        uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a  # v2.4.3
         with:
           results_file: results.sarif
           results_format: sarif
@@ -68,7 +71,7 @@ jobs:
       # Upload the results as artifacts (optional).
       - name: "Upload artifact"
         if: github.ref_name == 'main'
-        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4
         with:
           name: SARIF file
           path: results.sarif
@@ -77,6 +80,6 @@ jobs:
       # Upload the results to GitHub's code scanning dashboard.
       - name: "Upload to code-scanning"
         if: github.ref_name == 'main'
-        uses: github/codeql-action/upload-sarif@b56ba49b26e50535fa1e7f7db0f4f7b4bf65d80d
+        uses: github/codeql-action/upload-sarif@cf1bb45a277cb3c205638b2cd5c984db1c46a412
         with:
           sarif_file: results.sarif

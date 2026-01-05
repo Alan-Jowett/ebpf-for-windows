@@ -3,11 +3,13 @@
 
 #include "api_common.hpp"
 #include "api_internal.h"
+#include "api_service.h"
 #include "bpf/bpf.h"
 #include "bpf2c.h"
 #include "cxplat_fault_injection.h"
 #include "ebpf_async.h"
 #include "ebpf_core.h"
+#include "ebpf_error.h"
 #include "ebpf_platform.h"
 #include "hash.h"
 #include "helpers.h"
@@ -83,6 +85,7 @@ typedef struct _service_context
             nullptr,
         },
     };
+    metadata_table_t* table = nullptr;
     bool delete_pending = false;
 } service_context_t;
 
@@ -358,11 +361,6 @@ _Requires_lock_not_held_(_service_path_to_context_mutex) static void _unload_all
 }
 #pragma warning(pop)
 
-static struct
-{
-    int reserved;
-} _test_helper_client_dispatch_table;
-
 static NTSTATUS
 _test_helper_client_attach_provider(
     _In_ HANDLE nmr_binding_handle,
@@ -372,10 +370,11 @@ _test_helper_client_attach_provider(
     UNREFERENCED_PARAMETER(provider_registration_instance);
     void* provider_binding_context = NULL;
     const void* provider_dispatch_table = NULL;
+    service_context_t* client_service_context = (service_context_t*)client_context;
     return NmrClientAttachProvider(
         nmr_binding_handle,
         client_context,
-        &_test_helper_client_dispatch_table,
+        client_service_context->table,
         &provider_binding_context,
         &provider_dispatch_table);
 }
@@ -404,9 +403,8 @@ _preprocess_load_native_module(_Inout_ service_context_t* context)
         return;
     }
 
-    metadata_table_t* table = get_function();
-    REQUIRE(table != nullptr);
-    context->nmr_client_characteristics.ClientRegistrationInstance.NpiSpecificCharacteristics = table;
+    context->table = get_function();
+    REQUIRE(context->table != nullptr);
 
     REQUIRE(NT_SUCCESS(NmrRegisterClient(&context->nmr_client_characteristics, context, &context->nmr_client_handle)));
 
@@ -470,6 +468,7 @@ GlueDeviceIoControl(
     size_t minimum_request_size = 0;
     size_t minimum_reply_size = 0;
     bool async = false;
+    bool privileged = false;
     unsigned long sharedBufferSize = (input_buffer_size > output_buffer_size) ? input_buffer_size : output_buffer_size;
     const void* local_input_buffer = nullptr;
     void* local_output_buffer = nullptr;
@@ -492,7 +491,8 @@ GlueDeviceIoControl(
 
     (*sharedBuffer).resize(sharedBufferSize);
 
-    result = ebpf_core_get_protocol_handler_properties(request_id, &minimum_request_size, &minimum_reply_size, &async);
+    result = ebpf_core_get_protocol_handler_properties(
+        request_id, &minimum_request_size, &minimum_reply_size, &async, &privileged);
     if (result != EBPF_SUCCESS) {
         goto Fail;
     }
@@ -729,6 +729,8 @@ _test_helper_end_to_end::initialize()
     ec_initialized = true;
     REQUIRE(ebpf_api_initiate() == EBPF_SUCCESS);
     api_initialized = true;
+    REQUIRE(ebpf_service_initialize() == EBPF_SUCCESS);
+    service_initialized = true;
 }
 
 _test_handle_helper::~_test_handle_helper()
@@ -761,13 +763,14 @@ clear_program_info_cache();
 _test_helper_end_to_end::~_test_helper_end_to_end()
 {
     try {
+        if (service_initialized) {
+            ebpf_service_cleanup();
+        }
+
         _rundown_osfhandles();
 
         // Run down duplicate handles, if any.
         _duplicate_handles.rundown();
-
-        // Detach all the native module clients.
-        _unload_all_native_modules();
 
         clear_program_info_cache();
 
@@ -783,6 +786,9 @@ _test_helper_end_to_end::~_test_helper_end_to_end()
             ebpf_core_terminate();
         }
 
+        // Detach all the native module clients.
+        _unload_all_native_modules();
+
         device_io_control_handler = nullptr;
         cancel_io_ex_handler = nullptr;
         create_file_handler = nullptr;
@@ -795,9 +801,9 @@ _test_helper_end_to_end::~_test_helper_end_to_end()
 }
 
 _test_helper_libbpf::_test_helper_libbpf()
-    : xdp_program_info(nullptr), xdp_hook(nullptr), bind_program_info(nullptr), bind_hook(nullptr),
-      cgroup_sock_addr_program_info(nullptr), cgroup_inet4_connect_hook(nullptr), sample_program_info(nullptr),
-      sample_hook(nullptr), xdp_test_program_info(nullptr), xdp_test_hook(nullptr)
+    : bind_program_info(nullptr), bind_hook(nullptr), cgroup_sock_addr_program_info(nullptr),
+      cgroup_inet4_connect_hook(nullptr), sample_program_info(nullptr), sample_hook(nullptr),
+      xdp_program_info(nullptr), xdp_hook(nullptr)
 {
     ebpf_clear_thread_local_storage();
 }
@@ -827,12 +833,6 @@ _test_helper_libbpf::initialize()
     REQUIRE(sample_program_info->initialize(EBPF_PROGRAM_TYPE_SAMPLE) == EBPF_SUCCESS);
     sample_hook = new single_instance_hook_t(EBPF_PROGRAM_TYPE_SAMPLE, EBPF_ATTACH_TYPE_SAMPLE, BPF_LINK_TYPE_PLAIN);
     REQUIRE(sample_hook->initialize() == EBPF_SUCCESS);
-
-    xdp_test_program_info = new program_info_provider_t();
-    REQUIRE(xdp_test_program_info->initialize(EBPF_PROGRAM_TYPE_XDP_TEST) == EBPF_SUCCESS);
-    xdp_test_hook =
-        new single_instance_hook_t(EBPF_PROGRAM_TYPE_XDP_TEST, EBPF_ATTACH_TYPE_XDP_TEST, BPF_LINK_TYPE_XDP);
-    REQUIRE(xdp_test_hook->initialize() == EBPF_SUCCESS);
 }
 
 _test_helper_libbpf::~_test_helper_libbpf()
@@ -848,9 +848,6 @@ _test_helper_libbpf::~_test_helper_libbpf()
 
     delete sample_hook;
     delete sample_program_info;
-
-    delete xdp_test_hook;
-    delete xdp_test_program_info;
 }
 
 void

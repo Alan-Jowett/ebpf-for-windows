@@ -37,9 +37,9 @@ typedef enum _ebpf_operation_id
     EBPF_OPERATION_GET_OBJECT_INFO,
     EBPF_OPERATION_GET_NEXT_PINNED_PROGRAM_PATH, /* deprecated */
     EBPF_OPERATION_BIND_MAP,
-    EBPF_OPERATION_RING_BUFFER_MAP_QUERY_BUFFER,
-    EBPF_OPERATION_RING_BUFFER_MAP_ASYNC_QUERY,
-    EBPF_OPERATION_RING_BUFFER_MAP_WRITE_DATA,
+    EBPF_OPERATION_MAP_QUERY_BUFFER,
+    EBPF_OPERATION_MAP_ASYNC_QUERY,
+    EBPF_OPERATION_MAP_WRITE_DATA,
     EBPF_OPERATION_LOAD_NATIVE_MODULE,
     EBPF_OPERATION_LOAD_NATIVE_PROGRAMS,
     EBPF_OPERATION_PROGRAM_TEST_RUN,
@@ -48,6 +48,13 @@ typedef enum _ebpf_operation_id
     EBPF_OPERATION_MAP_GET_NEXT_KEY_VALUE_BATCH,
     EBPF_OPERATION_PROGRAM_SET_FLAGS,
     EBPF_OPERATION_GET_NEXT_PINNED_OBJECT_PATH,
+    EBPF_OPERATION_AUTHORIZE_NATIVE_MODULE,
+    EBPF_OPERATION_GET_CODE_INTEGRITY_STATE,
+    EBPF_OPERATION_MAP_SET_WAIT_HANDLE,
+    EBPF_OPERATION_RING_BUFFER_MAP_MAP_BUFFER,
+    EBPF_OPERATION_RING_BUFFER_MAP_UNMAP_BUFFER,
+    EBPF_OPERATION_EPOCH_SYNCHRONIZE,
+    EBPF_OPERATION_LINK_SET_LEGACY_MODE,
 } ebpf_operation_id_t;
 
 typedef enum _ebpf_code_type
@@ -386,41 +393,44 @@ typedef struct _ebpf_operation_bind_map_request
     ebpf_handle_t map_handle;
 } ebpf_operation_bind_map_request_t;
 
-typedef struct _ebpf_operation_ring_buffer_map_query_buffer_request
+typedef struct _ebpf_operation_map_query_buffer_request
 {
     struct _ebpf_operation_header header;
     ebpf_handle_t map_handle;
-} ebpf_operation_ring_buffer_map_query_buffer_request_t;
+    uint32_t index;
+} ebpf_operation_map_query_buffer_request_t;
 
-typedef struct _ebpf_operation_ring_buffer_map_query_buffer_reply
+typedef struct _ebpf_operation_map_query_buffer_reply
 {
     struct _ebpf_operation_header header;
     // Address to user-space read-only buffer for the ring-buffer records.
     uint64_t buffer_address;
     // The current consumer offset, so that subsequent reads can start from here.
     size_t consumer_offset;
-} ebpf_operation_ring_buffer_map_query_buffer_reply_t;
+} ebpf_operation_map_query_buffer_reply_t;
 
-typedef struct _ebpf_operation_ring_buffer_map_async_query_request
+typedef struct _ebpf_operation_map_async_query_request
 {
     struct _ebpf_operation_header header;
     ebpf_handle_t map_handle;
+    uint32_t index;
     // Offset till which the consumer has read data so far.
     size_t consumer_offset;
-} ebpf_operation_ring_buffer_map_async_query_request_t;
+} ebpf_operation_map_async_query_request_t;
 
-typedef struct _ebpf_operation_ring_buffer_map_async_query_reply
+typedef struct _ebpf_operation_map_async_query_reply
 {
     struct _ebpf_operation_header header;
-    ebpf_ring_buffer_map_async_query_result_t async_query_result;
-} ebpf_operation_ring_buffer_map_async_query_reply_t;
+    ebpf_map_async_query_result_t async_query_result;
+} ebpf_operation_map_async_query_reply_t;
 
-typedef struct _ebpf_operation_ring_buffer_map_write_data_request
+typedef struct _ebpf_operation_map_write_data_request
 {
     struct _ebpf_operation_header header;
     ebpf_handle_t map_handle;
+    uint64_t flags;
     uint8_t data[1];
-} ebpf_operation_ring_buffer_map_write_data_request_t;
+} ebpf_operation_map_write_data_request_t;
 
 typedef struct _ebpf_operation_load_native_module_request
 {
@@ -549,3 +559,65 @@ typedef struct _ebpf_operation_program_set_flags_request
     ebpf_handle_t program_handle;
     uint64_t flags;
 } ebpf_operation_program_set_flags_request_t;
+
+typedef struct _ebpf_operation_authorize_native_module_request
+{
+    struct _ebpf_operation_header header;
+    GUID module_id;
+    uint8_t module_hash[32]; // SHA256 hash of the native module.
+} ebpf_operation_authorize_native_module_request_t;
+
+typedef struct _ebpf_operation_get_code_integrity_state_request
+{
+    struct _ebpf_operation_header header;
+} ebpf_operation_get_code_integrity_state_request_t;
+
+typedef struct _ebpf_operation_get_code_integrity_state_reply
+{
+    struct _ebpf_operation_header header;
+    bool hypervisor_code_integrity_enabled;
+    bool test_signing_enabled;
+} ebpf_operation_get_code_integrity_state_reply_t;
+typedef struct _ebpf_operation_map_set_wait_handle_request
+{
+    struct _ebpf_operation_header header;
+    ebpf_handle_t map_handle;
+    ebpf_handle_t wait_handle;
+    uint64_t index;
+    uint64_t flags;
+} ebpf_operation_map_set_wait_handle_request_t;
+
+typedef struct _ebpf_operation_ring_buffer_map_map_buffer_request
+{
+    struct _ebpf_operation_header header;
+    ebpf_handle_t map_handle;
+} ebpf_operation_ring_buffer_map_map_buffer_request_t;
+
+typedef struct _ebpf_operation_ring_buffer_map_map_buffer_reply
+{
+    struct _ebpf_operation_header header;
+    uint64_t consumer_address;
+    uint64_t producer_address;
+    uint64_t data_address;
+    size_t data_size;
+} ebpf_operation_ring_buffer_map_map_buffer_reply_t;
+
+typedef struct _ebpf_operation_ring_buffer_map_unmap_buffer_request
+{
+    struct _ebpf_operation_header header;
+    ebpf_handle_t map_handle;
+    uint64_t consumer;
+    uint64_t producer;
+    uint64_t data;
+} ebpf_operation_ring_buffer_map_unmap_buffer_request_t;
+
+typedef struct _ebpf_operation_epoch_synchronize_request
+{
+    struct _ebpf_operation_header header;
+} ebpf_operation_epoch_synchronize_request_t;
+
+typedef struct _ebpf_operation_link_set_legacy_mode_request
+{
+    struct _ebpf_operation_header header;
+    ebpf_handle_t link_handle;
+} ebpf_operation_link_set_legacy_mode_request_t;

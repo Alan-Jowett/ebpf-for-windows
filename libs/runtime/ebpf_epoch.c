@@ -25,10 +25,7 @@
  */
 #define EBPF_EPOCH_FLUSH_DELAY_IN_NANOSECONDS 1000000
 
-/**
- * @brief Number of 100ns intervals per filetime tick.
- */
-#define EBPF_NANO_SECONDS_PER_FILETIME_TICK 100
+
 
 #define EBPF_EPOCH_FAIL_FAST(REASON, ASSERTION) \
     if (!(ASSERTION)) {                         \
@@ -228,38 +225,6 @@ static _IRQL_requires_(DISPATCH_LEVEL) void _ebpf_epoch_arm_timer_if_needed(ebpf
 static void
 _ebpf_epoch_work_item_callback(_In_ cxplat_preemptible_work_item_t* preemptible_work_item, void* context);
 
-/**
- * @brief Raise the CPU's IRQL to DISPATCH_LEVEL if it is below DISPATCH_LEVEL.
- * First check if the IRQL is below DISPATCH_LEVEL to avoid the overhead of
- * calling KeRaiseIrqlToDpcLevel() if it is not needed.
- *
- * @return The previous IRQL.
- */
-_IRQL_requires_max_(DISPATCH_LEVEL) _IRQL_saves_ _IRQL_raises_(DISPATCH_LEVEL) static inline KIRQL
-    _ebpf_epoch_raise_to_dispatch_if_needed()
-{
-    KIRQL old_irql = KeGetCurrentIrql();
-    if (old_irql < DISPATCH_LEVEL) {
-        old_irql = KeRaiseIrqlToDpcLevel();
-    }
-    return old_irql;
-}
-
-/**
- * @brief Lower the CPU's IRQL to the previous IRQL if previous level was below DISPATCH_LEVEL.
- * First check if the IRQL is below DISPATCH_LEVEL to avoid the overhead of
- * calling KeLowerIrql() if it is not needed.
- *
- * @param[in] previous_irql The previous IRQL.
- */
-_IRQL_requires_(DISPATCH_LEVEL) static inline void _ebpf_epoch_lower_to_previous_irql(
-    _When_(previous_irql < DISPATCH_LEVEL, _IRQL_restores_) KIRQL previous_irql)
-{
-    if (previous_irql < DISPATCH_LEVEL) {
-        KeLowerIrql(previous_irql);
-    }
-}
-
 _Must_inspect_result_ ebpf_result_t
 ebpf_epoch_initiate()
 {
@@ -296,7 +261,7 @@ ebpf_epoch_initiate()
     for (uint32_t cpu_id = 0; cpu_id < _ebpf_epoch_cpu_count; cpu_id++) {
         ebpf_epoch_cpu_entry_t* cpu_entry = &_ebpf_epoch_cpu_table[cpu_id];
         LARGE_INTEGER interval;
-        interval.QuadPart = EBPF_EPOCH_FLUSH_DELAY_IN_NANOSECONDS / EBPF_NANO_SECONDS_PER_FILETIME_TICK;
+        interval.QuadPart = EBPF_EPOCH_FLUSH_DELAY_IN_NANOSECONDS / EBPF_NS_PER_FILETIME;
 
         ebpf_result_t result = ebpf_timed_work_queue_create(
             &cpu_entry->work_queue, cpu_id, &interval, _ebpf_epoch_messenger_worker, cpu_entry);
@@ -372,14 +337,14 @@ ebpf_epoch_terminate()
 _IRQL_requires_same_ void
 ebpf_epoch_enter(_Out_ ebpf_epoch_state_t* epoch_state)
 {
-    epoch_state->irql_at_enter = _ebpf_epoch_raise_to_dispatch_if_needed();
+    epoch_state->irql_at_enter = ebpf_raise_irql_to_dispatch_if_needed();
     epoch_state->cpu_id = ebpf_get_current_cpu();
 
     ebpf_epoch_cpu_entry_t* cpu_entry = &_ebpf_epoch_cpu_table[epoch_state->cpu_id];
     epoch_state->epoch = cpu_entry->current_epoch;
     ebpf_list_insert_tail(&cpu_entry->epoch_state_list, &epoch_state->epoch_list_entry);
 
-    _ebpf_epoch_lower_to_previous_irql(epoch_state->irql_at_enter);
+    ebpf_lower_irql_from_dispatch_if_needed(epoch_state->irql_at_enter);
 }
 #pragma warning(pop)
 
@@ -390,7 +355,7 @@ ebpf_epoch_enter(_Out_ ebpf_epoch_state_t* epoch_state)
 _IRQL_requires_same_ void
 ebpf_epoch_exit(_In_ ebpf_epoch_state_t* epoch_state)
 {
-    KIRQL old_irql = _ebpf_epoch_raise_to_dispatch_if_needed();
+    KIRQL old_irql = ebpf_raise_irql_to_dispatch_if_needed();
 
     // Assert the IRQL is the same as when ebpf_epoch_enter() was called.
     ebpf_assert(old_irql == epoch_state->irql_at_enter);
@@ -434,7 +399,7 @@ ebpf_epoch_exit(_In_ ebpf_epoch_state_t* epoch_state)
         ebpf_timed_work_queued_flush(_ebpf_epoch_cpu_table[cpu_id].work_queue);
     }
 
-    _ebpf_epoch_lower_to_previous_irql(epoch_state->irql_at_enter);
+    ebpf_lower_irql_from_dispatch_if_needed(epoch_state->irql_at_enter);
 }
 #pragma warning(pop)
 
@@ -513,7 +478,7 @@ ebpf_epoch_free_cache_aligned(_Frees_ptr_opt_ void* memory)
 ebpf_epoch_work_item_t*
 ebpf_epoch_allocate_work_item(_In_ void* callback_context, _In_ const void (*callback)(_Inout_ void* context))
 {
-    ebpf_epoch_work_item_t* work_item = ebpf_allocate(sizeof(ebpf_epoch_work_item_t));
+    ebpf_epoch_work_item_t* work_item = ebpf_allocate_with_tag(sizeof(ebpf_epoch_work_item_t), EBPF_POOL_TAG_DEFAULT);
     if (!work_item) {
         return NULL;
     }
@@ -666,7 +631,7 @@ _IRQL_requires_(DISPATCH_LEVEL) static void _ebpf_epoch_arm_timer_if_needed(ebpf
     }
     cpu_entry->timer_armed = true;
     LARGE_INTEGER due_time;
-    due_time.QuadPart = -(EBPF_EPOCH_FLUSH_DELAY_IN_NANOSECONDS / EBPF_NANO_SECONDS_PER_FILETIME_TICK);
+    due_time.QuadPart = -(EBPF_EPOCH_FLUSH_DELAY_IN_NANOSECONDS / EBPF_NS_PER_FILETIME);
     KeSetTimer(&_ebpf_epoch_compute_release_epoch_timer, due_time, &_ebpf_epoch_timer_dpc);
     return;
 }
@@ -687,7 +652,7 @@ _IRQL_requires_(DISPATCH_LEVEL) static void _ebpf_epoch_arm_timer_if_needed(ebpf
 _IRQL_requires_same_ static void
 _ebpf_epoch_insert_in_free_list(_In_ ebpf_epoch_allocation_header_t* header)
 {
-    KIRQL old_irql = _ebpf_epoch_raise_to_dispatch_if_needed();
+    KIRQL old_irql = ebpf_raise_irql_to_dispatch_if_needed();
     uint32_t cpu_id = ebpf_get_current_cpu();
     ebpf_epoch_cpu_entry_t* cpu_entry = &_ebpf_epoch_cpu_table[cpu_id];
 
@@ -720,7 +685,7 @@ _ebpf_epoch_insert_in_free_list(_In_ ebpf_epoch_allocation_header_t* header)
 
     _ebpf_epoch_arm_timer_if_needed(cpu_entry);
 
-    _ebpf_epoch_lower_to_previous_irql(old_irql);
+    ebpf_lower_irql_from_dispatch_if_needed(old_irql);
 }
 #pragma warning(pop)
 
@@ -759,7 +724,7 @@ _Function_class_(KDEFERRED_ROUTINE) _IRQL_requires_(DISPATCH_LEVEL) static void 
     } else {
         _ebpf_epoch_skipped_timers++;
         LARGE_INTEGER due_time;
-        due_time.QuadPart = -(EBPF_EPOCH_FLUSH_DELAY_IN_NANOSECONDS / EBPF_NANO_SECONDS_PER_FILETIME_TICK);
+        due_time.QuadPart = -(EBPF_EPOCH_FLUSH_DELAY_IN_NANOSECONDS / EBPF_NS_PER_FILETIME);
         KeSetTimer(&_ebpf_epoch_compute_release_epoch_timer, due_time, &_ebpf_epoch_timer_dpc);
     }
 }

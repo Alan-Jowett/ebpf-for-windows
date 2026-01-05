@@ -24,6 +24,8 @@
 #include <mstcpip.h>
 #include <ntsecapi.h>
 
+thread_local bool _is_main_thread = false;
+
 CATCH_REGISTER_LISTENER(_watchdog)
 static std::string _family;
 static std::string _connection_type;
@@ -57,7 +59,7 @@ typedef struct _test_globals
     ADDRESS_FAMILY family = 0;
     connection_type_t connection_type = connection_type_t::INVALID;
     uint16_t destination_port = 4444;
-    uint16_t proxy_port = 4443;
+    uint16_t proxy_port = 5555;
     test_addresses_t addresses[socket_family_t::Max] = {0};
     bool attach_v4_program = false;
     bool attach_v6_program = false;
@@ -72,7 +74,7 @@ _impersonate_user()
 {
     printf("Impersonating user [%s].\n", _user_name.c_str());
     bool result = ImpersonateLoggedOnUser(_globals.user_token);
-    REQUIRE(result == true);
+    SAFE_REQUIRE(result == true);
 }
 
 uint64_t
@@ -84,14 +86,14 @@ _get_current_thread_authentication_id()
     uint64_t authentication_id;
 
     bool result = GetTokenInformation(thread_token_handle, TokenGroupsAndPrivileges, nullptr, 0, (unsigned long*)&size);
-    REQUIRE(GetLastError() == ERROR_INSUFFICIENT_BUFFER);
+    SAFE_REQUIRE(GetLastError() == ERROR_INSUFFICIENT_BUFFER);
 
     privileges = (TOKEN_GROUPS_AND_PRIVILEGES*)malloc(size);
-    REQUIRE(privileges != nullptr);
+    SAFE_REQUIRE(privileges != nullptr);
 
     result =
         GetTokenInformation(thread_token_handle, TokenGroupsAndPrivileges, privileges, size, (unsigned long*)&size);
-    REQUIRE(result == true);
+    SAFE_REQUIRE(result == true);
 
     authentication_id = *(uint64_t*)&privileges->AuthenticationId;
 
@@ -139,7 +141,7 @@ _log_on_user(std::string& user_name, std::string& password)
             int error = GetLastError();
             printf("error = %d\n", error);
         }
-        REQUIRE(result == true);
+        SAFE_REQUIRE(result == true);
     }
 
     return token;
@@ -156,7 +158,7 @@ _get_ip_proto_from_connection_type(connection_type_t connection_type)
         return IPPROTO_UDP;
     }
 
-    REQUIRE(false);
+    SAFE_REQUIRE(false);
     return IPPROTO_MAX;
 }
 
@@ -192,26 +194,26 @@ _initialize_test_globals()
     if (_remote_ip_v4 != "") {
         get_address_from_string(
             _remote_ip_v4, _globals.addresses[socket_family_t::IPv4].remote_address, false, &family);
-        REQUIRE(family == AF_INET);
+        SAFE_REQUIRE(family == AF_INET);
         get_address_from_string(_remote_ip_v4, _globals.addresses[socket_family_t::Dual].remote_address, true, &family);
-        REQUIRE(family == AF_INET);
+        SAFE_REQUIRE(family == AF_INET);
         v4_addresses++;
     }
     if (_local_ip_v4 != "") {
         get_address_from_string(_local_ip_v4, _globals.addresses[socket_family_t::IPv4].local_address, false, &family);
-        REQUIRE(family == AF_INET);
+        SAFE_REQUIRE(family == AF_INET);
         get_address_from_string(_local_ip_v4, _globals.addresses[socket_family_t::Dual].local_address, true, &family);
-        REQUIRE(family == AF_INET);
+        SAFE_REQUIRE(family == AF_INET);
         v4_addresses++;
     }
     if (_vip_v4 != "") {
         get_address_from_string(_vip_v4, _globals.addresses[socket_family_t::IPv4].vip_address, false, &family);
-        REQUIRE(family == AF_INET);
+        SAFE_REQUIRE(family == AF_INET);
         get_address_from_string(_vip_v4, _globals.addresses[socket_family_t::Dual].vip_address, true, &family);
-        REQUIRE(family == AF_INET);
+        SAFE_REQUIRE(family == AF_INET);
         v4_addresses++;
     }
-    REQUIRE((v4_addresses == 0 || v4_addresses == 3));
+    SAFE_REQUIRE((v4_addresses == 0 || v4_addresses == 3));
     _globals.attach_v4_program = (v4_addresses != 0);
     IN4ADDR_SETLOOPBACK((PSOCKADDR_IN)&_globals.addresses[socket_family_t::IPv4].loopback_address);
     IN6ADDR_SETV4MAPPED(
@@ -224,20 +226,20 @@ _initialize_test_globals()
     if (_remote_ip_v6 != "") {
         get_address_from_string(
             _remote_ip_v6, _globals.addresses[socket_family_t::IPv6].remote_address, false, &family);
-        REQUIRE(family == AF_INET6);
+        SAFE_REQUIRE(family == AF_INET6);
         v6_addresses++;
     }
     if (_local_ip_v6 != "") {
         get_address_from_string(_local_ip_v6, _globals.addresses[socket_family_t::IPv6].local_address, false, &family);
-        REQUIRE(family == AF_INET6);
+        SAFE_REQUIRE(family == AF_INET6);
         v6_addresses++;
     }
     if (_vip_v6 != "") {
         get_address_from_string(_vip_v6, _globals.addresses[socket_family_t::IPv6].vip_address, false, &family);
-        REQUIRE(family == AF_INET6);
+        SAFE_REQUIRE(family == AF_INET6);
         v6_addresses++;
     }
-    REQUIRE((v6_addresses == 0 || v6_addresses == 3));
+    SAFE_REQUIRE((v6_addresses == 0 || v6_addresses == 3));
     _globals.attach_v6_program = (v6_addresses != 0);
     IN6ADDR_SETLOOPBACK((PSOCKADDR_IN6)&_globals.addresses[socket_family_t::IPv6].loopback_address);
 
@@ -249,27 +251,27 @@ _initialize_test_globals()
     native_module_helper_t helper;
     helper.initialize("cgroup_sock_addr2");
     _globals.bpf_object.reset(bpf_object__open(helper.get_file_name().c_str()));
-    REQUIRE(_globals.bpf_object.get() != nullptr);
-    REQUIRE(bpf_object__load(_globals.bpf_object.get()) == 0);
+    SAFE_REQUIRE(_globals.bpf_object.get() != nullptr);
+    SAFE_REQUIRE(bpf_object__load(_globals.bpf_object.get()) == 0);
     if (_globals.attach_v4_program) {
         printf("Attaching IPv4 program\n");
         bpf_program* connect_program_v4 =
             bpf_object__find_program_by_name(_globals.bpf_object.get(), "connect_redirect4");
-        REQUIRE(connect_program_v4 != nullptr);
+        SAFE_REQUIRE(connect_program_v4 != nullptr);
 
         result = bpf_prog_attach(
             bpf_program__fd(const_cast<const bpf_program*>(connect_program_v4)), 0, BPF_CGROUP_INET4_CONNECT, 0);
-        REQUIRE(result == 0);
+        SAFE_REQUIRE(result == 0);
     }
     if (_globals.attach_v6_program) {
         printf("Attaching IPv6 program\n");
         bpf_program* connect_program_v6 =
             bpf_object__find_program_by_name(_globals.bpf_object.get(), "connect_redirect6");
-        REQUIRE(connect_program_v6 != nullptr);
+        SAFE_REQUIRE(connect_program_v6 != nullptr);
 
         result = bpf_prog_attach(
             bpf_program__fd(const_cast<const bpf_program*>(connect_program_v6)), 0, BPF_CGROUP_INET6_CONNECT, 0);
-        REQUIRE(result == 0);
+        SAFE_REQUIRE(result == 0);
     }
 
     printf("Done initializing globals.\n");
@@ -280,29 +282,29 @@ static void
 _validate_audit_map_entry(uint64_t authentication_id)
 {
     bpf_map* audit_map = bpf_object__find_map_by_name(_globals.bpf_object.get(), "audit_map");
-    REQUIRE(audit_map != nullptr);
+    SAFE_REQUIRE(audit_map != nullptr);
 
     fd_t map_fd = bpf_map__fd(audit_map);
 
     uint64_t process_id = get_current_pid_tgid();
     sock_addr_audit_entry_t entry = {0};
     int result = bpf_map_lookup_elem(map_fd, &process_id, &entry);
-    REQUIRE(result == 0);
+    SAFE_REQUIRE(result == 0);
 
-    REQUIRE(process_id == entry.process_id);
-    REQUIRE(entry.logon_id == authentication_id);
+    SAFE_REQUIRE(process_id == entry.process_id);
+    SAFE_REQUIRE(entry.logon_id == authentication_id);
     SECURITY_LOGON_SESSION_DATA* data = NULL;
     result = LsaGetLogonSessionData((PLUID)&entry.logon_id, &data);
-    REQUIRE(result == ERROR_SUCCESS);
+    SAFE_REQUIRE(result == ERROR_SUCCESS);
 
     if (_globals.user_type == user_type_t::ADMINISTRATOR) {
-        REQUIRE(entry.is_admin == 1);
+        SAFE_REQUIRE(entry.is_admin == 1);
     } else {
-        REQUIRE(entry.is_admin == 0);
+        SAFE_REQUIRE(entry.is_admin == 0);
     }
 
-    REQUIRE(entry.local_port != 0);
-    REQUIRE(entry.socket_cookie != 0);
+    SAFE_REQUIRE(entry.local_port != 0);
+    SAFE_REQUIRE(entry.socket_cookie != 0);
 
     LsaFreeReturnBuffer(data);
 }
@@ -318,13 +320,13 @@ _update_policy_map(
     bool add)
 {
     bpf_map* policy_map = bpf_object__find_map_by_name(_globals.bpf_object.get(), "policy_map");
-    REQUIRE(policy_map != nullptr);
+    SAFE_REQUIRE(policy_map != nullptr);
 
     fd_t map_fd = bpf_map__fd(policy_map);
 
     // Insert / delete redirect policy entry in the map.
     destination_entry_key_t key = {0};
-    destination_entry_value_t value = {0};
+    destination_entry_value_t value = {.verdict = BPF_SOCK_ADDR_VERDICT_PROCEED_SOFT};
 
     if (_globals.family == AF_INET && dual_stack) {
         struct sockaddr_in6* v6_destination = (struct sockaddr_in6*)&destination;
@@ -346,9 +348,9 @@ _update_policy_map(
     value.destination_port = htons(proxy_port);
 
     if (add) {
-        REQUIRE(bpf_map_update_elem(map_fd, &key, &value, 0) == 0);
+        SAFE_REQUIRE(bpf_map_update_elem(map_fd, &key, &value, 0) == 0);
     } else {
-        REQUIRE(bpf_map_delete_elem(map_fd, &key) == 0);
+        SAFE_REQUIRE(bpf_map_delete_elem(map_fd, &key) == 0);
     }
 }
 
@@ -361,6 +363,23 @@ update_policy_map_and_test_connection(
     uint16_t proxy_port,
     bool dual_stack)
 {
+    // Print source, destination, and redirected addresses for debugging purposes
+    PSOCKADDR source_addr;
+    int source_addr_len;
+    sender_socket->get_local_address(source_addr, source_addr_len);
+
+    uint16_t source_port = 0;
+    if (source_addr->sa_family == AF_INET) {
+        source_port = ntohs(((sockaddr_in*)source_addr)->sin_port);
+    } else if (source_addr->sa_family == AF_INET6) {
+        source_port = ntohs(((sockaddr_in6*)source_addr)->sin6_port);
+    }
+
+    std::string source_address_str = get_string_from_address(source_addr);
+    std::string destination_address_str = get_string_from_address((SOCKADDR*)&destination);
+    std::string proxy_address_str = get_string_from_address((SOCKADDR*)&proxy);
+    CAPTURE(source_address_str, destination_address_str, proxy_address_str, proxy_port);
+
     bool add_policy = true;
     uint32_t bytes_received = 0;
     char* received_message = nullptr;
@@ -382,7 +401,7 @@ update_policy_map_and_test_connection(
         impersonation_helper_t helper(_globals.user_type);
 
         authentication_id = _get_current_thread_authentication_id();
-        REQUIRE(authentication_id != 0);
+        SAFE_REQUIRE(authentication_id != 0);
 
         // Try to send and receive message to "destination". It should succeed.
         sender_socket->send_message_to_remote_host(CLIENT_MESSAGE, destination, _globals.destination_port);
@@ -393,17 +412,23 @@ update_policy_map_and_test_connection(
 
         sender_socket->get_received_message(bytes_received, received_message);
 
+        // capture the local address again after the send
+        sender_socket->get_local_address(source_addr, source_addr_len);
+        std::string source_after_send_str = get_string_from_address(source_addr);
+        CAPTURE(source_after_send_str);
+
         // For local redirection, the redirect context is expected to be set and returned.
         // If the connection is not redirected or is redirected to a remote address,
         // check for the SERVER_MESSAGE generic response.
         std::string expected_response;
-        if (redirected && local_redirect && (_globals.connection_type == connection_type_t::TCP)) {
+        if (redirected && local_redirect) {
             expected_response = REDIRECT_CONTEXT_MESSAGE + std::to_string(proxy_port);
         } else {
             expected_response = SERVER_MESSAGE + std::to_string(proxy_port);
         }
-        REQUIRE(strlen(received_message) == strlen(expected_response.c_str()));
-        REQUIRE(memcmp(received_message, expected_response.c_str(), strlen(received_message)) == 0);
+        CAPTURE(expected_response, received_message);
+        SAFE_REQUIRE(strlen(received_message) == strlen(expected_response.c_str()));
+        SAFE_REQUIRE(memcmp(received_message, expected_response.c_str(), strlen(received_message)) == 0);
     }
 
     _validate_audit_map_entry(authentication_id);
@@ -425,7 +450,7 @@ authorize_test(_In_ client_socket_t* sender_socket, _Inout_ sockaddr_storage& de
         impersonation_helper_t helper(_globals.user_type);
 
         authentication_id = _get_current_thread_authentication_id();
-        REQUIRE(authentication_id != 0);
+        SAFE_REQUIRE(authentication_id != 0);
 
         sender_socket->send_message_to_remote_host(CLIENT_MESSAGE, destination, _globals.destination_port);
         sender_socket->complete_async_send(1000, expected_result_t::FAILURE);
@@ -443,7 +468,8 @@ authorize_test(_In_ client_socket_t* sender_socket, _Inout_ sockaddr_storage& de
 }
 
 void
-get_client_socket(bool dual_stack, _Inout_ client_socket_t** sender_socket, const sockaddr_storage& source_address = {})
+get_client_socket(
+    bool dual_stack, _Inout_ client_socket_t** sender_socket, const sockaddr_storage& source_address = {0})
 {
     impersonation_helper_t helper(_globals.user_type);
 
@@ -456,7 +482,8 @@ get_client_socket(bool dual_stack, _Inout_ client_socket_t** sender_socket, cons
         new_socket = (client_socket_t*)new stream_client_socket_t(SOCK_STREAM, IPPROTO_TCP, 0, family, source_address);
     } else {
         bool connected_udp = (_globals.connection_type == connection_type_t::CONNECTED_UDP);
-        new_socket = (client_socket_t*)new datagram_client_socket_t(SOCK_DGRAM, IPPROTO_UDP, 0, family, connected_udp);
+        new_socket = (client_socket_t*)new datagram_client_socket_t(
+            SOCK_DGRAM, IPPROTO_UDP, 0, family, connected_udp, source_address);
     }
 
     *sender_socket = new_socket;
@@ -480,11 +507,53 @@ connect_redirect_test_wrapper(
     _In_ const sockaddr_storage& source_address,
     _Inout_ sockaddr_storage& destination,
     _In_ const sockaddr_storage& proxy,
-    bool dual_stack)
+    bool dual_stack,
+    bool implicit_bind)
 {
     client_socket_t* sender_socket = nullptr;
+    // Determine address family for lookups
+    socket_family_t address_family = (_globals.family == AF_INET6)
+                                         ? socket_family_t::IPv6
+                                         : (dual_stack ? socket_family_t::Dual : socket_family_t::IPv4);
 
-    get_client_socket(dual_stack, &sender_socket, source_address);
+    // Certain combinations of parameters are not compatible with our test setup, so those tests are skipped.
+
+    // Skip case 1: implicit bind and proxy == local_address.
+    // local_address testcases require that the OS stack treats the traffic as loopback (to ensure we can obtain the
+    // redirect_context). When an implicit bind is used, the sending interface may differ from the receiving interface.
+    // As both interfaces are duonic interfaces, This can therefore result in the traffic being treated as non-loopback.
+    if (implicit_bind &&
+        INETADDR_ISEQUAL((SOCKADDR*)&proxy, (SOCKADDR*)&_globals.addresses[address_family].local_address)) {
+        printf("  Skipping test variation: implicit bind and proxy == local_address\n");
+        return;
+    }
+
+    // Skip case 2: explicit bind for src == loopback_address and destination == remote_address
+    // When the loopback address is used for the source address, sending traffic to a remote address is determined as
+    // not routable by the OS stack, and the connection fails.
+    if (!implicit_bind &&
+        INETADDR_ISEQUAL((SOCKADDR*)&source_address, (SOCKADDR*)&_globals.addresses[address_family].loopback_address)) {
+        printf("  Skipping test variation: explicit bind and src == loopback_address\n");
+        return;
+    }
+
+    // Skip case 3: explicit bind src == local_address and destination == loopback.
+    // When the local_address is used as the source address, sending traffic to the loopback_address is determined as
+    // not routable by the OS stack, and the connection fails.
+    if (!implicit_bind &&
+        INETADDR_ISEQUAL((SOCKADDR*)&source_address, (SOCKADDR*)&_globals.addresses[address_family].local_address) &&
+        INETADDR_ISEQUAL((SOCKADDR*)&destination, (SOCKADDR*)&_globals.addresses[address_family].loopback_address)) {
+        printf(
+            "  Skipping test variation: explicit bind and src == local_address and destination == loopback_address\n");
+        return;
+    }
+
+    if (implicit_bind) {
+        // Use implicit bind (no source_address specified).
+        get_client_socket(dual_stack, &sender_socket);
+    } else {
+        get_client_socket(dual_stack, &sender_socket, source_address);
+    }
     update_policy_map_and_test_connection(
         sender_socket, destination, proxy, _globals.destination_port, _globals.proxy_port, dual_stack);
     delete sender_socket;
@@ -597,27 +666,45 @@ DECLARE_CONNECTION_AUTHORIZATION_V6_TEST_GROUP(
 DECLARE_CONNECTION_AUTHORIZATION_V6_TEST_GROUP(
     "dual_ipv6", socket_family_t::IPv6, true, connection_type_t::CONNECTED_UDP)
 
-#define DECLARE_CONNECTION_REDIRECTION_TEST_FUNCTION(source, original_destination, new_destination)                  \
-    void connection_redirection_tests_##original_destination##_##new_destination##(                                  \
-        ADDRESS_FAMILY family, connection_type_t connection_type, bool dual_stack, _In_ test_addresses_t& addresses) \
-    {                                                                                                                \
-        _initialize_test_globals();                                                                                  \
-        _globals.family = family;                                                                                    \
-        _globals.connection_type = connection_type;                                                                  \
-        const char* connection_type_string =                                                                         \
-            (_globals.connection_type == connection_type_t::TCP)                                                     \
-                ? "TCP"                                                                                              \
-                : ((_globals.connection_type == connection_type_t::UNCONNECTED_UDP) ? "UNCONNECTED_UDP"              \
-                                                                                    : "CONNECTED_UDP");              \
-        const char* family_string = (_globals.family == AF_INET) ? "IPv4" : "IPv6";                                  \
-        const char* dual_stack_string = dual_stack ? "Dual Stack" : "No Dual Stack";                                 \
-        printf(                                                                                                      \
-            "REDIRECT: " #original_destination " -> " #new_destination " | %s | %s | %s\n",                          \
-            connection_type_string,                                                                                  \
-            family_string,                                                                                           \
-            dual_stack_string);                                                                                      \
-        connect_redirect_test_wrapper(                                                                               \
-            addresses.##source##, addresses.##original_destination##, addresses.##new_destination##, dual_stack);    \
+#define DECLARE_CONNECTION_REDIRECTION_TEST_FUNCTION(source, original_destination, new_destination)                   \
+    void connection_redirection_tests_##original_destination##_##new_destination##(                                   \
+        ADDRESS_FAMILY family, connection_type_t connection_type, bool dual_stack, _In_ test_addresses_t& addresses)  \
+    {                                                                                                                 \
+        _initialize_test_globals();                                                                                   \
+        _globals.family = family;                                                                                     \
+        _globals.connection_type = connection_type;                                                                   \
+        const char* connection_type_string =                                                                          \
+            (_globals.connection_type == connection_type_t::TCP)                                                      \
+                ? "TCP"                                                                                               \
+                : ((_globals.connection_type == connection_type_t::UNCONNECTED_UDP) ? "UNCONNECTED_UDP"               \
+                                                                                    : "CONNECTED_UDP");               \
+        const char* family_string = (_globals.family == AF_INET) ? "IPv4" : "IPv6";                                   \
+        const char* dual_stack_string = dual_stack ? "Dual Stack" : "No Dual Stack";                                  \
+        printf(                                                                                                       \
+            "REDIRECT: " #source " (explicit) -> " #original_destination " -> " #new_destination " | %s | %s | %s\n", \
+            connection_type_string,                                                                                   \
+            family_string,                                                                                            \
+            dual_stack_string);                                                                                       \
+        /* Test with explicit bind (bind to specific source address) */                                               \
+        printf("  Testing with explicit bind to source address...\n");                                                \
+        connect_redirect_test_wrapper(                                                                                \
+            addresses.##source##,                                                                                     \
+            addresses.##original_destination##,                                                                       \
+            addresses.##new_destination##,                                                                            \
+            dual_stack,                                                                                               \
+            false);                                                                                                   \
+        /* Test with implicit bind (bind to wildcard address) */                                                      \
+        printf(                                                                                                       \
+            "REDIRECT: " #source " (implicit) -> " #original_destination " -> " #new_destination " | %s | %s | %s\n", \
+            connection_type_string,                                                                                   \
+            family_string,                                                                                            \
+            dual_stack_string);                                                                                       \
+        connect_redirect_test_wrapper(                                                                                \
+            addresses.##source##,                                                                                     \
+            addresses.##original_destination##,                                                                       \
+            addresses.##new_destination##,                                                                            \
+            dual_stack,                                                                                               \
+            true);                                                                                                    \
     }
 
 // Declare connection_redirection_* test functions.
@@ -742,6 +829,8 @@ int
 main(int argc, char* argv[])
 {
     Catch::Session session;
+
+    _is_main_thread = true;
 
     // Use Catch's composite command line parser.
     using namespace Catch::Clara;

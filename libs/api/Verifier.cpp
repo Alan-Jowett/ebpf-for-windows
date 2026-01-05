@@ -136,7 +136,7 @@ _parse_btf_map_info_and_populate_cache(const ELFIO::elfio& reader, const vector<
     }
     std::optional<libbtf::btf_type_data> btf_data = vector_of<byte>(*btf_section);
 
-    std::vector<EbpfMapDescriptor> btf_map_descriptors;
+    std::vector<prevail::EbpfMapDescriptor> btf_map_descriptors;
     std::map<std::string, size_t> btf_map_name_to_index;
 
     auto map_data = parse_btf_map_section(btf_data.value());
@@ -285,7 +285,7 @@ _Must_inspect_result_ ebpf_result_t
 load_byte_code(
     std::variant<std::string, std::vector<uint8_t>>& file_or_buffer,
     _In_opt_z_ const char* section_name,
-    _In_ const ebpf_verifier_options_t& verifier_options,
+    _In_ const prevail::ebpf_verifier_options_t& verifier_options,
     _In_z_ const char* pin_root_path,
     _Inout_ std::vector<ebpf_program_t*>& programs,
     _Inout_ std::vector<ebpf_map_t*>& maps,
@@ -300,13 +300,13 @@ load_byte_code(
     ebpf_program_type_t empty_program_type{};
 
     try {
-        const ebpf_platform_t* platform = &g_ebpf_platform_windows;
+        const prevail::ebpf_platform_t* platform = &g_ebpf_platform_windows;
         std::string section_name_string;
         if (section_name != nullptr) {
             section_name_string = std::string(section_name);
         }
 
-        std::vector<raw_program> raw_programs;
+        std::vector<prevail::RawProgram> raw_programs;
 
         // If file_or_buffer is a string, it is a file name.
         if (std::holds_alternative<std::string>(file_or_buffer)) {
@@ -326,7 +326,7 @@ load_byte_code(
         }
 
         for (auto& raw_program : raw_programs) {
-            program = (ebpf_program_t*)ebpf_allocate(sizeof(ebpf_program_t));
+            program = (ebpf_program_t*)ebpf_allocate_with_tag(sizeof(ebpf_program_t), EBPF_POOL_TAG_DEFAULT);
             if (program == nullptr) {
                 result = EBPF_NO_MEMORY;
                 goto Exit;
@@ -348,7 +348,7 @@ load_byte_code(
                 goto Exit;
             }
             size_t ebpf_bytes = instruction_count * sizeof(ebpf_inst);
-            program->instructions = (ebpf_inst*)ebpf_allocate(ebpf_bytes);
+            program->instructions = (ebpf_inst*)ebpf_allocate_with_tag(ebpf_bytes, EBPF_POOL_TAG_DEFAULT);
             if (program->instructions == nullptr) {
                 result = EBPF_NO_MEMORY;
                 goto Exit;
@@ -405,7 +405,7 @@ load_byte_code(
                 goto Exit;
             }
 
-            map = (ebpf_map_t*)ebpf_allocate(sizeof(ebpf_map_t));
+            map = (ebpf_map_t*)ebpf_allocate_with_tag(sizeof(ebpf_map_t), EBPF_POOL_TAG_DEFAULT);
             if (map == nullptr) {
                 result = EBPF_NO_MEMORY;
                 goto Exit;
@@ -435,7 +435,7 @@ load_byte_code(
     } catch (std::runtime_error& err) {
         auto message = err.what();
         auto message_length = strlen(message) + 1;
-        char* error = reinterpret_cast<char*>(ebpf_allocate(message_length + 1));
+        char* error = reinterpret_cast<char*>(ebpf_allocate_with_tag(message_length + 1, EBPF_POOL_TAG_DEFAULT));
         if (error) {
             strcpy_s(error, message_length, message);
         }
@@ -468,7 +468,7 @@ Exit:
 static void
 _ebpf_add_stat(_Inout_ ebpf_api_program_info_t* info, std::string key, int value) noexcept(false)
 {
-    ebpf_stat_t* stat = (ebpf_stat_t*)ebpf_allocate(sizeof(*stat));
+    ebpf_stat_t* stat = (ebpf_stat_t*)ebpf_allocate_with_tag(sizeof(*stat), EBPF_POOL_TAG_DEFAULT);
     if (stat == nullptr) {
         throw std::runtime_error("Out of memory");
     }
@@ -490,8 +490,8 @@ ebpf_api_elf_enumerate_programs(
     _Outptr_result_maybenull_ ebpf_api_program_info_t** infos,
     _Outptr_result_maybenull_z_ const char** error_message) noexcept
 {
-    ebpf_verifier_options_t verifier_options{};
-    const ebpf_platform_t* platform = &g_ebpf_platform_windows;
+    prevail::ebpf_verifier_options_t verifier_options = ebpf_get_default_verifier_options();
+    const prevail::ebpf_platform_t* platform = &g_ebpf_platform_windows;
     std::ostringstream str;
 
     *infos = nullptr;
@@ -503,23 +503,22 @@ ebpf_api_elf_enumerate_programs(
     try {
         auto raw_programs = read_elf(file, section ? std::string(section) : std::string(), verifier_options, platform);
         for (const auto& raw_program : raw_programs) {
-            info = (ebpf_api_program_info_t*)ebpf_allocate(sizeof(*info));
+            info = (ebpf_api_program_info_t*)ebpf_allocate_with_tag(sizeof(*info), EBPF_POOL_TAG_DEFAULT);
             if (info == nullptr) {
                 throw std::runtime_error("Out of memory");
             }
             memset(info, 0, sizeof(*info));
 
             if (verbose) {
-                std::variant<InstructionSeq, std::string> instruction_sequence_or_error = unmarshal(raw_program);
+                std::variant<prevail::InstructionSeq, std::string> instruction_sequence_or_error =
+                    unmarshal(raw_program);
                 if (std::holds_alternative<std::string>(instruction_sequence_or_error)) {
                     std::cout << "parse failure: " << std::get<std::string>(instruction_sequence_or_error) << "\n";
                     ebpf_free(info);
                     return 1;
                 }
-                auto& instruction_sequence = std::get<InstructionSeq>(instruction_sequence_or_error);
-                // auto program = crab::prepare_cfg(program, raw_program.info, verifier_options.cfg_opts);
-                auto program =
-                    Program::from_sequence(instruction_sequence, raw_program.info, verifier_options.cfg_opts);
+                auto& instruction_sequence = std::get<prevail::InstructionSeq>(instruction_sequence_or_error);
+                auto program = prevail::Program::from_sequence(instruction_sequence, raw_program.info, verifier_options);
                 std::map<std::string, int> stats = collect_stats(program);
                 for (auto it = stats.rbegin(); it != stats.rend(); ++it) {
                     _ebpf_add_stat(info, it->first, it->second);
@@ -549,7 +548,7 @@ ebpf_api_elf_enumerate_programs(
             info->offset_in_section = raw_program.insn_off;
             std::vector<uint8_t> raw_data = convert_ebpf_program_to_bytes(raw_program.prog);
             info->raw_data_size = raw_data.size();
-            info->raw_data = (char*)ebpf_allocate(info->raw_data_size);
+            info->raw_data = (char*)ebpf_allocate_with_tag(info->raw_data_size, EBPF_POOL_TAG_DEFAULT);
             if (info->raw_data == nullptr) {
                 throw std::runtime_error("Out of memory");
             }
@@ -578,8 +577,8 @@ ebpf_api_elf_disassemble_program(
     _Outptr_result_maybenull_z_ const char** disassembly,
     _Outptr_result_maybenull_z_ const char** error_message) noexcept
 {
-    ebpf_verifier_options_t verifier_options{};
-    const ebpf_platform_t* platform = &g_ebpf_platform_windows;
+    prevail::ebpf_verifier_options_t verifier_options = ebpf_get_default_verifier_options();
+    const prevail::ebpf_platform_t* platform = &g_ebpf_platform_windows;
     std::ostringstream error;
     std::ostringstream output;
 
@@ -592,7 +591,7 @@ ebpf_api_elf_disassemble_program(
         std::string section(section_name ? section_name : "");
         auto raw_programs = read_elf(file, section, verifier_options, platform);
         auto found_program =
-            std::find_if(raw_programs.begin(), raw_programs.end(), [&program_name](const raw_program& program) {
+            std::find_if(raw_programs.begin(), raw_programs.end(), [&program_name](const prevail::RawProgram& program) {
                 return (program_name == nullptr) || (program.function_name == program_name);
             });
         if (found_program == raw_programs.end()) {
@@ -602,14 +601,14 @@ ebpf_api_elf_disassemble_program(
                 throw std::runtime_error(std::string("No programs found"));
             }
         }
-        raw_program& raw_program = *found_program;
-        std::variant<InstructionSeq, std::string> programOrError = unmarshal(raw_program);
+        prevail::RawProgram& raw_program = *found_program;
+        std::variant<prevail::InstructionSeq, std::string> programOrError = prevail::unmarshal(raw_program);
         if (std::holds_alternative<std::string>(programOrError)) {
             error << "parse failure: " << std::get<std::string>(programOrError);
             *error_message = allocate_string(error.str());
             return 1;
         }
-        auto& program = std::get<InstructionSeq>(programOrError);
+        auto& program = std::get<prevail::InstructionSeq>(programOrError);
         print(program, output, {}, true);
         *disassembly = allocate_string(output.str());
         if (!*disassembly) {
@@ -625,16 +624,6 @@ ebpf_api_elf_disassemble_program(
         return 1;
     }
     return 0;
-}
-
-uint32_t
-ebpf_api_elf_disassemble_section(
-    _In_z_ const char* file,
-    _In_z_ const char* section,
-    _Outptr_result_maybenull_z_ const char** disassembly,
-    _Outptr_result_maybenull_z_ const char** error_message) noexcept
-{
-    return ebpf_api_elf_disassemble_program(file, section, {}, disassembly, error_message);
 }
 
 static _Success_(return == 0) uint32_t _ebpf_api_elf_verify_program_from_stream(
@@ -654,20 +643,14 @@ static _Success_(return == 0) uint32_t _ebpf_api_elf_verify_program_from_stream(
     *error_message = nullptr;
 
     try {
-        const ebpf_platform_t* platform = &g_ebpf_platform_windows;
-        ebpf_verifier_options_t verifier_options{};
-        verifier_options.assume_assertions = verbosity < EBPF_VERIFICATION_VERBOSITY_VERBOSE;
-        verifier_options.cfg_opts.check_for_termination = true;
-        verifier_options.verbosity_opts.print_invariants = verbosity >= EBPF_VERIFICATION_VERBOSITY_INFORMATIONAL;
-        verifier_options.verbosity_opts.print_failures = true;
-        verifier_options.mock_map_fds = true;
-        verifier_options.verbosity_opts.print_line_info = true;
+        const prevail::ebpf_platform_t* platform = &g_ebpf_platform_windows;
+        prevail::ebpf_verifier_options_t verifier_options = ebpf_get_default_verifier_options(verbosity);
         if (!stream) {
             throw std::runtime_error(std::string("No such file or directory opening ") + stream_name);
         }
         auto raw_programs =
             read_elf(stream, stream_name, (section_name != nullptr ? section_name : ""), verifier_options, platform);
-        std::optional<raw_program> found_program;
+        std::optional<prevail::RawProgram> found_program;
         for (auto& program : raw_programs) {
             if ((program_name == nullptr) || (program.function_name == program_name)) {
                 found_program = program;
@@ -681,23 +664,25 @@ static _Success_(return == 0) uint32_t _ebpf_api_elf_verify_program_from_stream(
                 throw std::runtime_error(std::string("No programs found"));
             }
         }
-        raw_program raw_program = *found_program;
-        std::variant<InstructionSeq, std::string> programOrError = unmarshal(raw_program);
+        prevail::RawProgram raw_program = *found_program;
+        std::variant<prevail::InstructionSeq, std::string> programOrError = prevail::unmarshal(raw_program);
         if (std::holds_alternative<std::string>(programOrError)) {
             error << "parse failure: " << std::get<std::string>(programOrError);
             *error_message = allocate_string(error.str());
             return 1;
         }
-        auto& program = std::get<InstructionSeq>(programOrError);
+        auto& program = std::get<prevail::InstructionSeq>(programOrError);
 
         if (stats == nullptr) {
             // ebpf_verify_program() requires stats to be non-null.
             stats = &stats_buffer;
         }
 
-        verifier_options.verbosity_opts.simplify = false;
         bool res = ebpf_verify_program(output, program, raw_program.info, verifier_options, stats);
         if (!res) {
+            verifier_options.verbosity_opts.print_failures = true;
+            verifier_options.verbosity_opts.simplify = false;
+            (void)ebpf_verify_program(output, program, raw_program.info, verifier_options, stats);
             error << "Verification failed";
             *error_message = allocate_string(error.str());
             *report = allocate_string(output.str());
@@ -803,19 +788,6 @@ _Success_(return == 0) uint32_t ebpf_api_elf_verify_program_from_file(
         data, file, section_name, program_name, program_type, verbosity, report, error_message, stats);
 }
 
-_Success_(return == 0) uint32_t ebpf_api_elf_verify_section_from_file(
-    _In_z_ const char* file,
-    _In_z_ const char* section,
-    _In_opt_ const ebpf_program_type_t* program_type,
-    ebpf_verification_verbosity_t verbosity,
-    _Outptr_result_maybenull_z_ const char** report,
-    _Outptr_result_maybenull_z_ const char** error_message,
-    _Out_opt_ ebpf_api_verifier_stats_t* stats) noexcept
-{
-    return ebpf_api_elf_verify_program_from_file(
-        file, section, {}, program_type, verbosity, report, error_message, stats);
-}
-
 _Success_(return == 0) uint32_t ebpf_api_elf_verify_program_from_memory(
     _In_reads_(data_length) const char* data,
     size_t data_length,
@@ -837,18 +809,4 @@ _Success_(return == 0) uint32_t ebpf_api_elf_verify_program_from_memory(
         report,
         error_message,
         stats);
-}
-
-_Success_(return == 0) uint32_t ebpf_api_elf_verify_section_from_memory(
-    _In_reads_(data_length) const char* data,
-    size_t data_length,
-    _In_z_ const char* section,
-    _In_opt_ const ebpf_program_type_t* program_type,
-    ebpf_verification_verbosity_t verbosity,
-    _Outptr_result_maybenull_z_ const char** report,
-    _Outptr_result_maybenull_z_ const char** error_message,
-    _Out_opt_ ebpf_api_verifier_stats_t* stats) noexcept
-{
-    return ebpf_api_elf_verify_program_from_memory(
-        data, data_length, section, {}, program_type, verbosity, report, error_message, stats);
 }

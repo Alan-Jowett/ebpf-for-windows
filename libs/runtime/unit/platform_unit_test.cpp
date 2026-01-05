@@ -233,16 +233,26 @@ TEST_CASE("hash_table_test", "[platform]")
         v = static_cast<uint8_t>(ebpf_random_uint32());
     }
 
-    const ebpf_hash_table_creation_options_t options = {
+    ebpf_hash_table_creation_options_t options = {
         .key_size = key_1.size(),
         .value_size = data_1.size(),
-        .allocate = ebpf_allocate,
+        .allocate = ebpf_allocate_with_tag,
         .free = ebpf_free,
         .minimum_bucket_count = 1,
     };
 
     ebpf_hash_table_t* raw_ptr = nullptr;
-    REQUIRE(ebpf_hash_table_create(&raw_ptr, &options) == EBPF_SUCCESS);
+    // Allocate using default allocation tag.
+    REQUIRE(
+        ebpf_hash_table_create(&raw_ptr, const_cast<const ebpf_hash_table_creation_options_t*>(&options)) ==
+        EBPF_SUCCESS);
+    ebpf_hash_table_destroy(raw_ptr);
+
+    // Allocate using EBPF_POOL_TAG_DEFAULT.
+    options.allocation_tag = EBPF_POOL_TAG_DEFAULT;
+    REQUIRE(
+        ebpf_hash_table_create(&raw_ptr, const_cast<const ebpf_hash_table_creation_options_t*>(&options)) ==
+        EBPF_SUCCESS);
     ebpf_hash_table_ptr table(raw_ptr);
 
     // Insert first
@@ -780,7 +790,7 @@ TEST_CASE("serialize_map_test", "[platform]")
         EBPF_INSUFFICIENT_BUFFER);
 
     {
-        uint8_t* buffer = static_cast<uint8_t*>(ebpf_allocate(required_length));
+        uint8_t* buffer = static_cast<uint8_t*>(ebpf_allocate_with_tag(required_length, EBPF_POOL_TAG_DEFAULT));
         if (buffer == nullptr) {
             REQUIRE(false);
         }
@@ -853,7 +863,7 @@ TEST_CASE("serialize_program_info_test", "[platform]")
         ebpf_serialize_program_info(&in_program_info, nullptr, buffer_length, &serialized_length, &required_length));
 
     {
-        uint8_t* buffer = static_cast<uint8_t*>(ebpf_allocate(required_length));
+        uint8_t* buffer = static_cast<uint8_t*>(ebpf_allocate_with_tag(required_length, EBPF_POOL_TAG_DEFAULT));
         if (buffer == nullptr) {
             REQUIRE(false);
         }
@@ -1031,7 +1041,7 @@ TEST_CASE("async", "[platform]")
     test(false);
 }
 
-TEST_CASE("ring_buffer_output", "[platform]")
+TEST_CASE("ring_buffer_output", "[platform][ring_buffer]")
 {
     _test_helper test_helper;
     test_helper.initialize();
@@ -1042,9 +1052,14 @@ TEST_CASE("ring_buffer_output", "[platform]")
     uint8_t* buffer;
     std::vector<uint8_t> data(10);
     size_t size = 64 * 1024;
+    size_t total_record_size = (data.size() + EBPF_OFFSET_OF(ebpf_ring_buffer_record_t, data) + 7) & ~7;
 
     REQUIRE(ebpf_ring_buffer_create(&ring_buffer, size) == EBPF_SUCCESS);
-    REQUIRE(ebpf_ring_buffer_map_buffer(ring_buffer, &buffer) == EBPF_SUCCESS);
+
+    void* consumer_ptr = nullptr;
+    void* producer_ptr = nullptr;
+    REQUIRE(ebpf_ring_buffer_map_user(ring_buffer, &consumer_ptr, &producer_ptr, &buffer, &size) == EBPF_SUCCESS);
+    REQUIRE(size == 64 * 1024);
 
     ebpf_ring_buffer_query(ring_buffer, &consumer, &producer);
 
@@ -1057,38 +1072,40 @@ TEST_CASE("ring_buffer_output", "[platform]")
 
     // Ring is not empty
     REQUIRE(producer != consumer);
-    REQUIRE(producer == data.size() + EBPF_OFFSET_OF(ebpf_ring_buffer_record_t, data));
+    REQUIRE(producer == total_record_size);
     REQUIRE(consumer == 0);
 
-    auto record = ebpf_ring_buffer_next_record(buffer, size, consumer, producer);
+    size_t next_consumer_offset;
+    auto record = ebpf_ring_buffer_next_consumer_record(ring_buffer, &next_consumer_offset);
     REQUIRE(record != nullptr);
-    REQUIRE(record->header.length == data.size() + EBPF_OFFSET_OF(ebpf_ring_buffer_record_t, data));
+    REQUIRE(record->header.length == data.size());
 
-    REQUIRE(ebpf_ring_buffer_return(ring_buffer, record->header.length) == EBPF_SUCCESS);
+    REQUIRE(ebpf_ring_buffer_return_buffer(ring_buffer, next_consumer_offset) == EBPF_SUCCESS);
     ebpf_ring_buffer_query(ring_buffer, &consumer, &producer);
 
     record = ebpf_ring_buffer_next_record(buffer, size, consumer, producer);
     REQUIRE(record == nullptr);
     REQUIRE(consumer == producer);
-    REQUIRE(producer == data.size() + EBPF_OFFSET_OF(ebpf_ring_buffer_record_t, data));
-    REQUIRE(consumer == data.size() + EBPF_OFFSET_OF(ebpf_ring_buffer_record_t, data));
+    REQUIRE(consumer == total_record_size);
 
+    size_t sent_data = 0;
     data.resize(1023);
     while (ebpf_ring_buffer_output(ring_buffer, data.data(), data.size()) == EBPF_SUCCESS) {
+        sent_data += data.size();
     }
 
     ebpf_ring_buffer_query(ring_buffer, &consumer, &producer);
-    REQUIRE(ebpf_ring_buffer_return(ring_buffer, (producer - consumer) % size) == EBPF_SUCCESS);
+    REQUIRE(ebpf_ring_buffer_return_buffer(ring_buffer, producer) == EBPF_SUCCESS);
 
-    data.resize(size - EBPF_OFFSET_OF(ebpf_ring_buffer_record_t, data) - 1);
-    // Fill ring
+    // Resize data to fill ring (total record size includes 8 bytes header and padding to 8 bytes)
+    data.resize((size - EBPF_OFFSET_OF(ebpf_ring_buffer_record_t, data)) & ~7);
     REQUIRE(ebpf_ring_buffer_output(ring_buffer, data.data(), data.size()) == EBPF_SUCCESS);
 
     ebpf_ring_buffer_destroy(ring_buffer);
     ring_buffer = nullptr;
 }
 
-TEST_CASE("ring_buffer_reserve_submit_discard", "[platform]")
+TEST_CASE("ring_buffer_reserve_submit_discard", "[platform][ring_buffer]")
 {
     _test_helper test_helper;
     test_helper.initialize();
@@ -1101,7 +1118,11 @@ TEST_CASE("ring_buffer_reserve_submit_discard", "[platform]")
     size_t size = 64 * 1024;
 
     REQUIRE(ebpf_ring_buffer_create(&ring_buffer, size) == EBPF_SUCCESS);
-    REQUIRE(ebpf_ring_buffer_map_buffer(ring_buffer, &buffer) == EBPF_SUCCESS);
+
+    void* consumer_ptr = nullptr;
+    void* producer_ptr = nullptr;
+    REQUIRE(ebpf_ring_buffer_map_user(ring_buffer, &consumer_ptr, &producer_ptr, &buffer, &size) == EBPF_SUCCESS);
+    REQUIRE(size == 64 * 1024);
 
     ebpf_ring_buffer_query(ring_buffer, &consumer, &producer);
 
@@ -1114,7 +1135,7 @@ TEST_CASE("ring_buffer_reserve_submit_discard", "[platform]")
     REQUIRE(mem1 != nullptr);
     // Wrapping ebpf_ring_buffer_submit in a REQUIRE macro causes code analysis
     // to fail with error warning C6001: Using uninitialized memory 'mem1'.
-    ebpf_result_t result = ebpf_ring_buffer_submit(mem1);
+    ebpf_result_t result = ebpf_ring_buffer_submit(mem1, 0);
     // Workaround for code analysis failure:
     // C28193: 'result' holds a value that must be examined.
     if (result != EBPF_SUCCESS) {
@@ -1126,7 +1147,7 @@ TEST_CASE("ring_buffer_reserve_submit_discard", "[platform]")
     REQUIRE(mem2 != nullptr);
     // Wrapping ebpf_ring_buffer_submit in a REQUIRE macro causes code analysis
     // to fail with error warning C6001: Using uninitialized memory 'mem1'.
-    result = ebpf_ring_buffer_discard(mem2);
+    result = ebpf_ring_buffer_discard(mem2, 0);
     // Workaround for code analysis failure:
     // C28193: 'result' holds a value that must be examined.
     if (result != EBPF_SUCCESS) {
@@ -1144,6 +1165,638 @@ TEST_CASE("ring_buffer_reserve_submit_discard", "[platform]")
 
     ebpf_ring_buffer_destroy(ring_buffer);
     ring_buffer = nullptr;
+}
+
+struct ring_buffer_stress_test_parameters_t
+{
+    size_t producer_threads;
+    size_t data_size;
+    double discard_rate;
+    size_t duration_ms;
+    size_t producer_wait_us;
+    size_t consumer_wait_us;
+    size_t producer_delay_us;
+    size_t consumer_delay_us;
+    bool use_output;
+    bool do_copy;
+    const char* test_name;
+    const char* test_string;
+};
+
+struct ring_buffer_test_barrier_t
+{
+    size_t count;
+    std::condition_variable condition;
+    std::mutex mutex;
+    ring_buffer_test_barrier_t(size_t count) : count(count) {}
+
+    void
+    barrier()
+    {
+        if (count == 0) {
+            return;
+        }
+        std::unique_lock<std::mutex> lock(mutex);
+        if (--count == 0) {
+            condition.notify_all();
+        } else {
+            condition.wait(lock, [this]() { return count == 0; });
+        }
+    }
+
+    size_t
+    barrier_for(size_t timeout_ms)
+    {
+        if (count == 0) {
+            return 0;
+        }
+        std::unique_lock<std::mutex> lock(mutex);
+        if (--count == 0) {
+            condition.notify_all();
+        } else {
+            condition.wait_for(lock, std::chrono::milliseconds(timeout_ms), [this]() { return count == 0; });
+        }
+        return count;
+    }
+
+    void
+    clear_barrier()
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        count = 0;
+        condition.notify_all();
+    }
+};
+
+struct ring_buffer_stress_test_producer_context_t
+{
+    ebpf_ring_buffer_t* ring = NULL;
+    bool scheduled_late = false;
+    size_t loop_count = 0;
+    size_t output_count = 0;
+    size_t reserve_count = 0;
+    size_t submit_count = 0;
+    size_t discard_count = 0;
+    size_t failed_submits = 0;
+    size_t failed_discards = 0;
+    volatile std::atomic<bool>* stop = NULL;
+    ring_buffer_test_barrier_t* barrier = NULL;
+};
+
+struct ring_buffer_stress_test_consumer_context_t
+{
+    ebpf_ring_buffer_t* ring = NULL;
+    bool scheduled_late = false;
+    size_t loop_count = 0;
+    size_t record_count = 0;
+    size_t locked_records = 0;
+    size_t discarded_records = 0;
+    size_t failed_returns = 0;
+    size_t empty_records = 0;
+    size_t failed_waits = 0;
+    volatile std::atomic<bool>* stop = NULL;
+    ring_buffer_test_barrier_t* barrier = NULL;
+    KEVENT* wait_event = NULL;
+};
+
+void
+ring_buffer_stress_test_producer_output(
+    ring_buffer_stress_test_producer_context_t* context, const ring_buffer_stress_test_parameters_t* parameters)
+{
+    size_t data_size = parameters->data_size;
+    size_t wait_us = parameters->producer_wait_us;   // How long to wait after a failed output.
+    size_t delay_us = parameters->producer_delay_us; // How long to delay between iterations.
+
+    std::vector<uint8_t> data(data_size);
+
+    if (*context->stop) {
+        context->scheduled_late = true;
+    }
+
+    context->barrier->barrier();
+    while (!*context->stop) {
+        context->loop_count++;
+        if (ebpf_ring_buffer_output(context->ring, data.data(), data.size()) == EBPF_SUCCESS) {
+            context->output_count++;
+        } else if (wait_us > 0) {
+            std::this_thread::sleep_for(std::chrono::microseconds(wait_us));
+        } else {
+            YieldProcessor();
+        }
+        if (delay_us > 0) {
+            std::this_thread::sleep_for(std::chrono::microseconds(delay_us));
+        }
+    }
+}
+
+void
+ring_buffer_stress_test_producer_reserve_submit(
+    ring_buffer_stress_test_producer_context_t* context, const ring_buffer_stress_test_parameters_t* parameters)
+{
+    size_t data_size = parameters->data_size;
+    double discard_rate = parameters->discard_rate;
+    size_t wait_us = parameters->producer_wait_us;   // How long to wait after a failed reserve.
+    size_t delay_us = parameters->producer_delay_us; // How long to delay between iterations.
+    bool do_copy = parameters->do_copy;
+
+    ebpf_ring_buffer_t* ring = context->ring;
+
+    std::vector<uint8_t> data(data_size);
+
+    if (*context->stop) {
+        context->scheduled_late = true;
+    }
+
+    context->barrier->barrier();
+    while (!*context->stop) {
+        context->loop_count++;
+        uint8_t* record_data = nullptr;
+        if (ebpf_ring_buffer_reserve(ring, &record_data, data_size) == EBPF_SUCCESS) {
+            context->reserve_count++;
+            if ((static_cast<double>(ebpf_random_uint32()) / UINT32_MAX) > discard_rate) {
+                if (do_copy) {
+                    memcpy(record_data, data.data(), data.size());
+                }
+                if (ebpf_ring_buffer_submit(record_data, 0) == EBPF_SUCCESS) {
+                    context->submit_count++;
+                } else {
+                    context->failed_submits++;
+                }
+            } else {
+                if (ebpf_ring_buffer_discard(record_data, 0) == EBPF_SUCCESS) {
+                    context->discard_count++;
+                } else {
+                    context->failed_discards++;
+                }
+            }
+        } else if (wait_us > 0) {
+            std::this_thread::sleep_for(std::chrono::microseconds(wait_us));
+        } else {
+            YieldProcessor();
+        }
+        if (delay_us > 0) {
+            std::this_thread::sleep_for(std::chrono::microseconds(delay_us));
+        }
+    }
+}
+
+void
+ring_buffer_stress_test_consumer(
+    ring_buffer_stress_test_consumer_context_t* context, const ring_buffer_stress_test_parameters_t* parameters)
+{
+    size_t wait_us = parameters->consumer_wait_us;   // How long to wait after seeing an empty buffer.
+    size_t delay_us = parameters->consumer_delay_us; // How long to delay between iterations.
+    ebpf_ring_buffer_t* ring = context->ring;
+
+    if (*context->stop) {
+        context->scheduled_late = true;
+    }
+
+    context->barrier->barrier();
+    while (!*context->stop) {
+        context->loop_count++;
+        size_t next_consumer_offset;
+        auto record = ebpf_ring_buffer_next_consumer_record(ring, &next_consumer_offset);
+        if (record != nullptr) {
+            if (ebpf_ring_buffer_record_is_locked(record)) {
+                context->locked_records++;
+                break;
+            } else if (ebpf_ring_buffer_record_is_discarded(record)) {
+                context->discarded_records++;
+            } else if (record->header.length == 0) {
+                context->empty_records++;
+                if (context->empty_records > 100) {
+                    break;
+                }
+            }
+            if (ebpf_ring_buffer_return_buffer(ring, next_consumer_offset) != EBPF_SUCCESS) {
+                context->failed_returns++;
+                break;
+            }
+            context->record_count++;
+        } else if (wait_us > 0) {
+            std::this_thread::sleep_for(std::chrono::microseconds(wait_us));
+        } else {
+            if (KeWaitForSingleObject(context->wait_event, Executive, KernelMode, FALSE, NULL) != WAIT_OBJECT_0) {
+                context->failed_waits++;
+            }
+        }
+        if (delay_us > 0) {
+            std::this_thread::sleep_for(std::chrono::microseconds(delay_us));
+        }
+    }
+}
+
+void
+run_ring_buffer_stress_test(
+    ebpf_ring_buffer_t* ring, const ring_buffer_stress_test_parameters_t* parameters, KEVENT* wait_event)
+{
+    size_t producer_threads = parameters->producer_threads;
+    size_t duration_ms = parameters->duration_ms;
+    bool use_output = parameters->use_output; // Producer(s) use output if true, else reserve and submit.
+
+    std::atomic<bool> stop = false;
+    ring_buffer_test_barrier_t barrier(producer_threads + 2); // +2 for the consumer thread, main thread.
+    ring_buffer_stress_test_consumer_context_t consumer_context;
+    consumer_context.ring = ring;
+    consumer_context.stop = &stop;
+    consumer_context.barrier = &barrier;
+    consumer_context.wait_event = wait_event;
+    std::vector<ring_buffer_stress_test_producer_context_t> producer_contexts(producer_threads);
+    for (auto& producer_context : producer_contexts) {
+        producer_context.ring = ring;
+        producer_context.stop = &stop;
+        producer_context.barrier = &barrier;
+    }
+
+    std::vector<std::thread> threads;
+    threads.emplace_back(std::thread(ring_buffer_stress_test_consumer, &consumer_context, parameters));
+    for (size_t i = 0; i < producer_threads; i++) {
+        if (use_output) {
+            threads.emplace_back(
+                std::thread(ring_buffer_stress_test_producer_output, &producer_contexts[i], parameters));
+        } else {
+            threads.emplace_back(
+                std::thread(ring_buffer_stress_test_producer_reserve_submit, &producer_contexts[i], parameters));
+        }
+    }
+
+    // Wait to start test until all threads are ready.
+    size_t blocked_threads = barrier.barrier_for(5000);
+    if (blocked_threads != 0) {
+        // This means 1 or more threads took more than 5 seconds to start.
+        stop = true;
+        barrier.clear_barrier(); // Release stuck threads.
+    } else {
+        // Wait for test duration and then stop the threads.
+        std::this_thread::sleep_for(std::chrono::milliseconds(duration_ms));
+        stop = true;
+    }
+
+    // Unblock consumer thread.
+    KeSetEvent(wait_event, 0, FALSE);
+
+    for (auto& thread : threads) {
+        thread.join();
+    }
+
+    bool consumer_late = consumer_context.scheduled_late;
+    size_t consumer_loops = consumer_context.loop_count;
+    size_t consumer_records = consumer_context.record_count;
+    size_t locked_records_read = consumer_context.locked_records;
+    size_t discarded_records_read = consumer_context.discarded_records;
+    size_t empty_records_read = consumer_context.empty_records;
+    size_t failed_returns = consumer_context.failed_returns;
+    size_t failed_waits = consumer_context.failed_waits;
+
+    size_t late_producer_threads = 0;
+    size_t producer_loops = 0;
+    size_t reserve_count = 0;
+    size_t submit_count = 0;
+    size_t discard_count = 0;
+    size_t output_count = 0;
+    size_t failed_submits = 0;
+    size_t failed_discards = 0;
+    for (size_t i = 0; i < producer_threads; i++) {
+        if (producer_contexts[i].scheduled_late) {
+            late_producer_threads++;
+        }
+        producer_loops += producer_contexts[i].loop_count;
+        reserve_count += producer_contexts[i].reserve_count;
+        submit_count += producer_contexts[i].submit_count;
+        discard_count += producer_contexts[i].discard_count;
+        output_count += producer_contexts[i].output_count;
+        failed_submits += producer_contexts[i].failed_submits;
+        failed_discards += producer_contexts[i].failed_discards;
+    }
+    size_t total_producer_records = submit_count + output_count;
+    CAPTURE(
+        consumer_late,
+        late_producer_threads,
+        producer_loops,
+        consumer_loops,
+        consumer_records,
+        locked_records_read,
+        discarded_records_read,
+        empty_records_read,
+        failed_returns,
+        failed_waits,
+        reserve_count);
+    std::cout << " == test case " << parameters->test_name << " (" << std::endl
+              << parameters->test_string << ")" << std::endl;
+    std::cout << "Consumer late: " << consumer_late << std::endl
+              << "Late producer threads: " << late_producer_threads << std::endl
+              << "Producer loops: " << producer_loops << std::endl
+              << "Consumer loops: " << consumer_loops << std::endl
+              << "Consumer records: " << consumer_records << std::endl
+              << "Locked records read: " << locked_records_read << std::endl
+              << "Discarded records read: " << discarded_records_read << std::endl
+              << "Empty records read: " << empty_records_read << std::endl
+              << "Failed returns: " << failed_returns << std::endl
+              << "Failed waits: " << failed_waits << std::endl;
+
+    if (use_output) {
+        CAPTURE(output_count);
+        std::cout << "Output count: " << output_count << std::endl;
+    } else {
+        CAPTURE(reserve_count, submit_count, discard_count, failed_submits, failed_discards);
+        std::cout << "Reserve count: " << reserve_count << std::endl
+                  << "Submit count: " << submit_count << std::endl
+                  << "Discard count: " << discard_count << std::endl
+                  << "Failed submits: " << failed_submits << std::endl
+                  << "Failed discards: " << failed_discards << std::endl;
+    }
+
+    // Read any remaining records.
+    size_t remaining_records = 0;
+    size_t remaining_discards = 0;
+    size_t remaining_locked = 0;
+    size_t remaining_failed_returns = 0;
+    {
+        size_t next_offset;
+        auto record = ebpf_ring_buffer_next_consumer_record(ring, &next_offset);
+        while (record != nullptr) {
+            remaining_records++;
+            uint32_t header = record->header.length;
+            size_t record_length = header & ~(EBPF_RINGBUF_DISCARD_BIT | EBPF_RINGBUF_LOCK_BIT);
+            if (header & EBPF_RINGBUF_LOCK_BIT) {
+                remaining_locked++;
+                break;
+            }
+            if (header & EBPF_RINGBUF_DISCARD_BIT) {
+                remaining_discards++;
+                break;
+            }
+            REQUIRE(record_length != 0);
+            if (ebpf_ring_buffer_return_buffer(ring, next_offset) != EBPF_SUCCESS) {
+                remaining_failed_returns++;
+                break;
+            }
+            if (remaining_records > total_producer_records - consumer_records + 2) {
+                break;
+            }
+            record = ebpf_ring_buffer_next_consumer_record(ring, &next_offset);
+        }
+    }
+    CAPTURE(remaining_records, remaining_discards, remaining_locked, remaining_failed_returns);
+    std::cout << "Remaining records: " << remaining_records << std::endl
+              << "Remaining discards: " << remaining_discards << std::endl
+              << "Remaining locked: " << remaining_locked << std::endl
+              << "Remaining failed returns: " << remaining_failed_returns << std::endl;
+
+    REQUIRE(blocked_threads == 0);
+
+    REQUIRE(total_producer_records == consumer_records + remaining_records);
+    REQUIRE(producer_loops > 0);
+    REQUIRE(consumer_loops > 0);
+
+    if (use_output) {
+        REQUIRE(output_count > 0);
+        REQUIRE(output_count == consumer_records + remaining_records);
+    } else {
+        REQUIRE(reserve_count > 0);
+        REQUIRE(reserve_count == submit_count + discard_count);
+        REQUIRE(submit_count == consumer_records + remaining_records);
+    }
+    REQUIRE(failed_submits == 0);
+    REQUIRE(failed_discards == 0);
+    REQUIRE(locked_records_read == 0);
+    REQUIRE(discarded_records_read == 0);
+    REQUIRE(empty_records_read == 0);
+    REQUIRE(failed_returns == 0);
+    REQUIRE(remaining_discards == 0);
+    REQUIRE(remaining_locked == 0);
+    REQUIRE(remaining_failed_returns == 0);
+    REQUIRE(failed_waits == 0);
+}
+
+TEST_CASE("ring_buffer_stress_test", "[platform][ring_buffer]")
+{
+    _test_helper test_helper;
+    test_helper.initialize();
+
+    uint32_t num_cpus = ebpf_get_cpu_count();
+    CAPTURE(num_cpus);
+    size_t test_duration_ms = 1000;
+
+    const ring_buffer_stress_test_parameters_t tests_params[] = {
+#define STRINGIZE2(x) #x
+#define STRINGIZE(x) STRINGIZE2(x)
+#define RING_TEST_CASE(                                           \
+    producer_threads,                                             \
+    data_size,                                                    \
+    discard_rate,                                                 \
+    producer_wait_us,                                             \
+    consumer_wait_us,                                             \
+    producer_delay_us,                                            \
+    consumer_delay_us,                                            \
+    use_output,                                                   \
+    do_copy,                                                      \
+    test_name)                                                    \
+    {producer_threads,                                            \
+     data_size,                                                   \
+     discard_rate,                                                \
+     test_duration_ms,                                            \
+     producer_wait_us,                                            \
+     consumer_wait_us,                                            \
+     producer_delay_us,                                           \
+     consumer_delay_us,                                           \
+     use_output,                                                  \
+     do_copy,                                                     \
+     test_name,                                                   \
+     "Line " STRINGIZE(__LINE__) ": { "                           \
+                                 "n=" #producer_threads ", "      \
+                                 "d=" #data_size ", "             \
+                                 "%=" #discard_rate ", "          \
+                                 "t=1s, "                         \
+                                 "pw_us=" #producer_wait_us ", "  \
+                                 "cw_us=" #consumer_wait_us ", "  \
+                                 "pd_us=" #producer_delay_us ", " \
+                                 "cd_us=" #consumer_delay_us ", " \
+                                 "o=" #use_output ", "            \
+                                 "cpy=" #do_copy "}"}
+        RING_TEST_CASE(1, 10, 0.0, 0, 0, 0, 0, true, true, "1 producer, small data, out"),
+        RING_TEST_CASE(4, 10, 0.0, 0, 0, 0, 0, true, true, "4 producers, small data, out"),
+        RING_TEST_CASE(4, 10, 0.0, 0, 0, 0, 0, false, true, "4 producers, small data, r/s"),
+        RING_TEST_CASE(1, 10, 0.0, 0, 0, 0, 0, false, false, "4 producers, small data, r/s, no copy"),
+        RING_TEST_CASE(4, 1024, 0.0, 0, 0, 0, 0, true, true, "4 producers, large data, out"),
+        RING_TEST_CASE(4, 10, 0.0, 0, 1, 0, 1, true, true, "4 producers, small data, consumer delay, out"),
+        RING_TEST_CASE(4, 10, 0.0, 1, 0, 1, 0, true, true, "4 producers, small data, producer delay, out"),
+        RING_TEST_CASE(4, 10, 0.5, 0, 0, 0, 0, false, false, "4 producers, small data, r/s 50% discard"),
+        RING_TEST_CASE(4, 10, 1.0, 0, 0, 0, 0, false, false, "4 producers, small data, r/s 100% discard"),
+#undef RING_TEST_CASE
+#undef STRINGIZE
+#undef STRINGIZE2
+    };
+
+    ebpf_ring_buffer_t* ring_buffer;
+    REQUIRE(ebpf_ring_buffer_create(&ring_buffer, 64 * 1024) == EBPF_SUCCESS);
+
+    _wait_event event;
+
+    REQUIRE(ebpf_ring_buffer_set_wait_handle(ring_buffer, event.handle(), 0) == EBPF_SUCCESS);
+
+    for (auto& test_params : tests_params) {
+        std::string test_name = test_params.test_name;
+        std::string test_string = test_params.test_string;
+        CAPTURE(test_name, test_string);
+        run_ring_buffer_stress_test(ring_buffer, &test_params, &event);
+    }
+    ebpf_ring_buffer_destroy(ring_buffer);
+}
+
+TEST_CASE("ring_buffer_notify", "[platform][ring_buffer]")
+{
+    _test_helper test_helper;
+    LARGE_INTEGER timeout{0};
+    test_helper.initialize();
+
+    _wait_event event;
+
+    ebpf_ring_buffer_t* ring_buffer;
+    REQUIRE(ebpf_ring_buffer_create(&ring_buffer, 64 * 1024) == EBPF_SUCCESS);
+
+    std::vector<uint8_t> data(10);
+
+    REQUIRE(ebpf_ring_buffer_set_wait_handle(ring_buffer, event.handle(), 0) == EBPF_SUCCESS);
+
+    // Nothing added yet, wait should fail.
+    REQUIRE(KeWaitForSingleObject(&event, Executive, KernelMode, TRUE, &timeout) == STATUS_TIMEOUT);
+
+    // Outputting data should post an event.
+    REQUIRE(ebpf_ring_buffer_output(ring_buffer, data.data(), data.size()) == EBPF_SUCCESS);
+    REQUIRE(KeWaitForSingleObject(&event, Executive, KernelMode, TRUE, &timeout) == STATUS_SUCCESS);
+    KeClearEvent(&event);
+
+    // Now empty, wait should fail.
+    LARGE_INTEGER short_timeout{};
+    short_timeout.QuadPart = -100000LL; // 10ms in 100ns units, negative for relative time.
+    REQUIRE(KeWaitForSingleObject(&event, Executive, KernelMode, TRUE, &short_timeout) == STATUS_TIMEOUT);
+
+    // Worker thread waits for event, main thread writes data and wakes worker.
+    LARGE_INTEGER one_second{};
+    one_second.QuadPart = -10000000LL; // Relative time, negative, 1 second in 100ns units.
+    KeClearEvent(&event);
+    std::atomic<bool> worker_awake{false};
+    std::thread worker([&]() {
+        NTSTATUS status = KeWaitForSingleObject(&event, Executive, KernelMode, TRUE, &one_second);
+        worker_awake = (status == STATUS_SUCCESS);
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    REQUIRE(!worker_awake);
+    REQUIRE(ebpf_ring_buffer_output(ring_buffer, data.data(), data.size()) == EBPF_SUCCESS);
+    worker.join();
+    REQUIRE(worker_awake);
+    KeClearEvent(&event);
+
+    // Multiple notifications: event should be signaled for each new record.
+    for (int i = 0; i < 3; ++i) {
+        REQUIRE(ebpf_ring_buffer_output(ring_buffer, data.data(), data.size()) == EBPF_SUCCESS);
+        REQUIRE(KeWaitForSingleObject(&event, Executive, KernelMode, TRUE, &short_timeout) == STATUS_SUCCESS);
+        KeClearEvent(&event);
+    }
+
+    // After event is signaled and cleared, wait should timeout if no new data.
+    REQUIRE(KeWaitForSingleObject(&event, Executive, KernelMode, TRUE, &short_timeout) == STATUS_TIMEOUT);
+
+    // Test reserve/submit/discard with different flags.
+    // Clear any remaining data first.
+    size_t next_offset;
+    while (ebpf_ring_buffer_next_consumer_record(ring_buffer, &next_offset) != nullptr) {
+        REQUIRE(ebpf_ring_buffer_return_buffer(ring_buffer, next_offset) == EBPF_SUCCESS);
+    }
+
+    // Test 1: EBPF_RINGBUF_FLAG_NO_WAKEUP - should not signal event.
+    uint8_t* reserved_data = nullptr;
+    REQUIRE(ebpf_ring_buffer_reserve(ring_buffer, &reserved_data, data.size()) == EBPF_SUCCESS);
+    REQUIRE(reserved_data != nullptr);
+
+    // Submit with NO_WAKEUP flag - should not signal event.
+    REQUIRE(ebpf_ring_buffer_submit(reserved_data, EBPF_RINGBUF_FLAG_NO_WAKEUP) == EBPF_SUCCESS);
+    REQUIRE(KeWaitForSingleObject(&event, Executive, KernelMode, TRUE, &short_timeout) == STATUS_TIMEOUT);
+
+    // Consume the record.
+    auto record = ebpf_ring_buffer_next_consumer_record(ring_buffer, &next_offset);
+    REQUIRE(record != nullptr);
+    REQUIRE(ebpf_ring_buffer_return_buffer(ring_buffer, next_offset) == EBPF_SUCCESS);
+
+    // Test 2: EBPF_RINGBUF_FLAG_FORCE_WAKEUP - should always signal event.
+    REQUIRE(ebpf_ring_buffer_reserve(ring_buffer, &reserved_data, data.size()) == EBPF_SUCCESS);
+    REQUIRE(reserved_data != nullptr);
+
+    // Submit with FORCE_WAKEUP flag - should signal event even if ring is empty.
+    REQUIRE(ebpf_ring_buffer_submit(reserved_data, EBPF_RINGBUF_FLAG_FORCE_WAKEUP) == EBPF_SUCCESS);
+    REQUIRE(KeWaitForSingleObject(&event, Executive, KernelMode, TRUE, &short_timeout) == STATUS_SUCCESS);
+    KeClearEvent(&event);
+
+    // Consume the record.
+    record = ebpf_ring_buffer_next_consumer_record(ring_buffer, &next_offset);
+    REQUIRE(record != nullptr);
+    REQUIRE(ebpf_ring_buffer_return_buffer(ring_buffer, next_offset) == EBPF_SUCCESS);
+
+    // Test 3: Default behavior (flags = 0) - adaptive notification.
+    REQUIRE(ebpf_ring_buffer_reserve(ring_buffer, &reserved_data, data.size()) == EBPF_SUCCESS);
+    REQUIRE(reserved_data != nullptr);
+
+    // Submit with default flags - should signal event since ring was empty.
+    REQUIRE(ebpf_ring_buffer_submit(reserved_data, 0) == EBPF_SUCCESS);
+    REQUIRE(KeWaitForSingleObject(&event, Executive, KernelMode, TRUE, &short_timeout) == STATUS_SUCCESS);
+    KeClearEvent(&event);
+
+    // Consume the record.
+    record = ebpf_ring_buffer_next_consumer_record(ring_buffer, &next_offset);
+    REQUIRE(record != nullptr);
+    REQUIRE(ebpf_ring_buffer_return_buffer(ring_buffer, next_offset) == EBPF_SUCCESS);
+
+    // Test 4: Discard with different flags.
+    REQUIRE(ebpf_ring_buffer_reserve(ring_buffer, &reserved_data, data.size()) == EBPF_SUCCESS);
+    REQUIRE(reserved_data != nullptr);
+
+    // Discard with NO_WAKEUP flag - should not signal event.
+    REQUIRE(ebpf_ring_buffer_discard(reserved_data, EBPF_RINGBUF_FLAG_NO_WAKEUP) == EBPF_SUCCESS);
+    REQUIRE(KeWaitForSingleObject(&event, Executive, KernelMode, TRUE, &short_timeout) == STATUS_TIMEOUT);
+
+    // Verify discarded record is skipped.
+    record = ebpf_ring_buffer_next_consumer_record(ring_buffer, &next_offset);
+    REQUIRE(record == nullptr);
+
+    // Test 5: Discard with FORCE_WAKEUP flag.
+    REQUIRE(ebpf_ring_buffer_reserve(ring_buffer, &reserved_data, data.size()) == EBPF_SUCCESS);
+    REQUIRE(reserved_data != nullptr);
+
+    // Discard with FORCE_WAKEUP flag - should signal event.
+    REQUIRE(ebpf_ring_buffer_discard(reserved_data, EBPF_RINGBUF_FLAG_FORCE_WAKEUP) == EBPF_SUCCESS);
+    REQUIRE(KeWaitForSingleObject(&event, Executive, KernelMode, TRUE, &short_timeout) == STATUS_SUCCESS);
+    KeClearEvent(&event);
+
+    // Verify discarded record is skipped.
+    record = ebpf_ring_buffer_next_consumer_record(ring_buffer, &next_offset);
+    REQUIRE(record == nullptr);
+
+    // Test 6: Mixed submit and discard with different flags.
+    // Submit a record with NO_WAKEUP.
+    REQUIRE(ebpf_ring_buffer_reserve(ring_buffer, &reserved_data, data.size()) == EBPF_SUCCESS);
+    REQUIRE(reserved_data != nullptr);
+    REQUIRE(ebpf_ring_buffer_submit(reserved_data, EBPF_RINGBUF_FLAG_NO_WAKEUP) == EBPF_SUCCESS);
+    REQUIRE(KeWaitForSingleObject(&event, Executive, KernelMode, TRUE, &short_timeout) == STATUS_TIMEOUT);
+
+    // Discard a record with FORCE_WAKEUP.
+    REQUIRE(ebpf_ring_buffer_reserve(ring_buffer, &reserved_data, data.size()) == EBPF_SUCCESS);
+    REQUIRE(reserved_data != nullptr);
+    REQUIRE(ebpf_ring_buffer_discard(reserved_data, EBPF_RINGBUF_FLAG_FORCE_WAKEUP) == EBPF_SUCCESS);
+    REQUIRE(KeWaitForSingleObject(&event, Executive, KernelMode, TRUE, &short_timeout) == STATUS_SUCCESS);
+    KeClearEvent(&event);
+
+    // Consume the submitted record (discarded one should be skipped).
+    record = ebpf_ring_buffer_next_consumer_record(ring_buffer, &next_offset);
+    REQUIRE(record != nullptr);
+    REQUIRE(ebpf_ring_buffer_return_buffer(ring_buffer, next_offset) == EBPF_SUCCESS);
+
+    // Verify no more records.
+    record = ebpf_ring_buffer_next_consumer_record(ring_buffer, &next_offset);
+    REQUIRE(record == nullptr);
+
+    ebpf_ring_buffer_destroy(ring_buffer);
 }
 
 TEST_CASE("error codes", "[platform]")
@@ -1445,4 +2098,37 @@ TEST_CASE("work_queue", "[platform]")
 
     // Verify the queue is now empty.
     REQUIRE(ebpf_timed_work_queue_is_empty(work_queue) == true);
+}
+
+TEST_CASE("hash_of_file", "[platform]")
+{
+    _test_helper test_helper;
+    test_helper.initialize();
+
+    const char* file_name = "test_file.txt";
+    const char* file_content = "This is a test file.";
+    std::ofstream file(file_name);
+    file << file_content;
+    file.close();
+
+    cxplat_utf8_string_t file_path;
+    file_path.value = reinterpret_cast<uint8_t*>(const_cast<char*>(file_name));
+    file_path.length = strlen(file_name);
+
+    const cxplat_utf8_string_t algorithm{.value = reinterpret_cast<uint8_t*>((char*)"SHA256"), .length = 6};
+
+    std::vector<uint8_t> hash_value(32);
+    std::vector<uint8_t> expected_hash_value{0xf2, 0x9b, 0xc6, 0x4a, 0x9d, 0x37, 0x32, 0xb4, 0xb9, 0x03, 0x51,
+                                             0x25, 0xfd, 0xb3, 0x28, 0x5f, 0x5b, 0x64, 0x55, 0x77, 0x8e, 0xdc,
+                                             0xa7, 0x24, 0x14, 0x67, 0x1e, 0x0c, 0xa3, 0xb2, 0xe0, 0xde};
+    size_t hash_size = 0;
+    REQUIRE(
+        ebpf_hash_file_contents(&file_path, &algorithm, hash_value.data(), hash_value.size(), &hash_size) ==
+        EBPF_SUCCESS);
+
+    REQUIRE(hash_size == 32);
+    REQUIRE(std::equal(hash_value.begin(), hash_value.end(), expected_hash_value.begin()));
+
+    // Clean up the test file.
+    std::remove(file_name);
 }

@@ -47,7 +47,7 @@ static const NPI_CLIENT_CHARACTERISTICS _bpf2c_npi_client_characteristics = {
      &_bpf2c_npi_id,
      &_bpf2c_module_id,
      0,
-     &metadata_table}};
+     NULL}};
 
 static NTSTATUS
 _bpf2c_query_npi_module_id(
@@ -140,17 +140,11 @@ _bpf2c_npi_client_attach_provider(
         return STATUS_INVALID_PARAMETER;
     }
 
-#pragma warning(push)
-#pragma warning( \
-    disable : 6387) // Param 3 does not adhere to the specification for the function 'NmrClientAttachProvider'
-    // As per MSDN, client dispatch can be NULL, but SAL does not allow it.
-    // https://docs.microsoft.com/en-us/windows-hardware/drivers/ddi/netioddk/nf-netioddk-nmrclientattachprovider
     status = NmrClientAttachProvider(
-        nmr_binding_handle, client_context, NULL, &provider_binding_context, &provider_dispatch_table);
+        nmr_binding_handle, client_context, &metadata_table, &provider_binding_context, &provider_dispatch_table);
     if (status != STATUS_SUCCESS) {
         goto Done;
     }
-#pragma warning(pop)
     _bpf2c_nmr_provider_handle = nmr_binding_handle;
 
 Done:
@@ -176,7 +170,13 @@ _get_hash(_Outptr_result_buffer_maybenull_(*size) const uint8_t** hash, _Out_ si
 
 #pragma data_seg(push, "maps")
 static map_entry_t _maps[] = {
-    {0,
+    {
+     {0, 0},
+     {
+         1,                    // Current Version.
+         80,                   // Struct size up to the last field.
+         80,                   // Total struct size including padding.
+     },
      {
          BPF_MAP_TYPE_RINGBUF, // Type of map.
          0,                    // Size in bytes of a map key.
@@ -208,7 +208,11 @@ _get_global_variable_sections(
 }
 
 static helper_function_entry_t bind_monitor_helpers[] = {
-    {11, "helper_id_11"},
+    {
+     {1, 40, 40}, // Version header.
+     11,
+     "helper_id_11",
+    },
 };
 
 static GUID bind_monitor_program_type_guid = {
@@ -250,7 +254,7 @@ bind_monitor(void* context, const program_runtime_context_t* runtime_context)
 
     // EBPF_OP_LDXW pc=0 dst=r2 src=r1 offset=44 imm=0
 #line 26 "sample/bindmonitor_ringbuf.c"
-    r2 = *(uint32_t*)(uintptr_t)(r1 + OFFSET(44));
+    READ_ONCE_32(r2, r1, OFFSET(44));
     // EBPF_OP_JNE_IMM pc=1 dst=r2 src=r0 offset=8 imm=0
 #line 26 "sample/bindmonitor_ringbuf.c"
     if (r2 != IMMEDIATE(0)) {
@@ -260,10 +264,10 @@ bind_monitor(void* context, const program_runtime_context_t* runtime_context)
     }
     // EBPF_OP_LDXDW pc=2 dst=r2 src=r1 offset=0 imm=0
 #line 28 "sample/bindmonitor_ringbuf.c"
-    r2 = *(uint64_t*)(uintptr_t)(r1 + OFFSET(0));
+    READ_ONCE_64(r2, r1, OFFSET(0));
     // EBPF_OP_LDXDW pc=3 dst=r3 src=r1 offset=8 imm=0
 #line 28 "sample/bindmonitor_ringbuf.c"
-    r3 = *(uint64_t*)(uintptr_t)(r1 + OFFSET(8));
+    READ_ONCE_64(r3, r1, OFFSET(8));
     // EBPF_OP_JGE_REG pc=4 dst=r2 src=r3 offset=5 imm=0
 #line 28 "sample/bindmonitor_ringbuf.c"
     if (r2 >= r3) {
@@ -305,6 +309,7 @@ label_1:
 static program_entry_t _programs[] = {
     {
         0,
+        {1, 144, 144}, // Version header.
         bind_monitor,
         "bind",
         "bind",
@@ -330,8 +335,8 @@ _get_programs(_Outptr_result_buffer_(*count) program_entry_t** programs, _Out_ s
 static void
 _get_version(_Out_ bpf2c_version_t* version)
 {
-    version->major = 0;
-    version->minor = 21;
+    version->major = 1;
+    version->minor = 1;
     version->revision = 0;
 }
 

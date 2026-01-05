@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 
 # This workflow executes the OSSAR action.
-
+---
 name: ossar-scan
 
 on:
@@ -16,7 +16,7 @@ on:
 permissions:
   checks: read  # Required by fountainhead/action-wait-for-check to wait for another GitHub check to complete.
   contents: read  # Required by actions/checkout to fetch code.
-  security-events: write # Required by codeql task
+  security-events: write  # Required by codeql task
 
 jobs:
   scan:
@@ -35,52 +35,52 @@ jobs:
       BUILD_PLATFORM: x64
 
     steps:
-    - name: Harden Runner
-      uses: step-security/harden-runner@4d991eb9b905ef189e4c376166672c3f2f230481 # v2.11.0
-      with:
-        egress-policy: audit
+      - name: Harden Runner
+        uses: step-security/harden-runner@df199fb7be9f65074067a9eb93f12bb4c5547cf2  # v2.13.3
+        with:
+          egress-policy: audit
 
-    - id: skip_check
-      uses: fkirc/skip-duplicate-actions@f75f66ce1886f00957d99748a42c724f4330bdcf # v5.3.1
-      with:
-        cancel_others: 'false'
-        paths_ignore: '["**.md", "**/docs/**"]'
+      - id: skip_check
+        uses: fkirc/skip-duplicate-actions@f75f66ce1886f00957d99748a42c724f4330bdcf  # v5.3.1
+        with:
+          cancel_others: 'false'
+          paths_ignore: '["**.md", "**/docs/**"]'
 
-    # Checking out the branch is needed to correctly log security alerts.
-    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-      if: steps.skip_check.outputs.should_skip != 'true'
-      with:
-        # Only check out main repo, not submodules.
-        ref: ${{ github.event.workflow_run.head_branch }}
+      # Checking out the branch is needed to correctly log security alerts.
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        if: steps.skip_check.outputs.should_skip != 'true'
+        with:
+          # Only check out main repo, not submodules.
+          ref: ${{ github.event.workflow_run.head_branch }}
 
-    - name: Download build artifact
-      if: (steps.skip_check.outputs.should_skip != 'true') && success()
-      uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
-      id: download_artifact
-      with:
-        name: ${{inputs.build_artifact}}-${{matrix.configurations}}
-        path: ${{github.workspace}}
+      - name: Download build artifact
+        if: (steps.skip_check.outputs.should_skip != 'true') && success()
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53
+        id: download_artifact
+        with:
+          name: ${{inputs.build_artifact}}-${{matrix.configurations}}
+          path: ${{github.workspace}}
 
-    - name: Extract build artifact
-      if: steps.skip_check.outputs.should_skip != 'true'
-      working-directory: ${{github.workspace}}
-      run: |
-        mkdir ${{env.BUILD_PLATFORM}}
-        Expand-Archive .\build-${{ matrix.configurations }}.zip -DestinationPath .\${{env.BUILD_PLATFORM}}
+      - name: Extract build artifact
+        if: steps.skip_check.outputs.should_skip != 'true'
+        working-directory: ${{github.workspace}}
+        run: |
+          mkdir ${{env.BUILD_PLATFORM}}
+          Expand-Archive .\build-${{ matrix.configurations }}.zip -DestinationPath .\${{env.BUILD_PLATFORM}}
 
-    - name: Exclude external files
-      if: steps.skip_check.outputs.should_skip != 'true'
-      run: |
-        pushd ${{github.workspace}}/${{env.BUILD_PLATFORM}}/${{env.BUILD_CONFIGURATION}}
-        Remove-Item @("clang_rt.*", "concrt*", "msvc*", "ucrt*", "vc*") -ErrorAction SilentlyContinue
+      - name: Exclude external files
+        if: steps.skip_check.outputs.should_skip != 'true'
+        run: |
+          pushd ${{github.workspace}}/${{env.BUILD_PLATFORM}}/${{env.BUILD_CONFIGURATION}}
+          Remove-Item @("clang_rt.*", "concrt*", "msvc*", "ucrt*", "vc*") -ErrorAction SilentlyContinue
 
-    - name: Run OSSAR (Open Source Static Analysis Runner)
-      if: steps.skip_check.outputs.should_skip != 'true'
-      uses: github/ossar-action@4e96c4f6e591eb4b991abfd459e40b136a317aea
-      id: ossar
+      - name: Run OSSAR (Open Source Static Analysis Runner)
+        if: steps.skip_check.outputs.should_skip != 'true'
+        uses: github/ossar-action@4e96c4f6e591eb4b991abfd459e40b136a317aea
+        id: ossar
 
-    - name: Upload results to Security tab
-      if: steps.skip_check.outputs.should_skip != 'true'
-      uses: github/codeql-action/upload-sarif@b56ba49b26e50535fa1e7f7db0f4f7b4bf65d80d
-      with:
-        sarif_file: ${{ steps.ossar.outputs.sarifFile }}
+      - name: Upload results to Security tab
+        if: steps.skip_check.outputs.should_skip != 'true'
+        uses: github/codeql-action/upload-sarif@cf1bb45a277cb3c205638b2cd5c984db1c46a412
+        with:
+          sarif_file: ${{ steps.ossar.outputs.sarifFile }}

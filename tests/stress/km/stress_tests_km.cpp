@@ -13,6 +13,8 @@
 #include "socket_helper.h"
 #include "socket_tests_common.h"
 
+#include <io.h>
+
 // Note: The 'program' and 'execution' types are not required for km tests.
 static const std::map<std::string, test_program_attributes> _test_program_info = {
     {{"cgroup_sock_addr"},
@@ -135,6 +137,18 @@ _km_test_init()
             _global_test_control_info.programs.push_back({"cgroup_sock_addr"});
         }
     });
+
+    // Detach all programs.
+    // Enumerate all link objects and detach them.
+    uint32_t link_id = 0;
+    while (bpf_link_get_next_id(link_id, &link_id) == 0) {
+        fd_t link_fd = bpf_link_get_fd_by_id(link_id);
+        if (link_fd < 0) {
+            continue;
+        }
+        bpf_link_detach(link_fd);
+        _close(link_fd);
+    }
 }
 
 enum class service_state_type : uint32_t
@@ -1121,8 +1135,6 @@ _invoke_test_thread_function(thread_context& context)
 void
 _mt_invoke_prog_stress_test(ebpf_execution_type_t program_type, const test_control_info& test_control_info)
 {
-    UNREFERENCED_PARAMETER(program_type);
-
     WSAData data{};
     auto error = WSAStartup(MAKEWORD(2, 2), &data);
     REQUIRE(error == 0);
@@ -1141,9 +1153,15 @@ _mt_invoke_prog_stress_test(ebpf_execution_type_t program_type, const test_contr
         total_threads, {{}, {}, false, {}, thread_role_type::ROLE_NOT_SET, 0, 0, 0, false, 0, 0, object_table});
     std::vector<std::thread> test_thread_table(total_threads);
 
+    // Choose file extension based on execution type.
+    std::string file_extension = (program_type == EBPF_EXECUTION_NATIVE) ? ".sys" : ".o";
+    bool is_native = (program_type == EBPF_EXECUTION_NATIVE);
+
     std::vector<std::pair<std::string, std::string>> program_file_map_names = {
-        {{_make_unique_file_copy("cgroup_count_connect4.sys")}, {"connect4_count_map"}},
-        {{_make_unique_file_copy("cgroup_count_connect6.sys")}, {"connect6_count_map"}}};
+        {{is_native ? _make_unique_file_copy("cgroup_count_connect4.sys") : "cgroup_count_connect4.o"},
+         {"connect4_count_map"}},
+        {{is_native ? _make_unique_file_copy("cgroup_count_connect6.sys") : "cgroup_count_connect6.o"},
+         {"connect6_count_map"}}};
     ASSERT(program_file_map_names.size() == MAX_TCP_CONNECT_PROGRAMS);
 
     for (uint32_t i = 0; i < total_threads; i++) {
@@ -1151,7 +1169,7 @@ _mt_invoke_prog_stress_test(ebpf_execution_type_t program_type, const test_contr
         auto& context_entry = thread_context_table[i];
         auto& [file_name, map_name] = program_file_map_names[i];
         context_entry.file_name = file_name;
-        context_entry.is_native_program = true;
+        context_entry.is_native_program = is_native;
         context_entry.map_name = map_name;
         context_entry.role = (i == 0 ? thread_role_type::MONITOR_IPV4 : thread_role_type::MONITOR_IPV6);
         context_entry.thread_index = i;
@@ -1232,16 +1250,20 @@ _invoke_mt_sockaddr_thread_function(thread_context& context)
 }
 
 static void
-_mt_sockaddr_invoke_program_test(const test_control_info& test_control_info)
+_mt_sockaddr_invoke_program_test(ebpf_execution_type_t program_type, const test_control_info& test_control_info)
 {
     WSAData data{};
     auto error = WSAStartup(MAKEWORD(2, 2), &data);
     REQUIRE(error == 0);
 
+    // Choose file extension based on execution type.
+    bool is_native = (program_type == EBPF_EXECUTION_NATIVE);
+    std::string file_name = is_native ? _make_unique_file_copy("cgroup_mt_connect6.sys") : "cgroup_mt_connect6.o";
+
     std::vector<object_table_entry> dummy_table(1);
     thread_context program_load_context = {
         {}, {}, false, {}, thread_role_type::ROLE_NOT_SET, 0, 0, 0, false, 0, 0, dummy_table};
-    program_load_context.file_name = _make_unique_file_copy("cgroup_mt_connect6.sys");
+    program_load_context.file_name = file_name;
     program_load_context.thread_index = 0;
     auto [program_object, _] = _load_attach_program(program_load_context, BPF_CGROUP_INET6_CONNECT);
     REQUIRE(program_load_context.succeeded == true);
@@ -1254,7 +1276,7 @@ _mt_sockaddr_invoke_program_test(const test_control_info& test_control_info)
 
         // First, prepare the context for this thread.
         auto& context_entry = thread_context_table[i];
-        context_entry.is_native_program = true;
+        context_entry.is_native_program = is_native;
         context_entry.role = thread_role_type::MONITOR_IPV6;
         context_entry.thread_index = i;
         context_entry.duration_minutes = test_control_info.duration_minutes;
@@ -1299,11 +1321,6 @@ _print_test_control_info(const test_control_info& test_control_info)
     }
 }
 
-// The following code is used by the "bindmonitor_tail_call_invoke_program_test" test which is currently disabled due
-// to a potential WFP bug exposed while investigating Issue #3337.  Uncomment the following line to re-enable test.
-// #define ENABLE_TAIL_CALL_STRESS_TEST
-
-#if (defined ENABLE_TAIL_CALL_STRESS_TEST)
 static void
 _set_up_tailcall_program(bpf_object* object, const std::string& map_name)
 {
@@ -1531,18 +1548,24 @@ _load_attach_tail_program(thread_context& context, ebpf_attach_type_t attach_typ
 }
 
 static void
-_mt_bindmonitor_tail_call_invoke_program_test(const test_control_info& test_control_info)
+_mt_bindmonitor_tail_call_invoke_program_test(
+    ebpf_execution_type_t program_type, const test_control_info& test_control_info)
 {
     WSAData data{};
     auto error = WSAStartup(MAKEWORD(2, 2), &data);
     REQUIRE(error == 0);
+
+    // Choose file extension based on execution type.
+    bool is_native = (program_type == EBPF_EXECUTION_NATIVE);
+    std::string file_name =
+        is_native ? _make_unique_file_copy("bindmonitor_mt_tailcall.sys") : "bindmonitor_mt_tailcall.o";
 
     // Load the program.
     std::vector<object_table_entry> dummy_table(1);
     thread_context program_load_context = {
         {}, {}, false, {}, thread_role_type::ROLE_NOT_SET, 0, 0, 0, false, 0, 0, dummy_table};
     program_load_context.program_name = "BindMonitor_Caller";
-    program_load_context.file_name = _make_unique_file_copy("bindmonitor_mt_tailcall.sys");
+    program_load_context.file_name = file_name;
     program_load_context.map_name = "bind_tail_call_map";
     program_load_context.thread_index = 0;
     auto [program_object, _] =
@@ -1575,7 +1598,7 @@ _mt_bindmonitor_tail_call_invoke_program_test(const test_control_info& test_cont
 
         // First, prepare the context for this thread.
         auto& context_entry = thread_context_table[i];
-        context_entry.is_native_program = true;
+        context_entry.is_native_program = is_native;
         context_entry.role = thread_role_type::MONITOR_IPV6;
         context_entry.thread_index = i;
         context_entry.duration_minutes = test_control_info.duration_minutes;
@@ -1610,8 +1633,8 @@ _mt_bindmonitor_tail_call_invoke_program_test(const test_control_info& test_cont
     // Clean up Winsock.
     WSACleanup();
 }
-#endif // ENABLE_TAIL_CALL_STRESS_TEST
 
+#if !defined(CONFIG_BPF_JIT_DISABLED)
 TEST_CASE("jit_load_attach_detach_unload_random_v4_test", "[jit_mt_stress_test]")
 {
     // This test attempts to load the same JIT'ed ebpf program multiple times in different threads.  This test
@@ -1630,6 +1653,7 @@ TEST_CASE("jit_load_attach_detach_unload_random_v4_test", "[jit_mt_stress_test]"
     _print_test_control_info(local_test_control_info);
     _mt_prog_load_stress_test(EBPF_EXECUTION_JIT, local_test_control_info);
 }
+#endif // !defined(CONFIG_BPF_JIT_DISABLED)
 
 TEST_CASE("native_load_attach_detach_unload_random_v4_test", "[native_mt_stress_test]")
 {
@@ -1672,13 +1696,16 @@ TEST_CASE("native_unique_load_attach_detach_unload_random_v4_test", "[native_mt_
 
 TEST_CASE("native_invoke_v4_v6_programs_restart_extension_test", "[native_mt_stress_test]")
 {
+    // Multi-threaded stress test where each thread loads different programs with extension restart.
     // Test layout:
-    // 1. Create 2 'monitor' threads:
-    //    - Thread #1 loads a native ebpf SOCK_ADDR program that attaches to CGROUP/CONNECT4.
+    // 1. Create 2 'monitor' threads, each loading a DIFFERENT native eBPF program:
+    //    - Thread #1 loads a native eBPF SOCK_ADDR program (cgroup_count_connect4.sys) that attaches to
+    //    CGROUP/CONNECT4.
     //      > This program monitors an IPv4 endpoint, 127.0.0.1:<target_port>. On every invocation, the program updates
     //        the count (TCP) 'connect' attempts in the 'connect4_count_map' map at its port.
-    //    - Thread #2 loads another native ebpf SOCK_ADDR program that attaches to CGROUP/CONNECT6.
-    //      > The behavior of this program is identical to that of the v4 program (loaded by thread #1), except it is
+    //    - Thread #2 loads a DIFFERENT native eBPF SOCK_ADDR program (cgroup_count_connect6.sys) that attaches to
+    //    CGROUP/CONNECT6.
+    //      > The behavior of this program is similar to the v4 program (loaded by thread #1), except it is
     //        invoked for IPv6 connection attempts ([::1]:<target_port>).
     //
     // 2  Until the end of test, each test thread will:
@@ -1692,13 +1719,14 @@ TEST_CASE("native_invoke_v4_v6_programs_restart_extension_test", "[native_mt_str
     // 3. In parallel, start the 'extension restart' thread to continuously restart the netebpf extension
     //    (if specified on the command line).
     //
+    // NOTE: Each thread loads different programs to test eBPF component resiliency with different program instances.
     // NOTE: The '-tt', '-er' and the '-erd' command line parameters are not used by this test.
 
     _km_test_init();
     LOG_INFO("\nStarting test *** native_invoke_v4_v6_programs_restart_extension_test ***");
     test_control_info local_test_control_info = _global_test_control_info;
 
-    // This test needs only 2 threads (one per program).
+    // This test needs only 2 threads (one per different program).
     local_test_control_info.threads_count = 2;
 
     _print_test_control_info(local_test_control_info);
@@ -1712,7 +1740,7 @@ TEST_CASE("sockaddr_invoke_program_test", "[native_mt_stress_test]")
     //    - This program monitors an IPv6 endpoint, [::1]:<target_port>. On every invocation, the program returns a
     //      specific value per the following (arbitrary) algorithm:
     //      > (target_port % 3 == 0) : BPF_SOCK_ADDR_VERDICT_REJECT
-    //        (target_port % 2 == 0) : BPF_SOCK_ADDR_VERDICT_PROCEED
+    //        (target_port % 2 == 0) : BPF_SOCK_ADDR_VERDICT_PROCEED_SOFT
     //        else                   : BPF_SOCK_ADDR_VERDICT_REDIRECT
     //
     // 2. Create the specified # of threads and for the duration of test, each thread will:
@@ -1730,11 +1758,9 @@ TEST_CASE("sockaddr_invoke_program_test", "[native_mt_stress_test]")
     test_control_info local_test_control_info = _global_test_control_info;
 
     _print_test_control_info(local_test_control_info);
-    _mt_sockaddr_invoke_program_test(local_test_control_info);
+    _mt_sockaddr_invoke_program_test(EBPF_EXECUTION_NATIVE, local_test_control_info);
 }
 
-// The following test is currently disabled due to a potential WFP bug exposed while investigating Issue #3337.
-#if (defined ENABLE_TAIL_CALL_STRESS_TEST)
 TEST_CASE("bindmonitor_tail_call_invoke_program_test", "[native_mt_stress_test]")
 {
     // Test layout:
@@ -1749,6 +1775,404 @@ TEST_CASE("bindmonitor_tail_call_invoke_program_test", "[native_mt_stress_test]"
     test_control_info local_test_control_info = _global_test_control_info;
 
     _print_test_control_info(local_test_control_info);
-    _mt_bindmonitor_tail_call_invoke_program_test(local_test_control_info);
+    _mt_bindmonitor_tail_call_invoke_program_test(EBPF_EXECUTION_NATIVE, local_test_control_info);
 }
-#endif // ENABLE_TAIL_CALL_STRESS_TEST
+
+#if !defined(CONFIG_BPF_JIT_DISABLED)
+TEST_CASE("jit_unique_load_attach_detach_unload_random_v4_test", "[jit_mt_stress_test]")
+{
+    // This test attempts to load a unique JIT ebpf program multiple times in different threads. Specifically:
+    //
+    // - Load, attach, detach and unload each JIT ebpf program with each event happening in a different thread with
+    //   all threads executing in parallel with the bare minimum synchronization between them.
+    //
+    // - Addition of a dedicated thread continuously unloading/reloading the provider extension
+    //   (if specified on the command line).
+
+    _km_test_init();
+    LOG_INFO("\nStarting test *** jit_unique_load_attach_detach_unload_random_v4_test ***");
+    test_control_info local_test_control_info = _global_test_control_info;
+
+    // Use a unique JIT program for each 'creator' thread.
+    local_test_control_info.use_unique_native_programs = true;
+
+    _print_test_control_info(local_test_control_info);
+    _mt_prog_load_stress_test(EBPF_EXECUTION_JIT, local_test_control_info);
+}
+
+TEST_CASE("jit_invoke_v4_v6_programs_restart_extension_test", "[jit_mt_stress_test]")
+{
+    // Test layout:
+    // 1. Create 2 'monitor' threads:
+    //    - Thread #1 loads a JIT ebpf SOCK_ADDR program that attaches to CGROUP/CONNECT4.
+    //      > This program monitors an IPv4 endpoint, 127.0.0.1:<target_port>. On every invocation, the program updates
+    //        the count (TCP) 'connect' attempts in the 'connect4_count_map' map at its port.
+    //    - Thread #2 loads another JIT ebpf SOCK_ADDR program that attaches to CGROUP/CONNECT6.
+    //      > The behavior of this program is identical to that of the v4 program (loaded by thread #1), except it is
+    //        invoked for IPv6 connection attempts ([::1]:<target_port>).
+    //
+    // 2  Until the end of test, each test thread will:
+    //    - Read the initial 'connect' count from its respective 'connect<v4|v6>_map' map.
+    //    - Attempt to (TCP) connect to its respective endpoint 'n' times.  Make 'n' large enough (4096?) to try
+    //      and collide with the extension restart event.
+    //    - Read the 'connect' count its respective map after this 'burst' connect attempt.
+    //    - Ensure that the counter keeps incrementing, irrespective of the netebpfext extension being restarted any
+    //      number of times.  A stalled counter is a fatal bug and the test should return failure.
+    //
+    // 3. In parallel, start the 'extension restart' thread to continuously restart the netebpf extension
+    //    (if specified on the command line).
+    //
+    // NOTE: The '-tt', '-er' and the '-erd' command line parameters are not used by this test.
+
+    _km_test_init();
+    LOG_INFO("\nStarting test *** jit_invoke_v4_v6_programs_restart_extension_test ***");
+    test_control_info local_test_control_info = _global_test_control_info;
+
+    // This test needs only 2 threads (one per program).
+    local_test_control_info.threads_count = 2;
+
+    _print_test_control_info(local_test_control_info);
+    _mt_invoke_prog_stress_test(EBPF_EXECUTION_JIT, local_test_control_info);
+}
+
+TEST_CASE("jit_sockaddr_invoke_program_test", "[jit_mt_stress_test]")
+{
+    // Test layout:
+    // 1. Load the "cgroup_mt_connect6.o" JIT ebpf program.
+    //    - This program monitors an IPv6 endpoint, [::1]:<target_port>. On every invocation, the program returns a
+    //      specific value per the following (arbitrary) algorithm:
+    //        (target_port % 3 == 0) : BPF_SOCK_ADDR_VERDICT_REJECT
+    //        (target_port % 2 == 0) : BPF_SOCK_ADDR_VERDICT_PROCEED_SOFT
+    //        else                   : BPF_SOCK_ADDR_VERDICT_REDIRECT
+    //
+    // 2. Create the specified # of threads and for the duration of test, each thread will:
+    //    - Attempt a TCP 'connect' to the remote endpoint [::1]:<target_port + thread_context.thread_index>
+    //      continuously in a loop.
+    //      (The test set up ensures that the thread_index passed in each thread_context is unique to that thread.)
+    //
+    //    We ignore the result of the 'connect' attempt as the intent here is to test the parallel invocation of the
+    //    WFP callout and ensure this test doesn't cause kernel mode crashes.
+    //
+    // 3. If specified, start the 'extension restart' thread as well to continuously restart the netebpf extension.
+
+    _km_test_init();
+    LOG_INFO("\nStarting test *** jit_sockaddr_invoke_program_test ***");
+    test_control_info local_test_control_info = _global_test_control_info;
+
+    _print_test_control_info(local_test_control_info);
+    _mt_sockaddr_invoke_program_test(EBPF_EXECUTION_JIT, local_test_control_info);
+}
+
+TEST_CASE("jit_bindmonitor_tail_call_invoke_program_test", "[jit_mt_stress_test]")
+{
+    // Test layout:
+    // 1. Load the "bindmonitor_mt_tailcall.o" JIT ebpf program.
+    // 2. Load MAX_TAIL_CALL_CNT tail call programs.
+    // 3. Create the specified number of threads.
+    //   - Each thread will invoke the TCP 'bind'.
+    //   - This will invoke MAX_TAIL_CALL_CNT tail call programs for permit.
+
+    _km_test_init();
+    LOG_INFO("\nStarting test *** jit_bindmonitor_tailcall_invoke_program_test ***");
+    test_control_info local_test_control_info = _global_test_control_info;
+
+    _print_test_control_info(local_test_control_info);
+    _mt_bindmonitor_tail_call_invoke_program_test(EBPF_EXECUTION_JIT, local_test_control_info);
+}
+#endif // !defined(CONFIG_BPF_JIT_DISABLED)
+
+static void
+_mt_load_stress_test_with_restart_timing(
+    ebpf_execution_type_t program_type, const test_control_info& test_control_info, bool start_restart_before_load)
+{
+    constexpr uint32_t OBJECT_TABLE_SIZE{64};
+    std::vector<object_table_entry> object_table(OBJECT_TABLE_SIZE);
+    for (uint32_t index = 0; auto& entry : object_table) {
+        entry.available = true;
+        entry.lock = std::make_unique<std::mutex>();
+        entry.object.reset();
+        entry.attach = !(index % 2) ? true : false;
+        entry.index = index++;
+        entry.reuse_count = 0;
+        entry.tag = 0xC001DEA1;
+    }
+
+    // We have 3 types of threads, so we need (test_control_info.threads_count * 3) total threads.
+    size_t total_threads = ((size_t)test_control_info.threads_count * 3);
+    std::vector<thread_context> thread_context_table(
+        total_threads, {{}, {}, false, {}, thread_role_type::ROLE_NOT_SET, 0, 0, 0, false, 0, 0, object_table});
+    std::vector<std::thread> test_thread_table(total_threads);
+
+    // Extension restart thread setup.
+    std::vector<std::string> extension_names;
+    std::vector<std::thread> extension_restart_thread_table;
+    std::vector<thread_context> extension_restart_thread_context_table;
+
+    // An incrementing 'compartment Id' to ensure that _each_ 'Attacher' thread gets a unique compartment id.
+    uint32_t compartment_id{1};
+
+    // Get the single program info - we only have one program in km tests.
+    const auto& program_info = _test_program_info.begin();
+    const auto& program_name = program_info->first;
+    const auto& program_attribs = program_info->second;
+    extension_names.push_back(program_attribs.extension_name);
+
+    // Configure context for each thread.
+    for (size_t i = 0; i < total_threads; i++) {
+        // First, prepare the context for this thread.
+        auto& context_entry = thread_context_table[i];
+        context_entry.program_name = program_name;
+
+        if (!(compartment_id % 3)) {
+            context_entry.role = thread_role_type::DESTROYER;
+        } else if (!(compartment_id % 2)) {
+            context_entry.role = thread_role_type::ATTACHER;
+        } else {
+            context_entry.role = thread_role_type::CREATOR;
+        }
+
+        if (program_type == EBPF_EXECUTION_NATIVE) {
+            context_entry.is_native_program = true;
+            if (test_control_info.use_unique_native_programs && context_entry.role == thread_role_type::CREATOR) {
+                // Create unique native programs for 'creator' threads only.
+                context_entry.file_name = _make_unique_file_copy(program_attribs.native_file_name);
+            } else {
+                context_entry.file_name = program_attribs.native_file_name;
+            }
+        } else {
+            context_entry.file_name = program_attribs.jit_file_name;
+        }
+        context_entry.thread_index = (uint32_t)i;
+        context_entry.compartment_id = compartment_id++;
+        context_entry.duration_minutes = test_control_info.duration_minutes;
+        context_entry.extension_restart_enabled = test_control_info.extension_restart_enabled;
+    }
+
+    // Handle extension restart timing.
+    if (test_control_info.extension_restart_enabled) {
+        if (start_restart_before_load) {
+            // Start extension restart immediately, then start load threads.
+            LOG_INFO("Starting extension restart BEFORE program loading threads");
+            configure_extension_restart(
+                test_control_info,
+                extension_names,
+                extension_restart_thread_table,
+                extension_restart_thread_context_table,
+                object_table);
+            // Small delay to ensure restart thread is running before we start load threads.
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        }
+    }
+
+    // Now create the program loading threads.
+    for (size_t i = 0; i < total_threads; i++) {
+        auto& context_entry = thread_context_table[i];
+        auto& thread_entry = test_thread_table[i];
+        thread_entry = std::move(std::thread(_test_thread_function, std::ref(context_entry)));
+    }
+
+    if (test_control_info.extension_restart_enabled && !start_restart_before_load) {
+        // Wait for programs to load, then start extension restart.
+        LOG_INFO("Waiting for programs to load, then starting extension restart");
+        std::this_thread::sleep_for(std::chrono::seconds(5)); // Give programs time to load and attach
+        configure_extension_restart(
+            test_control_info,
+            extension_names,
+            extension_restart_thread_table,
+            extension_restart_thread_context_table,
+            object_table);
+    }
+
+    wait_and_verify_test_threads(
+        test_control_info,
+        test_thread_table,
+        thread_context_table,
+        extension_restart_thread_table,
+        extension_restart_thread_context_table);
+}
+
+static void
+_mt_invoke_stress_test_multiple_programs(ebpf_execution_type_t program_type, const test_control_info& test_control_info)
+{
+    WSAData data{};
+    auto error = WSAStartup(MAKEWORD(2, 2), &data);
+    REQUIRE(error == 0);
+
+    // For testing different programs per thread, create multiple copies of programs.
+    constexpr uint32_t MAX_PROGRAM_COPIES = 4;
+
+    size_t actual_threads = std::min((size_t)test_control_info.threads_count, (size_t)MAX_PROGRAM_COPIES);
+    std::vector<object_table_entry> object_table(actual_threads);
+    for (uint32_t index = 0; auto& entry : object_table) {
+        entry.available = true;
+        entry.lock = std::make_unique<std::mutex>();
+        entry.object.reset();
+        entry.attach = !(index % 2) ? true : false;
+        entry.index = index++;
+        entry.reuse_count = 0;
+        entry.tag = 0xC001DEA1;
+    }
+
+    std::vector<thread_context> thread_context_table(
+        actual_threads, {{}, {}, false, {}, thread_role_type::ROLE_NOT_SET, 0, 0, 0, false, 0, 0, object_table});
+    std::vector<std::thread> test_thread_table(actual_threads);
+
+    for (uint32_t i = 0; i < actual_threads; i++) {
+        // First, prepare the context for this thread.
+        auto& context_entry = thread_context_table[i];
+
+        if (program_type == EBPF_EXECUTION_NATIVE) {
+            // For native programs, create unique file copies so each thread has a different program.
+            context_entry.file_name = _make_unique_file_copy("cgroup_sock_addr.sys");
+            context_entry.is_native_program = true;
+        } else {
+            // For JIT programs, all threads can load the same file (but get different instances).
+            context_entry.file_name = "cgroup_sock_addr.o";
+            context_entry.is_native_program = false;
+        }
+
+        context_entry.program_name = "cgroup_sock_addr";
+        context_entry.role = thread_role_type::CREATOR; // All threads are creators for this test
+        context_entry.thread_index = i;
+        context_entry.compartment_id = i + 1; // Unique compartment IDs
+        context_entry.duration_minutes = test_control_info.duration_minutes;
+        context_entry.extension_restart_enabled = test_control_info.extension_restart_enabled;
+    }
+
+    // Now create all the threads after context setup is complete.
+    for (uint32_t i = 0; i < actual_threads; i++) {
+        auto& context_entry = thread_context_table[i];
+        auto& thread_entry = test_thread_table[i];
+        thread_entry = std::move(std::thread(_test_thread_function, std::ref(context_entry)));
+    }
+
+    // If requested, start the 'extension stop-and-restart' thread for extension for this program type.
+    std::vector<std::string> extension_names = {"netebpfext"};
+    std::vector<std::thread> extension_restart_thread_table;
+    std::vector<thread_context> extension_restart_thread_context_table;
+    if (test_control_info.extension_restart_enabled) {
+        configure_extension_restart(
+            test_control_info,
+            extension_names,
+            extension_restart_thread_table,
+            extension_restart_thread_context_table,
+            object_table);
+    }
+
+    wait_and_verify_test_threads(
+        test_control_info,
+        test_thread_table,
+        thread_context_table,
+        extension_restart_thread_table,
+        extension_restart_thread_context_table);
+}
+
+#if !defined(CONFIG_BPF_JIT_DISABLED)
+TEST_CASE("load_attach_stress_test_restart_during_load_jit", "[jit_mt_stress_test]")
+{
+    // Test resiliency during program 'open + load + attach' sequence with extension restart.
+    // Starts extension restart immediately and then begins program loading in multiple threads.
+    // Tests JIT programs with multiple threads loading the same program.
+
+    _km_test_init();
+    LOG_INFO("\nStarting test *** load_attach_stress_test_restart_during_load_jit ***");
+    test_control_info local_test_control_info = _global_test_control_info;
+
+    // Enable extension restart if not already enabled.
+    local_test_control_info.extension_restart_enabled = true;
+
+    _print_test_control_info(local_test_control_info);
+    _mt_load_stress_test_with_restart_timing(EBPF_EXECUTION_JIT, local_test_control_info, true);
+}
+#endif // !defined(CONFIG_BPF_JIT_DISABLED)
+
+TEST_CASE("load_attach_stress_test_restart_during_load_native", "[native_mt_stress_test]")
+{
+    // Test resiliency during program 'open + load + attach' sequence with extension restart.
+    // Starts extension restart immediately and then begins program loading in multiple threads.
+    // Tests native programs with multiple threads loading copies of programs.
+
+    _km_test_init();
+    LOG_INFO("\nStarting test *** load_attach_stress_test_restart_during_load_native ***");
+    test_control_info local_test_control_info = _global_test_control_info;
+
+    // Enable extension restart and unique native programs for this test.
+    local_test_control_info.extension_restart_enabled = true;
+    local_test_control_info.use_unique_native_programs = true;
+
+    _print_test_control_info(local_test_control_info);
+    _mt_load_stress_test_with_restart_timing(EBPF_EXECUTION_NATIVE, local_test_control_info, true);
+}
+
+#if !defined(CONFIG_BPF_JIT_DISABLED)
+TEST_CASE("load_attach_stress_test_restart_after_load_jit", "[jit_mt_stress_test]")
+{
+    // Test resiliency after program 'open + load + attach' sequence with extension restart.
+    // Completes program loading first, then starts extension restart.
+    // Ensures loaded + attached programs continue to be invoked after extension restart.
+    // Tests JIT programs with multiple threads loading the same program.
+
+    _km_test_init();
+    LOG_INFO("\nStarting test *** load_attach_stress_test_restart_after_load_jit ***");
+    test_control_info local_test_control_info = _global_test_control_info;
+
+    // Enable extension restart if not already enabled.
+    local_test_control_info.extension_restart_enabled = true;
+
+    _print_test_control_info(local_test_control_info);
+    _mt_load_stress_test_with_restart_timing(EBPF_EXECUTION_JIT, local_test_control_info, false);
+}
+#endif // !defined(CONFIG_BPF_JIT_DISABLED)
+
+TEST_CASE("load_attach_stress_test_restart_after_load_native", "[native_mt_stress_test]")
+{
+    // Test resiliency after program 'open + load + attach' sequence with extension restart.
+    // Completes program loading first, then starts extension restart.
+    // Ensures loaded + attached programs continue to be invoked after extension restart.
+    // Tests native programs with multiple threads loading copies of programs.
+
+    _km_test_init();
+    LOG_INFO("\nStarting test *** load_attach_stress_test_restart_after_load_native ***");
+    test_control_info local_test_control_info = _global_test_control_info;
+
+    // Enable extension restart and unique native programs for this test.
+    local_test_control_info.extension_restart_enabled = true;
+    local_test_control_info.use_unique_native_programs = true;
+
+    _print_test_control_info(local_test_control_info);
+    _mt_load_stress_test_with_restart_timing(EBPF_EXECUTION_NATIVE, local_test_control_info, false);
+}
+
+#if !defined(CONFIG_BPF_JIT_DISABLED)
+TEST_CASE("invoke_different_programs_restart_extension_test_jit", "[jit_mt_stress_test]")
+{
+    // Multi-threaded stress test where each thread loads different programs with extension restart.
+    // Tests JIT programs with different programs in each thread.
+
+    _km_test_init();
+    LOG_INFO("\nStarting test *** invoke_different_programs_restart_extension_test_jit ***");
+    test_control_info local_test_control_info = _global_test_control_info;
+
+    // This test needs multiple threads for different programs.
+    local_test_control_info.threads_count = std::max(local_test_control_info.threads_count, 4u);
+
+    _print_test_control_info(local_test_control_info);
+    _mt_invoke_stress_test_multiple_programs(EBPF_EXECUTION_JIT, local_test_control_info);
+}
+#endif // !defined(CONFIG_BPF_JIT_DISABLED)
+
+TEST_CASE("invoke_different_programs_restart_extension_test_native", "[native_mt_stress_test]")
+{
+    // Multi-threaded stress test where each thread loads different programs with extension restart.
+    // Tests native programs with different programs in each thread.
+
+    _km_test_init();
+    LOG_INFO("\nStarting test *** invoke_different_programs_restart_extension_test_native ***");
+    test_control_info local_test_control_info = _global_test_control_info;
+
+    // This test needs multiple threads for different programs.
+    local_test_control_info.threads_count = std::max(local_test_control_info.threads_count, 4u);
+
+    _print_test_control_info(local_test_control_info);
+    _mt_invoke_stress_test_multiple_programs(EBPF_EXECUTION_NATIVE, local_test_control_info);
+}

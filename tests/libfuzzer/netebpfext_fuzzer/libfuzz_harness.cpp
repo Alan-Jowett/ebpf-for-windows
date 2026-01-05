@@ -113,9 +113,6 @@ FUZZ_EXPORT int __cdecl LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
 
     client_context.metadata = *metadata;
     switch (prog_type) {
-    case BPF_PROG_TYPE_XDP:
-        (void)helper.classify_test_packet(&FWPM_LAYER_INBOUND_MAC_FRAME_NATIVE, if_index);
-        break;
     case BPF_PROG_TYPE_BIND:
         (void)helper.test_bind_ipv4(&parameters);
         break;
@@ -126,8 +123,8 @@ FUZZ_EXPORT int __cdecl LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
         (void)helper.test_cgroup_inet6_connect(&parameters);
         break;
     case BPF_PROG_TYPE_SOCK_OPS:
-        (void)helper.test_sock_ops_v4(&parameters);
-        (void)helper.test_sock_ops_v6(&parameters);
+        (void)helper.test_sock_ops_v4(&parameters, nullptr);
+        (void)helper.test_sock_ops_v6(&parameters, nullptr);
         break;
     // Explicitly ignore all other program types.
     default:

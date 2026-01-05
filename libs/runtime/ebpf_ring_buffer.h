@@ -8,7 +8,44 @@
 
 CXPLAT_EXTERN_C_BEGIN
 
+#define EBPF_RING_BUFFER_HEADER_PAGES 3
+
+enum ebpf_ringbuf_wait_flags
+{
+    // These flags must match the values of BPF_RB_* in Linux.
+    EBPF_RINGBUF_FLAG_NO_WAKEUP = (1ULL << 0),
+    EBPF_RINGBUF_FLAG_FORCE_WAKEUP = (1ULL << 1),
+};
+
+typedef struct _ebpf_ring_buffer_consumer_page
+{
+    volatile size_t consumer_offset; ///< Consumer has read up to this offset.
+} ebpf_ring_buffer_consumer_page_t;
+
+static_assert(
+    sizeof(ebpf_ring_buffer_consumer_page_t) <= PAGE_SIZE, "ebpf_ring_buffer_consumer_page_t is larger than PAGE_SIZE");
+
+typedef struct _ebpf_ring_buffer_producer_page
+{
+    volatile size_t producer_offset; ///< Producer(s) have reserved up to this offset.
+} ebpf_ring_buffer_producer_page_t;
+
+static_assert(
+    sizeof(ebpf_ring_buffer_producer_page_t) <= PAGE_SIZE, "ebpf_ring_buffer_producer_page_t is larger than PAGE_SIZE");
+
+typedef struct _ebpf_ring_buffer_kernel_page
+{
+    PKEVENT wait_event;                      ///< Event to signal the producer thread.
+    volatile size_t producer_reserve_offset; ///< Next record to be reserved.
+} ebpf_ring_buffer_kernel_page_t;
+
+static_assert(
+    sizeof(ebpf_ring_buffer_kernel_page_t) <= PAGE_SIZE, "ebpf_ring_buffer_kernel_page_t is larger than PAGE_SIZE");
+
+// Forward declaration of opaque ring buffer structure
 typedef struct _ebpf_ring_buffer ebpf_ring_buffer_t;
+
+static_assert(sizeof(size_t) == 8, "size_t must be 8 bytes");
 
 /**
  * @brief Allocate a ring_buffer with capacity.
@@ -30,19 +67,105 @@ void
 ebpf_ring_buffer_destroy(_Frees_ptr_opt_ ebpf_ring_buffer_t* ring_buffer);
 
 /**
+ * @brief Set the wait handle for the ring buffer.
+ *
+ * This is used to notify the consumer when a record is available.
+ *
+ * @param[in, out] ring_buffer Ring buffer to update.
+ * @param[in] wait_handle Handle to notify the consumer.
+ * @param[in] flags Flags to control the behavior of the function. Must be 0.
+ * @retval EBPF_SUCCESS The operation was successful.
+ * @retval EBPF_INVALID_ARGUMENT The provided arguments are not valid.
+ */
+_Must_inspect_result_ ebpf_result_t
+ebpf_ring_buffer_set_wait_handle(
+    _Inout_ ebpf_ring_buffer_t* ring_buffer, _In_ ebpf_handle_t wait_handle, uint64_t flags);
+
+/**
  * @brief Write out a variable sized record to the ring buffer.
  *
  * @param[in, out] ring_buffer Ring buffer to write to.
  * @param[in] data Data to copy into record.
  * @param[in] length Length of data to copy.
  * @retval EBPF_SUCCESS Successfully wrote record ring buffer.
- * @retval EBPF_OUT_OF_SPACE Unable to output to ring buffer due to inadequate space.
+ * @retval EBPF_INVALID_ARGUMENT The length is < 1, > 2^31 -1, or > ring capacity.
+ * @retval EBPF_NO_MEMORY Failed to reserve space for record (ring buffer full).
  */
 _Must_inspect_result_ ebpf_result_t
 ebpf_ring_buffer_output(_Inout_ ebpf_ring_buffer_t* ring_buffer, _In_reads_bytes_(length) uint8_t* data, size_t length);
 
 /**
- * @brief Query the current ready and free offsets from the ring buffer.
+ * @brief Reserve a record in the ring buffer. Data buffer is valid until either ebpf_ring_buffer_submit,
+ * ebpf_ring_buffer_discard, or the end of the current epoch.
+ *
+ * @note This is safe for multiple producers to call at the same time.
+ *
+ * @param[in, out] ring_buffer Ring buffer to update.
+ * @param[out] data Pointer to start of reserved record data on success.
+ * @param[in] length Length of data buffer to reserve.
+ * @retval EBPF_SUCCESS Successfully reserved space in the ring buffer.
+ * @retval EBPF_INVALID_ARGUMENT The length is < 1, > 2^31 -1, or > ring capacity.
+ * @retval EBPF_NO_MEMORY Failed to reserve space for record (ring buffer full).
+ */
+_Must_inspect_result_ ebpf_result_t
+ebpf_ring_buffer_reserve(
+    _Inout_ ebpf_ring_buffer_t* ring_buffer, _Outptr_result_bytebuffer_(length) uint8_t** data, size_t length);
+
+/**
+ * @brief Reserve a record with exclusive access to a ring buffer. Data buffer is valid until either
+ * ebpf_ring_buffer_submit, ebpf_ring_buffer_discard, or the end of the current epoch.
+ *
+ * @note This function must only be called by a single thread, or by a single CPU at dispatch.
+ * It assumes the latest producer reserve offset was already seen on this CPU.
+ *
+ * @param[in, out] ring_buffer Ring buffer to update.
+ * @param[out] data Pointer to start of reserved record data on success.
+ * @param[in] length Length of data buffer to reserve.
+ * @retval EBPF_SUCCESS Successfully reserved space in the ring buffer.
+ * @retval EBPF_INVALID_ARGUMENT Unable to reserve space in the ring buffer.
+ */
+_Must_inspect_result_ ebpf_result_t
+ebpf_ring_buffer_reserve_exclusive(
+    _Inout_ ebpf_ring_buffer_t* ring_buffer, _Outptr_result_bytebuffer_(length) uint8_t** data, size_t length);
+
+/**
+ * @brief Mark a previously reserved buffer as available for reading.
+ *
+ * Clears the lock bit in the record header.
+ *
+ * Flags:
+ * - EBPF_RINGBUF_FLAG_NO_WAKEUP: No notification of new data availability.
+ * - EBPF_RINGBUF_FLAG_FORCE_WAKEUP: Notification of new data availability is sent unconditionally.
+ * - 0: Adaptive notification of new data availability is sent.
+ *
+ * @param[in] data Pointer to buffer to submit.
+ * @param[in] flags Flags to control notification.
+ * @retval EBPF_SUCCESS Record successfully submitted.
+ * @retval EBPF_INVALID_ARGUMENT Invalid record (data == NULL).
+ */
+_Must_inspect_result_ ebpf_result_t
+ebpf_ring_buffer_submit(_Frees_ptr_opt_ uint8_t* data, uint64_t flags);
+
+/**
+ * @brief Discard a previously reserved record.
+ *
+ * Tells the consumer to skip this record when reading and unlocks it.
+ *
+ * Flags:
+ * - EBPF_RINGBUF_FLAG_NO_WAKEUP: No notification of new data availability.
+ * - EBPF_RINGBUF_FLAG_FORCE_WAKEUP: Notification of new data availability is sent unconditionally.
+ * - 0: Adaptive notification of new data availability is sent.
+ *
+ * @param[in] data Pointer to buffer to submit.
+ * @param[in] flags Flags to control notification.
+ * @retval EBPF_SUCCESS Successfully discarded space in the ring buffer.
+ * @retval EBPF_INVALID_ARGUMENT Unable to discard space in the ring buffer.
+ */
+_Must_inspect_result_ ebpf_result_t
+ebpf_ring_buffer_discard(_Frees_ptr_opt_ uint8_t* data, uint64_t flags);
+
+/**
+ * @brief Query the current producer and consumer offsets from the ring buffer.
  *
  * @param[in] ring_buffer Ring buffer to query.
  * @param[out] consumer Offset of the first buffer that can be consumed.
@@ -52,59 +175,62 @@ void
 ebpf_ring_buffer_query(_In_ ebpf_ring_buffer_t* ring_buffer, _Out_ size_t* consumer, _Out_ size_t* producer);
 
 /**
- * @brief Mark one or more records in the ring buffer as returned to the ring.
+ * @brief Advance the consumer offset and return space to the ring.
  *
  * @param[in, out] ring_buffer Ring buffer to update.
- * @param[in] length Length of bytes to return to the ring buffer.
+ * @param[in] consumer_offset New consumer offset to advance to.
  * @retval EBPF_SUCCESS Successfully returned records to the ring buffer.
  * @retval EBPF_INVALID_ARGUMENT Unable to return records to the ring buffer.
  */
 _Must_inspect_result_ ebpf_result_t
-ebpf_ring_buffer_return(_Inout_ ebpf_ring_buffer_t* ring_buffer, size_t length);
+ebpf_ring_buffer_return_buffer(_Inout_ ebpf_ring_buffer_t* ring_buffer, size_t consumer_offset);
 
 /**
- * @brief Get pointer to the ring buffer shared data.
+ * @brief Get user space pointers to the ring buffer consumer and producer pages and data region.
  *
  * @param[in] ring_buffer Ring buffer to query.
- * @param[out] buffer Pointer to ring buffer data.
+ * @param[out] consumer Pointer to mapped consumer page.
+ * @param[out] producer Pointer to mapped producer page.
+ * @param[out] data Pointer to mapped data region.
  * @retval EBPF_SUCCESS Successfully mapped the ring buffer.
  * @retval EBPF_INVALID_ARGUMENT Unable to map the ring buffer.
  */
 _Must_inspect_result_ ebpf_result_t
-ebpf_ring_buffer_map_buffer(_In_ const ebpf_ring_buffer_t* ring_buffer, _Outptr_ uint8_t** buffer);
+ebpf_ring_buffer_map_user(
+    _In_ const ebpf_ring_buffer_t* ring_buffer,
+    _Outptr_ void** consumer,
+    _Outptr_ void** producer,
+    _Outptr_result_buffer_(*data_size) uint8_t** data,
+    _Out_ size_t* data_size);
 
 /**
- * @brief Reserve a buffer in the ring buffer. Buffer is valid until either ebpf_ring_buffer_submit,
- * ebpf_ring_buffer_discard, or the end of the current epoch.
+ * @brief Unmap the memory of a ring buffer.
  *
- * @param[in, out] ring_buffer Ring buffer to update.
- * @param[out] data Pointer to start of reserved buffer on success.
- * @param[in] length Length of buffer to reserve.
- * @retval EBPF_SUCCESS Successfully reserved space in the ring buffer.
- * @retval EBPF_INVALID_ARGUMENT Unable to reserve space in the ring buffer.
+ * @param[in] ring_buffer Ring buffer to unmap.
+ * @param[in] consumer Address of the consumer mapping.
+ * @param[in] producer Address of the producer mapping.
+ * @param[in] data Address of the data mapping.
+ * @retval EBPF_SUCCESS The operation was successful.
+ * @retval EBPF_INVALID_ARGUMENT Unable to unmap the buffer.
  */
 _Must_inspect_result_ ebpf_result_t
-ebpf_ring_buffer_reserve(
-    _Inout_ ebpf_ring_buffer_t* ring_buffer, _Outptr_result_bytebuffer_(length) uint8_t** data, size_t length);
+ebpf_ring_buffer_unmap_user(
+    _In_ const ebpf_ring_buffer_t* ring_buffer,
+    _In_ const void* consumer,
+    _In_ const void* producer,
+    _In_ const void* data);
 
 /**
- * @brief Mark a previously reserved buffer as available.
+ * @brief Get the next record in the ring buffer's data buffer, skipping any discarded records.
  *
- * @param[in] data Pointer to buffer to submit.
- * @retval EBPF_SUCCESS Successfully submitted space in the ring buffer.
- * @retval EBPF_INVALID_ARGUMENT Unable to submit space in the ring buffer.
- */
-_Must_inspect_result_ ebpf_result_t
-ebpf_ring_buffer_submit(_Frees_ptr_opt_ uint8_t* data);
-
-/**
- * @brief Mark a previously reserved buffer as discarded.
+ * The value returned in next_offset can be passed to ebpf_ring_buffer_return_buffer to return the space to the ring.
  *
- * @param[in] data Pointer to buffer to submit.
- * @retval EBPF_SUCCESS Successfully discarded space in the ring buffer.
- * @retval EBPF_INVALID_ARGUMENT Unable to discard space in the ring buffer.
+ * @param[in] ring_buffer Pointer to the ring buffer.
+ * @param[out] next_offset Pointer to the offset after the last byte of this record (if any).
+ * @return Pointer to the next record or NULL if no more records.
  */
-_Must_inspect_result_ ebpf_result_t
-ebpf_ring_buffer_discard(_Frees_ptr_opt_ uint8_t* data);
+_Must_inspect_result_ _Ret_maybenull_ const ebpf_ring_buffer_record_t*
+ebpf_ring_buffer_next_consumer_record(
+    _Inout_ ebpf_ring_buffer_t* ring_buffer, _When_(return != NULL, _Out_) size_t* next_offset);
 
 CXPLAT_EXTERN_C_END
