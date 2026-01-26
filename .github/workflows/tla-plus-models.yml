@@ -126,37 +126,31 @@ jobs:
             done
           done
 
-  tlaps:
-    name: TLAPS proof check
-    runs-on: ubuntu-latest
+      tlaps:
+        name: TLAPS proof check
+        runs-on: ubuntu-latest
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6.0.1
+        steps:
+          - name: Checkout
+            uses: actions/checkout@v6.0.1
 
-      - name: Detect TLAPS proof modules
-        id: detect
-        shell: bash
-        run: |
-          set -euo pipefail
+          - name: Install TLAPS (tlapm)
+            shell: bash
+            run: |
+              set -euo pipefail
 
-          if find models -name '*Proof*.tla' -print -quit | grep -q .; then
-            echo "has_proofs=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "No TLAPS proof modules found; skipping TLAPS job."
-            echo "has_proofs=false" >> "$GITHUB_OUTPUT"
-          fi
+              installer="tlaps-1.5.0-x86_64-linux-gnu-inst.bin"
+              curl -fsSL -o "${installer}" \
+                https://github.com/tlaplus/tlapm/releases/download/202210041448/${installer}
+              chmod a+x "${installer}"
 
-      - name: Build TLAPS Docker image
-        if: steps.detect.outputs.has_proofs == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          docker build -t ebpfw-tlaps -f tools/tlaps/Dockerfile .
+              prefix="${RUNNER_TEMP}/tlaps"
+              "./${installer}" -d "${prefix}"
 
-      - name: Run TLAPS proofs in container
-        if: steps.detect.outputs.has_proofs == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          docker run --rm -v "$PWD:/repo" -w /repo ebpfw-tlaps
+              echo "${prefix}/bin" >> "$GITHUB_PATH"
+
+          - name: Run TLAPS proofs
+            shell: bash
+            run: |
+              set -euo pipefail
+              bash scripts/run_tlaps.sh
