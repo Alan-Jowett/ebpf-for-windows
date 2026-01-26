@@ -15,10 +15,13 @@ Notes:
 - We start with proving that Init implies TypeOK.
 ***************************************************************************)
 
-ASSUME NCPUS \in Nat
-ASSUME MaxEpoch \in Nat /\ MaxEpoch >= 1
-
-THEOREM InitImpliesTypeOK == Init => TypeOK
+THEOREM InitImpliesTypeOK ==
+  ASSUME
+    /\ NCPUS \in Nat
+    /\ MaxEpoch \in Nat /\ MaxEpoch >= 1
+    /\ UsePublishedEpochForReader \in BOOLEAN
+    /\ UsePublishedEpochForRetire \in BOOLEAN
+  PROVE Init => TypeOK
 PROOF
   BY DEF Init, TypeOK, CPUS, ObjStates
 

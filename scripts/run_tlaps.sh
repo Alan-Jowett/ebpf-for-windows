@@ -46,6 +46,10 @@ echo "Running TLAPS on ${#unique_proof_files[@]} proof module(s)."
 
 for tla in "${unique_proof_files[@]}"; do
   echo "=== TLAPS: ${tla} ==="
+  # Ensure module dependencies can be found regardless of current working directory.
+  # TLAPS searches the current directory plus any -I include paths.
+  proof_dir="$(dirname "${tla}")"
+
   # --cleanfp avoids stale fingerprint caches in CI.
-  tlapm --cleanfp "${tla}"
+  tlapm -I "${proof_dir}" --method smt --cleanfp "${tla}"
 done
