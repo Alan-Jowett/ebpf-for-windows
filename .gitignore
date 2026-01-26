@@ -68,3 +68,6 @@ artifacts/
 
 states/**
 models/**/states/**
+
+# TLAPS proof cache.
+**/.tlacache/**

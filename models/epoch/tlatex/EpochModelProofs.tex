@@ -979,10 +979,14 @@ the concrete constant assignments in the \ensuremath{\.{*}.cfg} files.
 **************************************************************************
 \end{cpar}%
 \end{lcom}%
-\@x{ {\ASSUME} NCPUS \.{\in} Nat}%
-\@x{ {\ASSUME} MaxEpoch \.{\in} Nat \.{\land} MaxEpoch \.{\geq} 1}%
-\@pvspace{8.0pt}%
-\@x{ {\THEOREM} InitImpliesTypeOK \.{\defeq} Init \.{\implies} TypeOK}%
+\@x{ {\THEOREM} InitImpliesTypeOK \.{\defeq}}%
+\@x{\@s{8.2} {\ASSUME}}%
+\@x{\@s{16.4} \.{\land} NCPUS \.{\in} Nat}%
+\@x{\@s{16.4} \.{\land} MaxEpoch \.{\in} Nat \.{\land} MaxEpoch \.{\geq} 1}%
+\@x{\@s{16.4} \.{\land} UsePublishedEpochForReader \.{\in} {\BOOLEAN}}%
+ \@x{\@s{16.4} \.{\land} UsePublishedEpochForRetire\@s{4.15} \.{\in}
+ {\BOOLEAN}}%
+\@x{\@s{8.2} {\PROVE} Init \.{\implies} TypeOK}%
 \@x{ {\PROOF}}%
 \@x{\@s{8.2} {\BY} {\DEF} Init ,\, TypeOK ,\, CPUS ,\, ObjStates}%
 \@pvspace{8.0pt}%
