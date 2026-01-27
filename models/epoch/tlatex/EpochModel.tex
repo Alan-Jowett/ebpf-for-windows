@@ -1091,11 +1091,8 @@ Tune constants in the \ensuremath{.cfg} files in this folder.
 \@x{\@s{16.4} retire\_cpu\_epoch}%
 \@x{ {\rangle}}%
 \@pvspace{8.0pt}%
- \@x{ Max2 ( a ,\, b ) \.{\defeq} {\IF} a\@s{12.70} \.{\geq} b \.{\THEN} a
+ \@x{ Max2 ( a ,\, b )\@s{3.47} \.{\defeq} {\IF} a \.{\geq} b \.{\THEN} a
  \.{\ELSE} b}%
-\@pvspace{8.0pt}%
- \@x{ Min ( S ) \.{\defeq} {\CHOOSE} m \.{\in} S \.{:} \A\, x \.{\in} S \.{:}
- m \.{\leq} x}%
 \@pvspace{8.0pt}%
 \@x{ ActiveCPUs \.{\defeq} \{ c \.{\in} CPUS \.{:} reader\_active [ c ] \}}%
 \@pvspace{8.0pt}%
@@ -1270,12 +1267,12 @@ Protocol steps
 }%
 \@xx{}%
 \@x{ ComputeRelease \.{\defeq}}%
-\@x{\@s{16.4} \.{\land} \.{\LET} candidate \.{\defeq}}%
-\@x{\@s{52.01} {\IF} ActiveReaderEpochs \.{=} \{ \}}%
-\@x{\@s{68.26} \.{\THEN} published\_epoch \.{-} 1}%
-\@x{\@s{68.26} \.{\ELSE} ( Min ( ActiveReaderEpochs ) \.{-} 1 )}%
- \@x{\@s{27.51} \.{\IN} released\_epoch \.{'} \.{=} Max2 ( released\_epoch ,\,
- candidate )}%
+\@x{\@s{16.4} \.{\land} \E\, candidate \.{\in} 0 \.{\dotdot} MaxEpoch \.{:}}%
+\@x{\@s{31.61} \.{\land} candidate \.{\leq} ( published\_epoch \.{-} 1 )}%
+ \@x{\@s{31.61} \.{\land} \A\, c \.{\in} ActiveCPUs \.{:} candidate \.{<}
+ reader\_epoch [ c ]}%
+ \@x{\@s{31.61} \.{\land} released\_epoch \.{'} \.{=} Max2 ( released\_epoch
+ ,\, candidate )}%
  \@x{\@s{16.4} \.{\land} {\UNCHANGED} {\langle} published\_epoch ,\,
  cpu\_epoch ,\, reader\_active ,\, reader\_epoch ,\, reader\_holds ,\,
  obj\_state ,\, obj\_freed\_epoch ,\, retire\_published\_epoch ,\,

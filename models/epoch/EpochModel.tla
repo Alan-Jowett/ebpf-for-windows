@@ -60,8 +60,6 @@ vars == <<
 
 Max2(a, b) == IF a >= b THEN a ELSE b
 
-Min(S) == CHOOSE m \in S : \A x \in S : m <= x
-
 ActiveCPUs == { c \in CPUS : reader_active[c] }
 
 ActiveReaderEpochs == { reader_epoch[c] : c \in ActiveCPUs }
@@ -151,11 +149,10 @@ Retire(c) ==
 \* If there are active readers with captured epochs, we can only release epochs
 \* strictly less than the minimum active reader epoch.
 ComputeRelease ==
-    /\ LET candidate ==
-            IF ActiveReaderEpochs = {}
-                THEN published_epoch - 1
-                ELSE (Min(ActiveReaderEpochs) - 1)
-       IN released_epoch' = Max2(released_epoch, candidate)
+    /\ \E candidate \in 0..MaxEpoch :
+        /\ candidate <= (published_epoch - 1)
+        /\ \A c \in ActiveCPUs : candidate < reader_epoch[c]
+        /\ released_epoch' = Max2(released_epoch, candidate)
     /\ UNCHANGED << published_epoch, cpu_epoch, reader_active, reader_epoch, reader_holds, obj_state, obj_freed_epoch, retire_published_epoch, retire_cpu_epoch >>
 
 \* Reclaim when the release threshold covers the object's retirement epoch.
