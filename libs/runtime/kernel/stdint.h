@@ -16,6 +16,14 @@ typedef UINT64 uint64_t;
 
 #ifdef _WIN64
 typedef __int64 intptr_t;
+typedef unsigned __int64 uintptr_t;
+#ifndef UINTPTR_MAX
+#define UINTPTR_MAX 0xffffffffffffffffULL
+#endif
 #else
 typedef _W64 int intptr_t;
+typedef _W64 unsigned int uintptr_t;
+#ifndef UINTPTR_MAX
+#define UINTPTR_MAX 0xffffffffU
+#endif
 #endif
