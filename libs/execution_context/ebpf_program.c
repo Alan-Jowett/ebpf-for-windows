@@ -1274,6 +1274,7 @@ _ebpf_program_update_jit_helpers(
             goto Exit;
         }
 
+
         total_helper_function_addresses = (ebpf_helper_function_addresses_t*)ebpf_allocate_with_tag(
             sizeof(ebpf_helper_function_addresses_t), EBPF_POOL_TAG_DEFAULT);
         if (total_helper_function_addresses == NULL) {
@@ -1776,6 +1777,11 @@ _Requires_lock_held_(program->lock) static ebpf_result_t _ebpf_program_get_helpe
                 implicit_context = local_address.implicit_context;
                 found = true;
             }
+        }
+        // If this is not a general helper function and we are using trampoline, we can return now as we can't satisfy
+        // the request from program data.
+        if (helper_function_id > EBPF_MAX_GENERAL_HELPER_FUNCTION) {
+            goto Done;
         }
     }
 
