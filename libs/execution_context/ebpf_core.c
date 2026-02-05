@@ -417,6 +417,8 @@ ebpf_core_resolve_helper(
         goto Done;
     }
 
+    ebpf_assert(ebpf_program_get_code_type(program) != EBPF_CODE_NATIVE);
+
     return_value = ebpf_program_set_helper_function_ids(program, count_of_helpers, helper_function_ids);
     if (return_value != EBPF_SUCCESS) {
         goto Done;
@@ -1161,7 +1163,8 @@ _ebpf_core_protocol_program_test_run(
         goto Done;
     }
 
-    options = (ebpf_program_test_run_options_t*)ebpf_allocate_with_tag(sizeof(ebpf_program_test_run_options_t), EBPF_POOL_TAG_DEFAULT);
+    options = (ebpf_program_test_run_options_t*)ebpf_allocate_with_tag(
+        sizeof(ebpf_program_test_run_options_t), EBPF_POOL_TAG_DEFAULT);
     if (!options) {
         retval = EBPF_NO_MEMORY;
         goto Done;
