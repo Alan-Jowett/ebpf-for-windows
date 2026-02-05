@@ -83,6 +83,10 @@ typedef struct _ebpf_program
 
     ebpf_trampoline_table_t* trampoline_table;
 
+    // Flag indicating that the helpers are ready for invocation.
+    // This is set after the trampoline table is populated.
+    volatile bool helpers_ready;
+
     // Array of helper function ids referred by this program.
     size_t helper_function_count;
     uint32_t* helper_function_ids;
@@ -547,6 +551,12 @@ _ebpf_program_type_specific_program_information_attach_provider(
         goto Done;
     }
 
+    // Mark helpers as ready for invocation. This must be done after _ebpf_program_update_helpers
+    // populates the trampoline table, to prevent invocations with stale/uninitialized addresses.
+    // Use a memory barrier to ensure the trampoline table writes are visible before this flag.
+    MemoryBarrier();
+    program->helpers_ready = true;
+
     program->bpf_prog_type = program->extension_program_data->program_info->program_type_descriptor->bpf_prog_type;
 
     ebpf_lock_unlock(&program->lock, state);
@@ -596,6 +606,8 @@ _ebpf_program_type_specific_program_information_detach_provider(_In_ void* clien
     ExWaitForRundownProtectionRelease(&program->program_information_rundown_reference);
 
     ebpf_lock_state_t state = ebpf_lock_lock(&program->lock);
+    // Clear helpers_ready first to prevent new invocations.
+    program->helpers_ready = false;
     ebpf_program_data_free((ebpf_program_data_t*)program->extension_program_data);
     // Set the extension program data to NULL to prevent any further use of the program information by programs.
     program->extension_program_data = NULL;
@@ -1542,6 +1554,14 @@ ebpf_program_invoke(
         return EBPF_EXTENSION_FAILED_TO_LOAD;
     }
 
+    // Check if helpers are ready (trampoline table is populated).
+    // This prevents invocation during the window between extension_program_data being set
+    // and the trampoline table being populated.
+    if (!program->helpers_ready) {
+        *result = 0;
+        return EBPF_EXTENSION_FAILED_TO_LOAD;
+    }
+
     // High volume call - Skip entry/exit logging.
     const ebpf_program_t* current_program = program;
 
@@ -1716,10 +1736,16 @@ _Requires_lock_held_(program->lock) static ebpf_result_t _ebpf_program_get_helpe
                 found = true;
             }
         }
+        // If this is not a general helper function and we are using trampoline, we can return now as we can't satisfy
+        // the request from program data.
+        if (helper_function_id > EBPF_MAX_GENERAL_HELPER_FUNCTION) {
+            goto Done;
+        }
     }
 
+    // Check the program data for the helper function if not found in the trampoline table and it is a general helper
+    // function.
     if (!found) {
-        // If the helper function is not found in the trampoline table, then get the address from the program data.
         helper_function_address_t local_address = {0};
         if (_ebpf_program_get_helper_address_info_from_program_data(program, helper_function_id, &local_address)) {
             function_address = (uint64_t*)local_address.address;
