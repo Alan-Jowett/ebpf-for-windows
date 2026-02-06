@@ -2267,7 +2267,10 @@ TEST_CASE("EBPF_OPERATION_LOAD_NATIVE_MODULE short header", "[execution_context]
             completion) == EBPF_ARITHMETIC_OVERFLOW);
 }
 
-#define EBPF_PROGRAM_TYPE_TEST_GUID {0x8ee1b757, 0xc0b2, 0x4c84, {0xac, 0x07, 0x0c, 0x76, 0x29, 0x8f, 0x1d, 0xc9}}
+#define EBPF_PROGRAM_TYPE_TEST_GUID                                                    \
+    {                                                                                  \
+        0x8ee1b757, 0xc0b2, 0x4c84, { 0xac, 0x07, 0x0c, 0x76, 0x29, 0x8f, 0x1d, 0xc9 } \
+    }
 
 uint32_t
 fake_bpf_program(void* context, void* program)
@@ -2318,7 +2321,8 @@ test_register_provider(
             uint32_t helper_function_ids[] = {EBPF_MAX_GENERAL_HELPER_FUNCTION + 1};
             REQUIRE(
                 ebpf_program_set_helper_function_ids(
-                    program.get(), EBPF_COUNT_OF(helper_function_ids), helper_function_ids) == EBPF_SUCCESS);
+                    program.get(), EBPF_CODE_JIT, EBPF_COUNT_OF(helper_function_ids), helper_function_ids) ==
+                EBPF_SUCCESS);
             REQUIRE(
                 ebpf_program_get_helper_function_addresses(
                     program.get(), EBPF_COUNT_OF(helper_function_ids), addresses) == EBPF_SUCCESS);
