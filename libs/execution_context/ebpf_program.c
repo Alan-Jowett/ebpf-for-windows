@@ -1778,11 +1778,6 @@ _Requires_lock_held_(program->lock) static ebpf_result_t _ebpf_program_get_helpe
                 found = true;
             }
         }
-        // If this is not a general helper function and we are using trampoline, we can return now as we can't satisfy
-        // the request from program data.
-        if (helper_function_id > EBPF_MAX_GENERAL_HELPER_FUNCTION) {
-            goto Done;
-        }
     }
 
     // Check the program data for the helper function if not found in the trampoline table.
