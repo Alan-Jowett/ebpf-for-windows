@@ -10,6 +10,7 @@
 #include "ebpf_result.h"
 #include "rpc_interface_h.h"
 
+#if !defined(CONFIG_BPF_JIT_DISABLED) || !defined(CONFIG_BPF_INTERPRETER_DISABLED)
 _Must_inspect_result_ ebpf_result_t
 ebpf_verify_and_load_program(
     _In_ const GUID* program_type,
@@ -22,6 +23,7 @@ ebpf_verify_and_load_program(
     _In_reads_(instruction_count) ebpf_inst* instructions,
     _Outptr_result_maybenull_z_ const char** error_message,
     _Out_ uint32_t* error_message_size) noexcept;
+#endif
 
 /**
  * @brief Authorize a native module to be loaded.

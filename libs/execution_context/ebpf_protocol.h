@@ -60,11 +60,13 @@ typedef enum _ebpf_operation_id
 typedef enum _ebpf_code_type
 {
     EBPF_CODE_NONE,
-    EBPF_CODE_JIT,
-    EBPF_CODE_EBPF,
     EBPF_CODE_NATIVE,
     EBPF_CODE_MAX = EBPF_CODE_NATIVE,
 } ebpf_code_type_t;
+
+// Deprecated code types - not supported.
+#define EBPF_CODE_JIT ((ebpf_code_type_t)0xFFFF)
+#define EBPF_CODE_EBPF ((ebpf_code_type_t)0xFFFE)
 
 typedef struct _ebpf_operation_header
 {
@@ -83,60 +85,7 @@ typedef struct _helper_function_address
     bool implicit_context;
 } helper_function_address_t;
 
-#if !defined(CONFIG_BPF_JIT_DISABLED)
-typedef struct _ebpf_operation_resolve_helper_request
-{
-    struct _ebpf_operation_header header;
-    ebpf_handle_t program_handle;
-    uint32_t helper_id[1];
-} ebpf_operation_resolve_helper_request_t;
-
-typedef struct _ebpf_operation_resolve_helper_reply
-{
-    struct _ebpf_operation_header header;
-    helper_function_address_t address[1];
-} ebpf_operation_resolve_helper_reply_t;
-
-typedef struct _ebpf_operation_resolve_map_request
-{
-    struct _ebpf_operation_header header;
-    ebpf_handle_t program_handle;
-    ebpf_handle_t map_handle[1];
-} ebpf_operation_resolve_map_request_t;
-
-typedef struct _ebpf_operation_resolve_map_reply
-{
-    struct _ebpf_operation_header header;
-    uintptr_t address[1];
-} ebpf_operation_resolve_map_reply_t;
-#endif
-
-#if !defined(CONFIG_BPF_JIT_DISABLED) || !defined(CONFIG_BPF_INTERPRETER_DISABLED)
-typedef struct _ebpf_operation_create_program_request
-{
-    struct _ebpf_operation_header header;
-    ebpf_program_type_t program_type;
-    uint16_t section_name_offset;
-    uint16_t program_name_offset;
-    uint8_t data[1];
-} ebpf_operation_create_program_request_t;
-
-typedef struct _ebpf_operation_create_program_reply
-{
-    struct _ebpf_operation_header header;
-    ebpf_handle_t program_handle;
-} ebpf_operation_create_program_reply_t;
-#endif
-
-#if !defined(CONFIG_BPF_JIT_DISABLED) || !defined(CONFIG_BPF_INTERPRETER_DISABLED)
-typedef struct _ebpf_operation_load_code_request
-{
-    struct _ebpf_operation_header header;
-    ebpf_handle_t program_handle;
-    ebpf_code_type_t code_type;
-    uint8_t code[1];
-} ebpf_operation_load_code_request_t;
-#endif
+// JIT-only protocol structures removed (Issue #4997)
 
 typedef struct _ebpf_operation_create_map_request
 {
@@ -292,19 +241,7 @@ typedef struct _ebpf_operation_close_handle_request
     ebpf_handle_t handle;
 } ebpf_operation_close_handle_request_t;
 
-#if !defined(CONFIG_BPF_JIT_DISABLED)
-typedef struct _ebpf_operation_get_ec_function_request
-{
-    struct _ebpf_operation_header header;
-    ebpf_ec_function_t function;
-} ebpf_operation_get_ec_function_request_t;
-
-typedef struct _ebpf_operation_get_ec_function_reply
-{
-    struct _ebpf_operation_header header;
-    uintptr_t address;
-} ebpf_operation_get_ec_function_reply_t;
-#endif
+// JIT-only get_ec_function structures removed (Issue #4997)
 
 typedef struct _ebpf_operation_get_program_info_request
 {

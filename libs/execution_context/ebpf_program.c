@@ -19,7 +19,6 @@
 #include "ebpf_shared_framework.h"
 #include "ebpf_state.h"
 #include "ebpf_tracelog.h"
-#include "ubpf.h"
 
 #include <stdlib.h>
 
@@ -44,16 +43,6 @@ typedef struct _ebpf_program
     // determinant is parameters.code_type
     union
     {
-        // EBPF_CODE_JIT
-        struct
-        {
-            MDL* code_memory_descriptor;
-            const uint8_t* code_pointer;
-        } code;
-
-        // EBPF_CODE_EBPF
-        struct ubpf_vm* vm;
-
         // EBPF_CODE_NATIVE
         struct
         {
@@ -182,14 +171,6 @@ ebpf_program_get_header_context_descriptor(
 }
 
 _Requires_lock_held_(program->lock) static ebpf_result_t _ebpf_program_update_helpers(_Inout_ ebpf_program_t* program);
-
-static ebpf_result_t
-_ebpf_program_update_interpret_helpers(
-    size_t address_count, _In_reads_(address_count) const helper_function_address_t* addresses, _Inout_ void* context);
-
-static ebpf_result_t
-_ebpf_program_update_jit_helpers(
-    size_t address_count, _In_reads_(address_count) const helper_function_address_t* addresses, _Inout_ void* context);
 
 _Requires_lock_held_(program->lock) static ebpf_result_t _ebpf_program_get_helper_function_address(
     _In_ const ebpf_program_t* program, const uint32_t helper_function_id, _Out_ helper_function_address_t* address);
@@ -695,16 +676,6 @@ _IRQL_requires_max_(PASSIVE_LEVEL) static void _ebpf_program_free(_In_opt_ _Post
     ebpf_lock_destroy(&program->lock);
 
     switch (program->parameters.code_type) {
-    case EBPF_CODE_JIT:
-        ebpf_unmap_memory(program->code_or_vm.code.code_memory_descriptor);
-        break;
-#if !defined(CONFIG_BPF_INTERPRETER_DISABLED)
-    case EBPF_CODE_EBPF:
-        if (program->code_or_vm.vm) {
-            ubpf_destroy(program->code_or_vm.vm);
-        }
-        break;
-#endif
     case EBPF_CODE_NATIVE:
         ebpf_native_release_reference(
             (ebpf_native_module_binding_context_t*)program->code_or_vm.native.code_context.native_module_context);
@@ -1045,58 +1016,25 @@ _Requires_lock_held_(program->lock) static ebpf_result_t _ebpf_program_load_mach
 {
     EBPF_LOG_ENTRY();
     ebpf_result_t return_value;
-    const uint8_t* local_machine_code = NULL;
-    MDL* local_code_memory_descriptor = NULL;
 
-    ebpf_assert(program->parameters.code_type == EBPF_CODE_JIT || program->parameters.code_type == EBPF_CODE_NATIVE);
+    ebpf_assert(program->parameters.code_type == EBPF_CODE_NATIVE);
 
-    if (program->parameters.code_type == EBPF_CODE_JIT) {
-        program->helper_function_addresses_changed_callback = _ebpf_program_update_jit_helpers;
-        program->helper_function_addresses_changed_context = program;
-        return_value = _ebpf_program_update_helpers(program);
-        if (return_value != EBPF_SUCCESS) {
-            EBPF_LOG_MESSAGE(
-                EBPF_TRACELOG_LEVEL_ERROR, EBPF_TRACELOG_KEYWORD_PROGRAM, "Failed to update helpers for program");
-            goto Done;
-        }
-
-        local_code_memory_descriptor = ebpf_map_memory(machine_code_size);
-        if (!local_code_memory_descriptor) {
-            return_value = EBPF_NO_MEMORY;
-            goto Done;
-        }
-        local_machine_code = ebpf_memory_descriptor_get_base_address(local_code_memory_descriptor);
-
-        memcpy((void*)local_machine_code, machine_code, machine_code_size);
-
-        return_value = ebpf_protect_memory(local_code_memory_descriptor, EBPF_PAGE_PROTECT_READ_EXECUTE);
-        if (return_value != EBPF_SUCCESS) {
-            goto Done;
-        }
-
-        program->code_or_vm.code.code_memory_descriptor = local_code_memory_descriptor;
-        program->code_or_vm.code.code_pointer = local_machine_code;
-        local_code_memory_descriptor = NULL;
-    } else {
-        ebpf_assert(machine_code_size == 0);
-        if (code_context == NULL) {
-            return_value = EBPF_INVALID_ARGUMENT;
-            goto Done;
-        }
-
-        program->code_or_vm.native.code_context = code_context->native_code_context;
-        program->code_or_vm.native.code_pointer = machine_code;
-        // Acquire reference on the native module. This reference
-        // will be released when the ebpf_program is freed.
-        ebpf_native_acquire_reference(
-            (ebpf_native_module_binding_context_t*)code_context->native_code_context.native_module_context);
+    ebpf_assert(machine_code_size == 0);
+    if (code_context == NULL) {
+        return_value = EBPF_INVALID_ARGUMENT;
+        goto Done;
     }
+
+    program->code_or_vm.native.code_context = code_context->native_code_context;
+    program->code_or_vm.native.code_pointer = machine_code;
+    // Acquire reference on the native module. This reference
+    // will be released when the ebpf_program is freed.
+    ebpf_native_acquire_reference(
+        (ebpf_native_module_binding_context_t*)code_context->native_code_context.native_module_context);
 
     return_value = EBPF_SUCCESS;
 
 Done:
-    ebpf_unmap_memory(local_code_memory_descriptor);
-
     EBPF_RETURN_RESULT(return_value);
 }
 
@@ -1137,286 +1075,11 @@ Done:
     return result;
 }
 
-static ebpf_result_t
-_ebpf_program_update_interpret_helpers(
-    size_t address_count, _In_reads_(address_count) const helper_function_address_t* addresses, _Inout_ void* context)
-{
-    EBPF_LOG_ENTRY();
-    UNREFERENCED_PARAMETER(address_count);
-    UNREFERENCED_PARAMETER(addresses);
+// JIT and Interpreter helper functions removed (Issue #4997)
+// _ebpf_program_update_interpret_helpers and _ebpf_program_update_jit_helpers
+// are no longer needed since only native execution is supported.
 
-    ebpf_program_t* program = (ebpf_program_t*)context;
-    _Analysis_assume_lock_held_(program->lock);
-    ebpf_result_t result = EBPF_SUCCESS;
-    size_t index = 0;
-
-    ebpf_assert(program->code_or_vm.vm != NULL);
-
-    for (index = 0; index < program->helper_function_count; index++) {
-        uint32_t helper_function_id = program->helper_function_ids[index];
-        helper_function_address_t address_info = {0};
-
-        result = _ebpf_program_get_helper_function_address(program, helper_function_id, &address_info);
-        if (result != EBPF_SUCCESS) {
-            goto Exit;
-        }
-        if (address_info.address == 0) {
-            continue;
-        }
-
-#if !defined(CONFIG_BPF_INTERPRETER_DISABLED)
-        if (ubpf_register(
-                program->code_or_vm.vm, (unsigned int)index, NULL, (external_function_t)address_info.address) < 0) {
-            EBPF_LOG_MESSAGE_UINT64(
-                EBPF_TRACELOG_LEVEL_ERROR, EBPF_TRACELOG_KEYWORD_PROGRAM, "ubpf_register failed", index);
-            result = EBPF_INVALID_ARGUMENT;
-            goto Exit;
-        }
-#endif
-    }
-
-Exit:
-    EBPF_RETURN_RESULT(result);
-}
-
-static ebpf_result_t
-_ebpf_program_update_jit_helpers(
-    size_t address_count, _In_reads_(address_count) const helper_function_address_t* addresses, _Inout_ void* context)
-{
-    ebpf_result_t return_value;
-    UNREFERENCED_PARAMETER(address_count);
-    UNREFERENCED_PARAMETER(addresses);
-    ebpf_program_t* program = (ebpf_program_t*)context;
-    const ebpf_program_data_t* program_data = NULL;
-    const ebpf_helper_function_addresses_t* helper_function_addresses = NULL;
-    const ebpf_helper_function_addresses_t* global_helper_function_addresses = NULL;
-
-    size_t total_helper_count = 0;
-    ebpf_helper_function_addresses_t* total_helper_function_addresses = NULL;
-    uint32_t* total_helper_function_ids = NULL;
-    bool provider_data_referenced = false;
-
-    if (ebpf_program_reference_providers(program) != EBPF_SUCCESS) {
-        EBPF_LOG_MESSAGE_GUID(
-            EBPF_TRACELOG_LEVEL_ERROR,
-            EBPF_TRACELOG_KEYWORD_PROGRAM,
-            "The extension is not loaded for program type",
-            &program->parameters.program_type);
-        return_value = EBPF_EXTENSION_FAILED_TO_LOAD;
-        goto Exit;
-    }
-    provider_data_referenced = true;
-    program_data = program->extension_program_data;
-    helper_function_addresses = program_data->program_type_specific_helper_function_addresses;
-    global_helper_function_addresses = program_data->global_helper_function_addresses;
-
-    if (helper_function_addresses != NULL || global_helper_function_addresses != NULL) {
-        const ebpf_program_info_t* program_info = program_data->program_info;
-        const ebpf_helper_function_prototype_t* helper_prototypes = NULL;
-        ebpf_assert(program_info != NULL);
-        _Analysis_assume_(program_info != NULL);
-        if ((helper_function_addresses != NULL && program_info->count_of_program_type_specific_helpers !=
-                                                      helper_function_addresses->helper_function_count) ||
-            (global_helper_function_addresses != NULL &&
-             program_info->count_of_global_helpers != global_helper_function_addresses->helper_function_count)) {
-            EBPF_LOG_MESSAGE_GUID(
-                EBPF_TRACELOG_LEVEL_ERROR,
-                EBPF_TRACELOG_KEYWORD_PROGRAM,
-                "A program info provider cannot modify helper function count upon reload",
-                &program->parameters.program_type);
-            return_value = EBPF_INVALID_ARGUMENT;
-            goto Exit;
-        }
-
-        // Merge the helper function addresses into a single array.
-        return_value = ebpf_safe_size_t_add(
-            program->program_type_specific_helper_function_count,
-            program->global_helper_function_count,
-            &total_helper_count);
-        if (return_value != EBPF_SUCCESS) {
-            goto Exit;
-        }
-
-        total_helper_function_addresses = (ebpf_helper_function_addresses_t*)ebpf_allocate_with_tag(
-            sizeof(ebpf_helper_function_addresses_t), EBPF_POOL_TAG_DEFAULT);
-        if (total_helper_function_addresses == NULL) {
-            return_value = EBPF_NO_MEMORY;
-            goto Exit;
-        }
-        total_helper_function_addresses->helper_function_count = (uint32_t)total_helper_count;
-        total_helper_function_addresses->helper_function_address =
-            (uint64_t*)ebpf_allocate_with_tag(sizeof(uint64_t) * total_helper_count, EBPF_POOL_TAG_DEFAULT);
-        if (total_helper_function_addresses->helper_function_address == NULL) {
-            return_value = EBPF_NO_MEMORY;
-            goto Exit;
-        }
-
-        if (!program->trampoline_table) {
-            // Program info provider is being loaded for the first time. Allocate trampoline table.
-            return_value = ebpf_allocate_trampoline_table(total_helper_count, &program->trampoline_table);
-            if (return_value != EBPF_SUCCESS) {
-                goto Exit;
-            }
-        }
-
-        __analysis_assume(total_helper_count > 0);
-        total_helper_function_ids =
-            (uint32_t*)ebpf_allocate_with_tag(sizeof(uint32_t) * total_helper_count, EBPF_POOL_TAG_DEFAULT);
-        if (total_helper_function_ids == NULL) {
-            return_value = EBPF_NO_MEMORY;
-            goto Exit;
-        }
-
-        uint32_t index = 0;
-        if (helper_function_addresses != NULL) {
-            helper_prototypes = program_info->program_type_specific_helper_prototype;
-            if (helper_prototypes == NULL) {
-                EBPF_LOG_MESSAGE_GUID(
-                    EBPF_TRACELOG_LEVEL_ERROR,
-                    EBPF_TRACELOG_KEYWORD_PROGRAM,
-                    "program_info->program_type_specific_helper_prototype can not be NULL",
-                    &program->parameters.program_type);
-                return_value = EBPF_INVALID_ARGUMENT;
-                goto Exit;
-            }
-
-            for (uint32_t program_helper_index = 0;
-                 program_helper_index < helper_function_addresses->helper_function_count;
-                 program_helper_index++) {
-                total_helper_function_ids[index] = helper_prototypes[program_helper_index].helper_id;
-                total_helper_function_addresses->helper_function_address[program_helper_index] =
-                    helper_function_addresses->helper_function_address[program_helper_index];
-                index++;
-            }
-        }
-
-        if (global_helper_function_addresses != NULL) {
-            helper_prototypes = program_info->global_helper_prototype;
-            if (helper_prototypes == NULL) {
-                EBPF_LOG_MESSAGE_GUID(
-                    EBPF_TRACELOG_LEVEL_ERROR,
-                    EBPF_TRACELOG_KEYWORD_PROGRAM,
-                    "program_info->global_helper_prototype can not be NULL",
-                    &program->parameters.program_type);
-                return_value = EBPF_INVALID_ARGUMENT;
-                goto Exit;
-            }
-
-            for (uint32_t global_helper_index = 0;
-                 global_helper_index < global_helper_function_addresses->helper_function_count;
-                 global_helper_index++) {
-                total_helper_function_ids[index] = helper_prototypes[global_helper_index].helper_id;
-                total_helper_function_addresses->helper_function_address[index] =
-                    global_helper_function_addresses->helper_function_address[global_helper_index];
-                index++;
-            }
-        }
-
-        return_value = ebpf_update_trampoline_table(
-            program->trampoline_table,
-            (uint32_t)total_helper_count,
-            total_helper_function_ids,
-            total_helper_function_addresses);
-        if (return_value != EBPF_SUCCESS) {
-            goto Exit;
-        }
-    }
-
-    return_value = EBPF_SUCCESS;
-
-Exit:
-    ebpf_free(total_helper_function_ids);
-    if (total_helper_function_addresses != NULL) {
-        ebpf_free(total_helper_function_addresses->helper_function_address);
-        ebpf_free(total_helper_function_addresses);
-    }
-
-    if (provider_data_referenced) {
-        ebpf_program_dereference_providers(program);
-    }
-
-    return return_value;
-}
-
-#if !defined(CONFIG_BPF_INTERPRETER_DISABLED)
-_Requires_lock_held_(program->lock) static ebpf_result_t _ebpf_program_load_byte_code(
-    _Inout_ ebpf_program_t* program, _In_ const ebpf_instruction_t* instructions, size_t instruction_count)
-{
-    EBPF_LOG_ENTRY();
-    ebpf_result_t return_value;
-    char* error_message = NULL;
-
-    if (program->parameters.code_type != EBPF_CODE_EBPF) {
-        EBPF_LOG_MESSAGE_UINT64(
-            EBPF_TRACELOG_LEVEL_ERROR,
-            EBPF_TRACELOG_KEYWORD_PROGRAM,
-            "_ebpf_program_load_byte_code program->parameters.code_type must be EBPF_CODE_EBPF",
-            program->parameters.code_type);
-        return_value = EBPF_INVALID_ARGUMENT;
-        goto Done;
-    }
-
-    // ubpf currently requires the byte count to fit in a uint32_t.
-    if (instruction_count > UINT32_MAX / sizeof(ebpf_instruction_t)) {
-        return_value = EBPF_PROGRAM_TOO_LARGE;
-        goto Done;
-    }
-
-    if (instruction_count == 0) {
-        return_value = EBPF_INVALID_ARGUMENT;
-        goto Done;
-    }
-
-    program->code_or_vm.vm = ubpf_create();
-    if (!program->code_or_vm.vm) {
-        return_value = EBPF_NO_MEMORY;
-        goto Done;
-    }
-
-    // https://github.com/iovisor/ubpf/issues/68
-    // BUG - ubpf implements bounds checking to detect interpreted code accessing
-    // memory out of bounds. Currently this is flagging valid access checks and
-    // failing.
-    ubpf_toggle_bounds_check(program->code_or_vm.vm, false);
-
-    // Disable read-only bytecode feature as it uses mmap which is not available in kernel mode.
-    ubpf_toggle_readonly_bytecode(program->code_or_vm.vm, false);
-
-    ubpf_set_error_print(program->code_or_vm.vm, ebpf_log_function);
-
-    program->helper_function_addresses_changed_callback = _ebpf_program_update_interpret_helpers;
-    program->helper_function_addresses_changed_context = program;
-
-    return_value = _ebpf_program_update_helpers(program);
-    if (return_value != EBPF_SUCCESS) {
-        EBPF_LOG_MESSAGE(
-            EBPF_TRACELOG_LEVEL_ERROR, EBPF_TRACELOG_KEYWORD_PROGRAM, "Failed to update helpers for program");
-        goto Done;
-    }
-
-    if (ubpf_load(
-            program->code_or_vm.vm,
-            instructions,
-            (uint32_t)(instruction_count * sizeof(ebpf_instruction_t)),
-            &error_message) != 0) {
-        EBPF_LOG_MESSAGE_STRING(
-            EBPF_TRACELOG_LEVEL_ERROR, EBPF_TRACELOG_KEYWORD_PROGRAM, "ubpf_load failed", error_message);
-        ebpf_free(error_message);
-        return_value = EBPF_INVALID_ARGUMENT;
-        goto Done;
-    }
-
-Done:
-    if (return_value != EBPF_SUCCESS) {
-        if (program->code_or_vm.vm) {
-            ubpf_destroy(program->code_or_vm.vm);
-        }
-        program->code_or_vm.vm = NULL;
-    }
-
-    EBPF_RETURN_RESULT(return_value);
-}
-#endif
+// _ebpf_program_load_byte_code removed (Issue #4997) - interpreter not supported
 
 _Must_inspect_result_ ebpf_result_t
 ebpf_program_load_code(
@@ -1439,32 +1102,20 @@ ebpf_program_load_code(
     ebpf_assert(code_type > EBPF_CODE_NONE && code_type <= EBPF_CODE_MAX);
 
     program->parameters.code_type = code_type;
-    ebpf_assert(
-        (code_type == EBPF_CODE_NATIVE && code_context != NULL) ||
-        (code_type != EBPF_CODE_NATIVE && code_context == NULL));
+    ebpf_assert(code_type == EBPF_CODE_NATIVE && code_context != NULL);
 
     switch (program->parameters.code_type) {
 
-    case EBPF_CODE_JIT:
     case EBPF_CODE_NATIVE:
         result =
             _ebpf_program_load_machine_code(program, (const ebpf_core_code_context_t*)code_context, code, code_size);
-        break;
-
-    case EBPF_CODE_EBPF:
-#if !defined(CONFIG_BPF_INTERPRETER_DISABLED)
-        result = _ebpf_program_load_byte_code(
-            program, (const ebpf_instruction_t*)code, code_size / sizeof(ebpf_instruction_t));
-#else
-        result = EBPF_BLOCKED_BY_POLICY;
-#endif
         break;
 
     default: {
         EBPF_LOG_MESSAGE_UINT64(
             EBPF_TRACELOG_LEVEL_ERROR,
             EBPF_TRACELOG_KEYWORD_PROGRAM,
-            "ebpf_program_load_code unknown program->parameters.code_type",
+            "ebpf_program_load_code: only EBPF_CODE_NATIVE is supported",
             program->parameters.code_type);
         // Reset the code type to none.
         program->parameters.code_type = EBPF_CODE_NONE;
@@ -1570,26 +1221,10 @@ ebpf_program_invoke(
             ebpf_program_native_entry_point_t function_pointer;
             function_pointer = (ebpf_program_native_entry_point_t)(current_program->code_or_vm.native.code_pointer);
             *result = (function_pointer)(context, runtime_context);
-        } else if (current_program->parameters.code_type == EBPF_CODE_JIT) {
-#if !defined(CONFIG_BPF_JIT_DISABLED)
-            ebpf_program_entry_point_t function_pointer;
-            function_pointer = (ebpf_program_entry_point_t)(current_program->code_or_vm.code.code_pointer);
-            *result = (function_pointer)(context);
-#else
-            *result = 0;
-#endif
         } else {
-#if !defined(CONFIG_BPF_INTERPRETER_DISABLED)
-            uint64_t out_value;
-            int ret = (uint32_t)(ubpf_exec(current_program->code_or_vm.vm, context, 1024, &out_value));
-            if (ret < 0) {
-                *result = ret;
-            } else {
-                *result = (uint32_t)(out_value);
-            }
-#else
+            // JIT and Interpreter execution modes are deprecated (Issue #4997)
+            // Only native execution is supported.
             *result = 0;
-#endif
         }
 
         if (execution_state->tail_call_state.next_program == NULL) {
@@ -1696,27 +1331,8 @@ _Requires_lock_held_(program->lock) static ebpf_result_t _ebpf_program_get_helpe
     }
     provider_data_referenced = true;
 
-    use_trampoline = program->parameters.code_type == EBPF_CODE_JIT;
-    if (use_trampoline && !program->trampoline_table) {
-        EBPF_LOG_MESSAGE(
-            EBPF_TRACELOG_LEVEL_ERROR,
-            EBPF_TRACELOG_KEYWORD_PROGRAM,
-            "The trampoline table is not initialized for JIT program");
-        return_value = EBPF_INVALID_ARGUMENT;
-        goto Done;
-    }
-
-    // First check the trampoline table for the helper function.
-    if (use_trampoline) {
-        return_value = ebpf_get_trampoline_function(program->trampoline_table, helper_function_id, &function_address);
-        if (return_value == EBPF_SUCCESS) {
-            helper_function_address_t local_address = {0};
-            if (_ebpf_program_get_helper_address_info_from_program_data(program, helper_function_id, &local_address)) {
-                implicit_context = local_address.implicit_context;
-                found = true;
-            }
-        }
-    }
+    // JIT trampoline support removed (Issue #4997) - only native execution supported
+    use_trampoline = false;
 
     if (!found) {
         // If the helper function is not found in the trampoline table, then get the address from the program data.

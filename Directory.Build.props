@@ -63,7 +63,8 @@
   <PropertyGroup Condition="'$(AddressSanitizer)'=='True'">
     <EnableASAN>true</EnableASAN>
   </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)'=='NativeOnlyDebug' Or '$(Configuration)'=='NativeOnlyRelease'">
+  <!-- JIT and Interpreter are deprecated - always disabled (Issue #4997) -->
+  <PropertyGroup>
     <DisableJIT>true</DisableJIT>
     <DisableInterpreter>true</DisableInterpreter>
   </PropertyGroup>
