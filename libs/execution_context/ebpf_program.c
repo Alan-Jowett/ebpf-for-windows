@@ -1075,12 +1075,6 @@ Done:
     return result;
 }
 
-// JIT and Interpreter helper functions removed (Issue #4997)
-// _ebpf_program_update_interpret_helpers and _ebpf_program_update_jit_helpers
-// are no longer needed since only native execution is supported.
-
-// _ebpf_program_load_byte_code removed (Issue #4997) - interpreter not supported
-
 _Must_inspect_result_ ebpf_result_t
 ebpf_program_load_code(
     _Inout_ ebpf_program_t* program,
@@ -1222,7 +1216,6 @@ ebpf_program_invoke(
             function_pointer = (ebpf_program_native_entry_point_t)(current_program->code_or_vm.native.code_pointer);
             *result = (function_pointer)(context, runtime_context);
         } else {
-            // JIT and Interpreter execution modes are deprecated (Issue #4997)
             // Only native execution is supported.
             *result = 0;
         }
@@ -1331,7 +1324,7 @@ _Requires_lock_held_(program->lock) static ebpf_result_t _ebpf_program_get_helpe
     }
     provider_data_referenced = true;
 
-    // JIT trampoline support removed (Issue #4997) - only native execution supported
+    // Only native execution is supported, trampolines are not used.
     use_trampoline = false;
 
     if (!found) {
@@ -1809,12 +1802,11 @@ _ebpf_contains_helper_id(_In_ const uint32_t* helper_ids, size_t count_of_helper
  * Notes on why this works:
  * 1) The user application creates an ebpf_program_t object and sets the program type.
  * 2) During initialization, the program binds to the program information provider.
- * 3) For JIT and interpret mode, before verification, ebpfsvc resolves the helper functions for the program.
- * 4) For native mode, hash from native module is set in the program object.
- * 5) When helper addresses are resolved for this program, the program information is hashed and stored.
- * 6) The verifier then queries the program information from the ebpf_program_t object and uses it to verify the program
+ * 3) For native mode, hash from native module is set in the program object.
+ * 4) When helper addresses are resolved for this program, the program information is hashed and stored.
+ * 5) The verifier then queries the program information from the ebpf_program_t object and uses it to verify the program
  * safety.
- * 7) If the program information provider is reattached, the program information is hashed and compared with the
+ * 6) If the program information provider is reattached, the program information is hashed and compared with the
  * hash stored in the program and the program is rejected if the hash does not match. This ensures that the program
  * information the verifier uses to verify the program safety is the same as the program information the program uses to
  * execute.

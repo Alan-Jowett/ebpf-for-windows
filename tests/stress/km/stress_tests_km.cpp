@@ -1638,10 +1638,10 @@ _mt_bindmonitor_tail_call_invoke_program_test(
 #if !defined(CONFIG_BPF_JIT_DISABLED)
 TEST_CASE("jit_load_attach_detach_unload_random_v4_test", "[jit_mt_stress_test]")
 {
-    // This test attempts to load the same JIT'ed ebpf program multiple times in different threads.  This test
+    // This test attempts to load the same native ebpf program multiple times in different threads.  This test
     // supports two modes:
     //
-    // 1. just load, attach, detach and unload the JIT'ed programs with each event happening in a different thread
+    // 1. just load, attach, detach and unload the native programs with each event happening in a different thread
     //    with all threads executing in parallel with the bare minimum synchronization between them.
     //
     // 2. Same as #1 above, but with the addition of a dedicated thread continuously unloading/reloading the provider
@@ -1782,9 +1782,9 @@ TEST_CASE("bindmonitor_tail_call_invoke_program_test", "[native_mt_stress_test]"
 #if !defined(CONFIG_BPF_JIT_DISABLED)
 TEST_CASE("jit_unique_load_attach_detach_unload_random_v4_test", "[jit_mt_stress_test]")
 {
-    // This test attempts to load a unique JIT ebpf program multiple times in different threads. Specifically:
+    // This test attempts to load a unique native ebpf program multiple times in different threads. Specifically:
     //
-    // - Load, attach, detach and unload each JIT ebpf program with each event happening in a different thread with
+    // - Load, attach, detach and unload each native ebpf program with each event happening in a different thread with
     //   all threads executing in parallel with the bare minimum synchronization between them.
     //
     // - Addition of a dedicated thread continuously unloading/reloading the provider extension
@@ -1794,7 +1794,7 @@ TEST_CASE("jit_unique_load_attach_detach_unload_random_v4_test", "[jit_mt_stress
     LOG_INFO("\nStarting test *** jit_unique_load_attach_detach_unload_random_v4_test ***");
     test_control_info local_test_control_info = _global_test_control_info;
 
-    // Use a unique JIT program for each 'creator' thread.
+    // Use a unique native program for each 'creator' thread.
     local_test_control_info.use_unique_native_programs = true;
 
     _print_test_control_info(local_test_control_info);
@@ -1805,10 +1805,10 @@ TEST_CASE("jit_invoke_v4_v6_programs_restart_extension_test", "[jit_mt_stress_te
 {
     // Test layout:
     // 1. Create 2 'monitor' threads:
-    //    - Thread #1 loads a JIT ebpf SOCK_ADDR program that attaches to CGROUP/CONNECT4.
+    //    - Thread #1 loads a native ebpf SOCK_ADDR program that attaches to CGROUP/CONNECT4.
     //      > This program monitors an IPv4 endpoint, 127.0.0.1:<target_port>. On every invocation, the program updates
     //        the count (TCP) 'connect' attempts in the 'connect4_count_map' map at its port.
-    //    - Thread #2 loads another JIT ebpf SOCK_ADDR program that attaches to CGROUP/CONNECT6.
+    //    - Thread #2 loads another native ebpf SOCK_ADDR program that attaches to CGROUP/CONNECT6.
     //      > The behavior of this program is identical to that of the v4 program (loaded by thread #1), except it is
     //        invoked for IPv6 connection attempts ([::1]:<target_port>).
     //
@@ -1839,7 +1839,7 @@ TEST_CASE("jit_invoke_v4_v6_programs_restart_extension_test", "[jit_mt_stress_te
 TEST_CASE("jit_sockaddr_invoke_program_test", "[jit_mt_stress_test]")
 {
     // Test layout:
-    // 1. Load the "cgroup_mt_connect6.o" JIT ebpf program.
+    // 1. Load the "cgroup_mt_connect6.o" native eBPF program.
     //    - This program monitors an IPv6 endpoint, [::1]:<target_port>. On every invocation, the program returns a
     //      specific value per the following (arbitrary) algorithm:
     //        (target_port % 3 == 0) : BPF_SOCK_ADDR_VERDICT_REJECT
@@ -1867,7 +1867,7 @@ TEST_CASE("jit_sockaddr_invoke_program_test", "[jit_mt_stress_test]")
 TEST_CASE("jit_bindmonitor_tail_call_invoke_program_test", "[jit_mt_stress_test]")
 {
     // Test layout:
-    // 1. Load the "bindmonitor_mt_tailcall.o" JIT ebpf program.
+    // 1. Load the "bindmonitor_mt_tailcall.o" native eBPF program.
     // 2. Load MAX_TAIL_CALL_CNT tail call programs.
     // 3. Create the specified number of threads.
     //   - Each thread will invoke the TCP 'bind'.
@@ -2027,7 +2027,7 @@ _mt_invoke_stress_test_multiple_programs(ebpf_execution_type_t program_type, con
             context_entry.file_name = _make_unique_file_copy("cgroup_sock_addr.sys");
             context_entry.is_native_program = true;
         } else {
-            // For JIT programs, all threads can load the same file (but get different instances).
+            // For native programs, all threads can load the same file (but get different instances).
             context_entry.file_name = "cgroup_sock_addr.o";
             context_entry.is_native_program = false;
         }
@@ -2073,7 +2073,7 @@ TEST_CASE("load_attach_stress_test_restart_during_load_jit", "[jit_mt_stress_tes
 {
     // Test resiliency during program 'open + load + attach' sequence with extension restart.
     // Starts extension restart immediately and then begins program loading in multiple threads.
-    // Tests JIT programs with multiple threads loading the same program.
+    // Tests native programs with multiple threads loading the same program.
 
     _km_test_init();
     LOG_INFO("\nStarting test *** load_attach_stress_test_restart_during_load_jit ***");
@@ -2111,7 +2111,7 @@ TEST_CASE("load_attach_stress_test_restart_after_load_jit", "[jit_mt_stress_test
     // Test resiliency after program 'open + load + attach' sequence with extension restart.
     // Completes program loading first, then starts extension restart.
     // Ensures loaded + attached programs continue to be invoked after extension restart.
-    // Tests JIT programs with multiple threads loading the same program.
+    // Tests native programs with multiple threads loading the same program.
 
     _km_test_init();
     LOG_INFO("\nStarting test *** load_attach_stress_test_restart_after_load_jit ***");
@@ -2148,7 +2148,7 @@ TEST_CASE("load_attach_stress_test_restart_after_load_native", "[native_mt_stres
 TEST_CASE("invoke_different_programs_restart_extension_test_jit", "[jit_mt_stress_test]")
 {
     // Multi-threaded stress test where each thread loads different programs with extension restart.
-    // Tests JIT programs with different programs in each thread.
+    // Tests native programs with different programs in each thread.
 
     _km_test_init();
     LOG_INFO("\nStarting test *** invoke_different_programs_restart_extension_test_jit ***");

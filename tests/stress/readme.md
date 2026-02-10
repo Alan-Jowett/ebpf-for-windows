@@ -23,7 +23,7 @@ This application provides the following tests:
 ## 1.1. jit_load_attach_detach_unload_random_v4_test
 
 
-This test creates threads to randomly `load`, `attach`, `detach` and `close` JIT'ed ebpf program(s).
+This test creates threads to randomly `load`, `attach`, `detach` and `close` native ebpf program(s).
 _(Details in code comments.)_
 
 Sample commandline invocations:
@@ -143,7 +143,7 @@ Test specific command-line options (all optional, defaults used if not specified
 This application provides the following tests:
 
 ## 2.1. load_attach_detach_unload_sequential_test
-This test loads, attaches, detaches and closes (in a sequential manner) the specified JIT'ed programs in their
+This test loads, attaches, detaches and closes (in a sequential manner) the specified native programs in their
 respective thread sets. The test currently supprorts the `droppacket` and `bindmonitor_tailcall` programs only. Either
 one or both can be specified, else `droppacket` is used by default.
 

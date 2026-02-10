@@ -167,7 +167,7 @@ extern "C"
      * @brief Load a block of eBPF code into the program instance.
      *
      * @param[in] program_handle Handle to the program object to load the eBPF code into.
-     * @param[in] code_type Specifies whether eBPF code is JIT compiled, byte code or native code.
+     * @param[in] code_type Specifies the code type (only EBPF_CODE_NATIVE is supported).
      * @param[in] code_context Optionally, pointer to code context.
      * @param[in] code Pointer to memory containing the eBPF code.
      * @param[in] code_size Size of the memory block containing the eBPF code.

@@ -23,7 +23,7 @@ See [docs/AutomatedTests.md](../docs/AutomatedTests.md) for test categories and 
 │                        User Space                                   │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────────────┐ │
 │  │ bpftool  │  │  netsh   │  │   Apps   │  │  ebpfsvc.exe         │ │
-│  └────┬─────┘  └────┬─────┘  └────┬─────┘  │  (JIT/verification)  │ │
+│  └────┬─────┘  └────┬─────┘  └────┬─────┘  │  (verification)      │ │
 │       └─────────────┴─────────────┘        └──────────┬───────────┘ │
 │                      │                                │             │
 │              ┌───────▼───────┐                        │             │
@@ -56,7 +56,7 @@ See [docs/AutomatedTests.md](../docs/AutomatedTests.md) for test categories and 
 |-----------|----------|---------|
 | **ebpfcore.sys** | `libs/execution_context/`, `ebpfcore/` | Kernel execution context for eBPF programs |
 | **ebpfapi.dll** | `libs/api/`, `ebpfapi/` | User-mode library exposing libbpf-compatible APIs |
-| **ebpfsvc.exe** | `libs/service/`, `ebpfsvc/` | Service handling JIT compilation and verification |
+| **ebpfsvc.exe** | `libs/service/`, `ebpfsvc/` | Service handling verification |
 | **netebpfext.sys** | `netebpfext/` | Network extension providing WFP hooks |
 | **bpf2c** | `tools/bpf2c/` | Converts eBPF bytecode to C for native compilation |
 

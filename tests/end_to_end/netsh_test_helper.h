@@ -25,7 +25,6 @@
 #define DECLARE_NATIVE_TEST(_name, _group, _function) \
     DECLARE_TEST_CASE(_name, _group, _function, "-native", EBPF_EXECUTION_NATIVE)
 
-// JIT and Interpreter test macros deprecated (Issue #4997)
 // Only native execution is supported
 #define DECLARE_JIT_TEST(_name, _group, _function)
 #define DECLARE_INTERPRET_TEST(_name, _group, _function)

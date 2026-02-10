@@ -851,7 +851,7 @@ global_variable_test(ebpf_execution_type_t execution_type)
     bpf_link_ptr link;
 
     if (execution_type != EBPF_EXECUTION_NATIVE) {
-        // Skip this test in JIT-compiled and interpreted mode.
+        // Skip this test in bytecode execution.
         return;
     }
 
@@ -935,7 +935,7 @@ global_variable_and_map_test(ebpf_execution_type_t execution_type)
     bpf_link_ptr link;
 
     if (execution_type != EBPF_EXECUTION_NATIVE) {
-        // Skip this test in JIT-compiled and interpreted mode.
+        // Skip this test in bytecode execution.
         return;
     }
 
@@ -3422,7 +3422,7 @@ TEST_CASE("signature_checking_negative", "[end_to_end]")
  * Removing entries from map_2 requires that all programs that may be using the old value in map_1
  * have completed before the entry in map_2 can be safely removed, which is ensured by the ebpf_program_synchronize API.
  *
- * @param[in] execution_type The execution type for the eBPF program (JIT, Interpreter, or Native).
+ * @param[in] execution_type The execution type for the eBPF program (native).
  */
 static void
 test_map_synchronized_update(ebpf_execution_type_t execution_type)

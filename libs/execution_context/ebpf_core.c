@@ -1161,7 +1161,8 @@ _ebpf_core_protocol_program_test_run(
         goto Done;
     }
 
-    options = (ebpf_program_test_run_options_t*)ebpf_allocate_with_tag(sizeof(ebpf_program_test_run_options_t), EBPF_POOL_TAG_DEFAULT);
+    options = (ebpf_program_test_run_options_t*)ebpf_allocate_with_tag(
+        sizeof(ebpf_program_test_run_options_t), EBPF_POOL_TAG_DEFAULT);
     if (!options) {
         retval = EBPF_NO_MEMORY;
         goto Done;
@@ -2740,7 +2741,6 @@ typedef struct _ebpf_protocol_handler
      .flags.value = FLAGS}
 
 // If function is not static, remove leading undercore to ebpf_core_protocol declaration.
-// This is needed because some functions are defined and implemented in ebpf_core_config files due to JIT requirements.
 #define DECLARE_NON_STATIC_PROTOCOL_HANDLER_FIXED_REQUEST_FIXED_REPLY(OPERATION, FLAGS) \
     {EBPF_PROTOCOL_FIXED_REQUEST_FIXED_REPLY,                                           \
      (void*)ebpf_core_protocol_##OPERATION,                                             \
@@ -2761,8 +2761,7 @@ typedef struct _ebpf_protocol_handler
      EBPF_OFFSET_OF(ebpf_operation_##OPERATION##_request_t, VARIABLE_REQUEST),                 \
      .flags.value = FLAGS}
 
-// If function is not static, remove leading undercore to ebpf_core_protocol declaration.
-// This is needed because some functions are defined and implemented in ebpf_core_config files due to JIT requirements.
+// If function is not static, remove leading underscore to ebpf_core_protocol declaration.\r\n//
 #define DECLARE_NON_STATIC_PROTOCOL_HANDLER_VARIABLE_REQUEST_NO_REPLY(OPERATION, VARIABLE_REQUEST, FLAGS) \
     {EBPF_PROTOCOL_VARIABLE_REQUEST_NO_REPLY,                                                             \
      (void*)ebpf_core_protocol_##OPERATION,                                                               \
@@ -2776,8 +2775,7 @@ typedef struct _ebpf_protocol_handler
      sizeof(ebpf_operation_##OPERATION##_reply_t),                                                \
      .flags.value = FLAGS}
 
-// If function is not static, remove leading undercore to ebpf_core_protocol declaration.
-// This is needed because some functions are defined and implemented in ebpf_core_config files due to JIT requirements.
+// If function is not static, remove leading underscore to ebpf_core_protocol declaration.\r\n//
 #define DECLARE_NON_STATIC_PROTOCOL_HANDLER_VARIABLE_REQUEST_FIXED_REPLY(OPERATION, VARIABLE_REQUEST, FLAGS) \
     {EBPF_PROTOCOL_VARIABLE_REQUEST_FIXED_REPLY,                                                             \
      (void*)ebpf_core_protocol_##OPERATION,                                                                  \
@@ -2792,8 +2790,7 @@ typedef struct _ebpf_protocol_handler
      EBPF_OFFSET_OF(ebpf_operation_##OPERATION##_reply_t, VARIABLE_REPLY),                                           \
      .flags.value = FLAGS}
 
-// If function is not static, remove leading undercore to ebpf_core_protocol declaration.
-// This is needed because some functions are defined and implemented in ebpf_core_config files due to JIT requirements.
+// If function is not static, remove leading underscore to ebpf_core_protocol declaration.\r\n//
 #define DECLARE_NON_STATIC_PROTOCOL_HANDLER_VARIABLE_REQUEST_VARIABLE_REPLY(   \
     OPERATION, VARIABLE_REQUEST, VARIABLE_REPLY, FLAGS)                        \
     {EBPF_PROTOCOL_VARIABLE_REQUEST_VARIABLE_REPLY,                            \
@@ -2921,18 +2918,8 @@ ebpf_core_get_protocol_handler_properties(
     _Out_ bool* async,
     _Out_ bool* privileged)
 {
-    // Native is always permitted.
+    // Only native execution is permitted.
     bool native_permitted = true;
-
-#if !defined(CONFIG_BPF_JIT_DISABLED)
-    // JIT is permitted only if HVCI is off.
-    bool jit_permitted = !ebpf_platform_hypervisor_code_integrity_enabled;
-#endif
-
-    // Interpret is only permitted if CONFIG_BPF_INTERPRETER_DISABLED is not set.
-#if !defined(CONFIG_BPF_INTERPRETER_DISABLED)
-    bool interpret_permitted = true;
-#endif
 
     *minimum_request_size = 0;
     *minimum_reply_size = 0;
@@ -2943,18 +2930,8 @@ ebpf_core_get_protocol_handler_properties(
 
     *privileged = _ebpf_protocol_handlers[operation_id].flags.bits.privileged != 0;
 
-    // Only permit this operation if one of the modes it is used for is permitted.
-    if (
-#if !defined(CONFIG_BPF_JIT_DISABLED)
-        // If it's used by JIT and JIT is permitted, allow it.
-        (!_ebpf_protocol_handlers[operation_id].flags.bits.used_by_jit || !jit_permitted) &&
-#endif
-#if !defined(CONFIG_BPF_INTERPRETER_DISABLED)
-        // If it's used by interpreter and interpreter is permitted, allow it.
-        (!_ebpf_protocol_handlers[operation_id].flags.bits.used_by_interpret || !interpret_permitted) &&
-#endif
-        // If it's used by native and native is permitted, allow it.
-        (!_ebpf_protocol_handlers[operation_id].flags.bits.used_by_native || !native_permitted)) {
+    // Only permit this operation if it is used by native mode.
+    if (!_ebpf_protocol_handlers[operation_id].flags.bits.used_by_native || !native_permitted) {
         EBPF_LOG_MESSAGE_UINT64(
             EBPF_TRACELOG_LEVEL_ERROR,
             EBPF_TRACELOG_KEYWORD_CORE,

@@ -20,7 +20,7 @@ extern "C"
         /// Program verification failed.
         EBPF_VERIFICATION_FAILED,
 
-        /// JIT compilation failed.
+        /// Deprecated: JIT compilation is no longer supported.
         EBPF_JIT_COMPILATION_FAILED,
 
         /// Program load failed.

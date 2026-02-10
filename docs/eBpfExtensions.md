@@ -349,7 +349,7 @@ typedef enum _ebpf_return_type {
 
 #### `ebpf_helper_function_addresses_t` Struct
 This structure is used to specify the address at which the various helper functions implemented by the extension
-reside. If an eBPF program is JIT compiled, then the generated machine code will have `call` instructions to these
+reside. If an eBPF program is loaded, then the native code will have `call` instructions to these
 addresses. For interpreted mode, the eBPF Execution Engine will invoke the functions at these addresses. The fields of
 this struct should be set as follows:
 * `helper_function_count`: Number of helper functions implemented by the extension for the given program type.
@@ -557,7 +557,7 @@ When an extension invokes this function pointer, then the call flows through the
 invokes the eBPF program.  When invoking an eBPF program, the extension must supply the client binding context it
 obtained from the Hook NPI client as the `client_binding_context` parameter. For the second parameter `context`, it
 must pass the program type specific context data structure. Note that the Program Information NPI provider supplies
-the context descriptor (using the `ebpf_context_descriptor_t` type) to the eBPF verifier and JIT-compiler via the NPI
+the context descriptor (using the `ebpf_context_descriptor_t` type) to the eBPF verifier and native code generator via the NPI
 client hosted by the execution context. The `result` output parameter holds the return value from the eBPF program
 post execution.
 

@@ -81,8 +81,6 @@ typedef struct _helper_function_address
     bool implicit_context;
 } helper_function_address_t;
 
-// JIT-only protocol structures removed (Issue #4997)
-
 typedef struct _ebpf_operation_create_map_request
 {
     struct _ebpf_operation_header header;
@@ -236,8 +234,6 @@ typedef struct _ebpf_operation_close_handle_request
     struct _ebpf_operation_header header;
     ebpf_handle_t handle;
 } ebpf_operation_close_handle_request_t;
-
-// JIT-only get_ec_function structures removed (Issue #4997)
 
 typedef struct _ebpf_operation_get_program_info_request
 {

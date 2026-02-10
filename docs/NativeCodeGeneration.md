@@ -1,13 +1,10 @@
 # Native Code Generation of eBPF and signed PE Images
 
 # Overview
-While JIT-compiled eBPF programs can work on systems where
-[Hypervisor-protected Code Integrity (HVCI)](https://docs.microsoft.com/en-us/windows-hardware/design/device-experiences/oem-hvci-enablement)
-is not enabled, JIT-compiled programs fail on systems where it is enabled. This document describes the mechanism for such
-systems which works on existing unmodified Windows.
+eBPF for Windows supports native execution of eBPF programs through Windows drivers (.sys files). This document describes the mechanism for generating such native drivers from eBPF programs.
 
-To permit the use of eBPF programs on systems where HVCI is enabled, the eBPF programs must be in a form that Windows'
-Secure Kernel (SK) can verify their signature and load them. The only code format currently supported by SK is Portable
+To permit the use of eBPF programs on Windows, the eBPF programs must be in a form that Windows'
+Secure Kernel (SK) can verify their signature and load them. The only code format supported is Portable
 Executable (PE) files in the form of Windows Drivers (.sys files) that have been signed by a trusted key.
 
 This document covers generating signed PE files from eBPF programs in an automated fashion.

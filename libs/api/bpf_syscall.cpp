@@ -304,7 +304,6 @@ bpf(int cmd, union bpf_attr* attr, unsigned int size)
             return bpf_prog_get_next_id(next_id_attr->start_id, &next_id_attr->next_id);
         }
         case BPF_PROG_LOAD: {
-            // JIT and interpreter have been removed.
             // Only native programs (.sys files) are supported.
             SetLastError(ERROR_NOT_SUPPORTED);
             return -EINVAL;

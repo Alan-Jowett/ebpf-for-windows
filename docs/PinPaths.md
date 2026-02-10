@@ -21,7 +21,7 @@ The following are criteria for evaluating each option:
 
 1. Slashes: Paths must be accepted using either '/' or '\\' and be canonicalized.
 
-1. Kernel: Canonicalization must be the same in kernel-mode (for native) and user-mode (for JIT).
+1. Kernel: Canonicalization must be the same in kernel-mode.
 
 1. LocalFile: A pin path should not collide with the path of another file in the Windows filesystem.
 

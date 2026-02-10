@@ -768,8 +768,7 @@ handle_ebpf_show_programs(
 
         if (filename.empty() || strcmp(program_file_name, filename.c_str()) == 0) {
             if (section.empty() || strcmp(program_section_name, section.c_str()) == 0) {
-                // JIT and INTERPRET execution types are deprecated (Issue #4997)
-                // Only native execution is supported now
+                // Only native execution is supported.
                 execution_type_name = "NATIVE";
                 const char* program_type_name = ebpf_get_program_type_name(&info.type_uuid);
 

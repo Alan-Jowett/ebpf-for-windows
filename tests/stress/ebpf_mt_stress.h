@@ -50,10 +50,10 @@ _log(log_level msg_level, const std::string_view& fmt, Args&&... args)
 // Test control info.
 struct test_control_info
 {
-    // The number of threads allocated per jit program.
+    // The number of threads allocated per native program.
     uint32_t threads_count{0};
 
-    // The run time for each jit program test thread in minutes.
+    // The run time for each native program test thread in minutes.
     uint32_t duration_minutes{0};
 
     // Flag to enable verbose progress output.

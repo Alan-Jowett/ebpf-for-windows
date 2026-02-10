@@ -26,7 +26,7 @@ bpf_load_program_xattr(const struct bpf_load_program_attr* load_attr, char* log_
         return libbpf_err(-EINVAL);
     }
 
-    // JIT and interpreter have been removed. Only native programs are supported.
+    // Only native programs are supported.
     UNREFERENCED_PARAMETER(log_buf);
     UNREFERENCED_PARAMETER(log_buf_sz);
     return libbpf_err(-ENOTSUP);
@@ -70,7 +70,7 @@ bpf_prog_load(
         return libbpf_err(-EINVAL);
     }
 
-    // JIT and interpreter have been removed. Only native programs are supported.
+    // Only native programs are supported.
     UNREFERENCED_PARAMETER(prog_name);
     UNREFERENCED_PARAMETER(insn_cnt);
     UNREFERENCED_PARAMETER(opts);

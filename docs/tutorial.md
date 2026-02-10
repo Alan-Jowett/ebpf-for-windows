@@ -952,7 +952,7 @@ To see it installed:
 
     ID  Pins  Links  Mode       Type           Name
 ======  ====  =====  =========  =============  ====================
- 65568     1      1  JIT        xdp_test       my_xdp_parser
+ 65568     1      1  native        xdp_test       my_xdp_parser
 ```
 
 And remove it by the id, which we saw above is 65568:

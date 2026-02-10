@@ -32,7 +32,7 @@ uint32_t _test_threads_count_arg{DEFAULT_TEST_THREADS};
 
 // Command line option: '-td' OR '--test-duration'
 // Usage: -td=5 OR --test-duration=5
-// This option specifies the run time for each jit program test in minutes.
+// This option specifies the run time for each native program test in minutes.
 uint32_t _test_duration_arg{DEFAULT_TEST_DURATION};
 
 // Command line option: '-vo' OR '--verbose-output'.
@@ -114,8 +114,7 @@ main(int argc, char* argv[])
     using namespace Catch::Clara;
     auto cli =
         session.cli() |
-        Opt(_test_program_list_arg,
-            "program names")["-tp"]["--test-programs"]("Comma separated JIT compiled program names") |
+        Opt(_test_program_list_arg, "program names")["-tp"]["--test-programs"]("Comma separated native program names") |
         Opt(_test_threads_count_arg, "thread count")["-tt"]["--test-threads"]("Count of threads per test") |
         Opt(_test_duration_arg, "test duration")["-td"]["--test-duration"]("Test duration (per-test) in seconds") |
         Opt(_test_verbose_output_arg,

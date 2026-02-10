@@ -28,7 +28,7 @@ typedef LARGE_INTEGER PHYSICAL_ADDRESS, *PPHYSICAL_ADDRESS;
 #define DECLARE_NATIVE_TEST(_name, _group, _function) \
     DECLARE_TEST_CASE(_name, _group, _function, "-native", EBPF_EXECUTION_NATIVE)
 
-// JIT and Interpreter test macros deprecated (Issue #4997)
+// Only native execution is supported.
 #define DECLARE_INTERPRET_TEST(_name, _group, _function)
 
 #define DECLARE_CGROUP_SOCK_ADDR_LOAD_TEST2(file, name, attach_type, name_suffix, file_suffix, execution_type) \

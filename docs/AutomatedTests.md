@@ -51,7 +51,7 @@ Tests in this category currently include:
 ## Conformance tests
 For "standard" BPF functionality such as the [BPF Instruction Set Architecture (ISA)](https://github.com/dthaler/ebpf-docs/blob/update/isa/kernel.org/instruction-set.rst),
 a set of BPF conformance tests are used to run the same test vectors that work against Linux, against
-the verifier, the JIT compiler, etc. used by eBPF for Windows.  As other functionality beyond the ISA
+the verifier, etc. used by eBPF for Windows.  As other functionality beyond the ISA
 becomes standardized, it is expected that other cross-project conformance tests may arise.
 
 ## App compat tests

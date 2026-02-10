@@ -2,10 +2,8 @@
 
 ## Overview
 A key difference between eBPF for Linux vs eBPF for Windows is where and when the verification process is run. On
-Linux, verification is performed in the kernel when the BPF program is loaded, with the verifier performing both
-verification and generation of native machine code (JIT). On Windows when using JIT mode the verification and
-generation of machine code occurs in a user mode service. On Windows when using native images, the verification and
-generation of machine code is performed offline as part of the build process.
+Linux, verification is performed in the kernel when the BPF program is loaded. On Windows, the verification and
+generation of machine code is performed offline as part of the build process using the bpf2c tool.
 
 ## Problem statement
 For native images, verification of the BPF program is decoupled from the loading of the BPF program. Verification occurs

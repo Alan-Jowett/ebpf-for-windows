@@ -40,7 +40,7 @@ module (stored in a `.sys` file) using the standard visual studio toolchain. The
    See the [FAQ on HVCI](readme.md#3-will-ebpf-work-with-hypervisor-enforced-code-integrity-hvci) for details as to why this mode is
    the most secure.
 
-> **Deprecated:** JIT compilation and interpreter modes have been removed as of Issue #4997.
+> **Note:** Only native execution mode is supported. eBPF programs must be compiled to native Windows drivers (.sys files) using bpf2c.
 > Only native execution mode is now supported.
 
 The eBPF programs can be consumed by any application, or via bpftool or the Netsh command line tool, which use a shared library (`ebpfapi.dll`) that exposes [Libbpf APIs](https://github.com/libbpf/libbpf). These APIs can be used to load the

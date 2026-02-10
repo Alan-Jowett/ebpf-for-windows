@@ -111,8 +111,8 @@ _test_program_load(
         EBPF_SUCCESS);
     _close(program_fd);
 
-    // Set the default execution type to JIT. This will eventually
-    // be decided by a system-wide policy. TODO(Issue #288): Configure
+    // Set the execution type to native.
+    // This is decided by a system-wide policy. TODO(Issue #288): Configure
     // system-wide execution type.
     if (execution_type == EBPF_EXECUTION_ANY) {
         execution_type = EBPF_EXECUTION_NATIVE;
@@ -206,7 +206,7 @@ TEST_CASE("pinned_map_enum2", "[pinned_map_enum]") { ebpf_test_pinned_map_enum(f
 #define INTERPRET_LOAD_RESULT 0
 #endif
 
-// Load test_sample_ebpf (JIT) without providing expected program type.
+// Load test_sample_ebpf (native) without providing expected program type.
 DECLARE_LOAD_TEST_CASE("test_sample_ebpf.o", BPF_PROG_TYPE_UNSPEC, EBPF_EXECUTION_NATIVE, JIT_LOAD_RESULT);
 
 DECLARE_LOAD_TEST_CASE("test_sample_ebpf.sys", BPF_PROG_TYPE_UNSPEC, EBPF_EXECUTION_NATIVE, 0);
@@ -224,7 +224,7 @@ DECLARE_LOAD_TEST_CASE("test_sample_ebpf.o", BPF_PROG_TYPE_UNSPEC, EBPF_EXECUTIO
 // Load test_sample_ebpf with providing expected program type.
 DECLARE_LOAD_TEST_CASE("test_sample_ebpf.o", BPF_PROG_TYPE_SAMPLE, EBPF_EXECUTION_NATIVE, INTERPRET_LOAD_RESULT);
 
-// Load bindmonitor (JIT) without providing expected program type.
+// Load bindmonitor (native) without providing expected program type.
 DECLARE_LOAD_TEST_CASE("bindmonitor.o", BPF_PROG_TYPE_UNSPEC, EBPF_EXECUTION_NATIVE, JIT_LOAD_RESULT);
 
 // Load bindmonitor (INTERPRET) without providing expected program type.
@@ -1956,7 +1956,7 @@ _test_prog_array_map_user_reference(ebpf_execution_type_t execution_type)
 }
 
 #if !defined(CONFIG_BPF_JIT_DISABLED)
-TEST_CASE("prog_array_map_user_reference-jit", "[user_reference]")
+TEST_CASE("prog_array_map_user_reference-native", "[user_reference]")
 {
     _test_prog_array_map_user_reference(EBPF_EXECUTION_NATIVE);
 }
@@ -2453,7 +2453,7 @@ TEST_CASE("ebpf_object_execution_type_apis", "[ebpf_api]")
             REQUIRE(new_exec_type == original_type);
         }
 
-        // Test setting to JIT.
+        // Test setting execution type.
         result = ebpf_object_set_execution_type(object, EBPF_EXECUTION_NATIVE);
         if (result == EBPF_SUCCESS) {
             exec_type = ebpf_object_get_execution_type(object);

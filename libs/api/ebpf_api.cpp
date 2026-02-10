@@ -3018,8 +3018,7 @@ _ebpf_is_map_in_map(_In_ const ebpf_map_t* map) noexcept
 _Must_inspect_result_ ebpf_result_t
 ebpf_object_set_execution_type(_Inout_ struct bpf_object* object, ebpf_execution_type_t execution_type) NO_EXCEPT_TRY
 {
-    // JIT and Interpreter execution types are deprecated (Issue #4997)
-    // Only EBPF_EXECUTION_ANY and EBPF_EXECUTION_NATIVE are supported
+    // Only EBPF_EXECUTION_ANY and EBPF_EXECUTION_NATIVE are supported.
     if (execution_type != EBPF_EXECUTION_ANY && execution_type != EBPF_EXECUTION_NATIVE) {
         return EBPF_INVALID_ARGUMENT;
     }
@@ -3027,7 +3026,7 @@ ebpf_object_set_execution_type(_Inout_ struct bpf_object* object, ebpf_execution
     if (Platform::_is_native_program(object->file_name)) {
         object->execution_type = EBPF_EXECUTION_NATIVE;
     } else {
-        // Non-native programs are no longer supported since JIT/interpret are deprecated
+        // Only native programs (.sys files) are supported.
         return EBPF_INVALID_ARGUMENT;
     }
     return EBPF_SUCCESS;

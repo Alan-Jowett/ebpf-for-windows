@@ -18,8 +18,7 @@ ebpf_server_verify_and_load_program(
     /* [ref][out] */ uint32_t* logs_size,
     /* [ref][size_is][size_is][out] */ char** logs)
 {
-    // JIT and interpreter have been removed.
-    // Return EBPF_OPERATION_NOT_SUPPORTED to indicate that the program cannot be loaded via bytecode.
+    // Only native programs are supported. Return not supported for bytecode loading.
     UNREFERENCED_PARAMETER(info);
     UNREFERENCED_PARAMETER(logs_size);
     UNREFERENCED_PARAMETER(logs);

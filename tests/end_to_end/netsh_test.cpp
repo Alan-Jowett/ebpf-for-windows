@@ -523,8 +523,8 @@ TEST_CASE("pin first program", "[netsh][programs]")
         output == "\n"
                   "    ID  Pins  Links  Mode       Type           Name\n"
                   "======  ====  =====  =========  =============  ====================\n"
-                  "     5     1      1  JIT        sample         caller\n"
-                  "     6     0      0  JIT        sample         callee\n");
+                  "     5     1      1  NATIVE        sample         caller\n"
+                  "     6     0      0  NATIVE        sample         callee\n");
 
     output = _run_netsh_command(handle_ebpf_delete_program, L"5", nullptr, nullptr, &result);
     REQUIRE(output == "Unpinned 5 from BPF:\\mypinpath\n");
@@ -552,8 +552,8 @@ TEST_CASE("pin all programs", "[netsh][programs]")
         output == "\n"
                   "    ID  Pins  Links  Mode       Type           Name\n"
                   "======  ====  =====  =========  =============  ====================\n"
-                  "     5     1      1  JIT        sample         caller\n"
-                  "     6     1      0  JIT        sample         callee\n");
+                  "     5     1      1  NATIVE        sample         caller\n"
+                  "     6     1      0  NATIVE        sample         callee\n");
 
     output = _run_netsh_command(handle_ebpf_delete_program, L"5", nullptr, nullptr, &result);
     REQUIRE(output == "Unpinned 5 from BPF:\\mypinpath\\sample_ext\n");
@@ -585,8 +585,8 @@ TEST_CASE("show programs", "[netsh][programs]")
         output == "\n"
                   "    ID  Pins  Links  Mode       Type           Name\n"
                   "======  ====  =====  =========  =============  ====================\n"
-                  "     5     1      1  JIT        sample         caller\n"
-                  "     6     0      0  JIT        sample         callee\n");
+                  "     5     1      1  NATIVE        sample         caller\n"
+                  "     6     0      0  NATIVE        sample         callee\n");
 
     // Test filtering by "attached=yes".
     output = _run_netsh_command(handle_ebpf_show_programs, L"attached=yes", nullptr, nullptr, &result);
@@ -595,7 +595,7 @@ TEST_CASE("show programs", "[netsh][programs]")
         output == "\n"
                   "    ID  Pins  Links  Mode       Type           Name\n"
                   "======  ====  =====  =========  =============  ====================\n"
-                  "     5     1      1  JIT        sample         caller\n");
+                  "     5     1      1  NATIVE        sample         caller\n");
 
     // Test filtering by "attached=no".
     output = _run_netsh_command(handle_ebpf_show_programs, L"attached=no", nullptr, nullptr, &result);
@@ -604,7 +604,7 @@ TEST_CASE("show programs", "[netsh][programs]")
         output == "\n"
                   "    ID  Pins  Links  Mode       Type           Name\n"
                   "======  ====  =====  =========  =============  ====================\n"
-                  "     6     0      0  JIT        sample         callee\n");
+                  "     6     0      0  NATIVE        sample         callee\n");
 
     // Test filtering by "pinned=yes".
     output = _run_netsh_command(handle_ebpf_show_programs, L"pinned=yes", nullptr, nullptr, &result);
@@ -613,7 +613,7 @@ TEST_CASE("show programs", "[netsh][programs]")
         output == "\n"
                   "    ID  Pins  Links  Mode       Type           Name\n"
                   "======  ====  =====  =========  =============  ====================\n"
-                  "     5     1      1  JIT        sample         caller\n");
+                  "     5     1      1  NATIVE        sample         caller\n");
 
     // Test filtering by "pinned=no".
     output = _run_netsh_command(handle_ebpf_show_programs, L"pinned=no", nullptr, nullptr, &result);
@@ -622,7 +622,7 @@ TEST_CASE("show programs", "[netsh][programs]")
         output == "\n"
                   "    ID  Pins  Links  Mode       Type           Name\n"
                   "======  ====  =====  =========  =============  ====================\n"
-                  "     6     0      0  JIT        sample         callee\n");
+                  "     6     0      0  NATIVE        sample         callee\n");
 
     // Test verbose output format.
     output = _run_netsh_command(handle_ebpf_show_programs, L"level=verbose", nullptr, nullptr, &result);
@@ -634,7 +634,7 @@ TEST_CASE("show programs", "[netsh][programs]")
                   "Section        : sample_ext\n"
                   "Name           : caller\n"
                   "Program type   : sample\n"
-                  "Mode           : JIT\n"
+                  "Mode           : NATIVE\n"
                   "# map IDs      : 2\n"
                   "map IDs        : 3\n"
                   "                 4\n"
@@ -646,7 +646,7 @@ TEST_CASE("show programs", "[netsh][programs]")
                   "Section        : sample_ext/0\n"
                   "Name           : callee\n"
                   "Program type   : sample\n"
-                  "Mode           : JIT\n"
+                  "Mode           : NATIVE\n"
                   "# map IDs      : 0\n"
                   "# pinned paths : 0\n"
                   "# links        : 0\n");
@@ -681,8 +681,8 @@ TEST_CASE("set program", "[netsh][programs]")
         output == "\n"
                   "    ID  Pins  Links  Mode       Type           Name\n"
                   "======  ====  =====  =========  =============  ====================\n"
-                  "     5     0      0  JIT        sample         caller\n"
-                  "     6     0      0  JIT        sample         callee\n");
+                  "     5     0      0  NATIVE        sample         caller\n"
+                  "     6     0      0  NATIVE        sample         callee\n");
 
     // Try to detach an unattached program.
     output = _run_netsh_command(handle_ebpf_set_program, L"5", L"", nullptr, &result);
@@ -938,7 +938,7 @@ TEST_CASE("xdp interface parameter", "[netsh][programs]")
         output == "\n"
                   "    ID  Pins  Links  Mode       Type           Name\n"
                   "======  ====  =====  =========  =============  ====================\n"
-                  "    29     1      0  JIT        xdp            DropPacket\n");
+                  "    29     1      0  NATIVE        xdp            DropPacket\n");
 
     // Re-attach the program with interface index parameter.
     output = _run_netsh_command(handle_ebpf_set_program, L"29", nullptr, L"interface=1", &result);
