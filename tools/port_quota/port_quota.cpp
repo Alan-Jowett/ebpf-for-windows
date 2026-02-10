@@ -39,7 +39,7 @@ load(int argc, char** argv)
         return 1;
     }
 
-    result = ebpf_object_set_execution_type(object, EBPF_EXECUTION_JIT);
+    result = ebpf_object_set_execution_type(object, EBPF_EXECUTION_NATIVE);
     if (result != EBPF_SUCCESS) {
         fprintf(stderr, "Failed to set execution type\n");
         return 1;

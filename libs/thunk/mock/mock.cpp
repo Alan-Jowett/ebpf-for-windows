@@ -4,9 +4,6 @@
 #include "api_service.h"
 #include "ebpf_api.h"
 #include "mock.h"
-#if !defined(CONFIG_BPF_JIT_DISABLED) || !defined(CONFIG_BPF_INTERPRETER_DISABLED)
-#include "rpc_interface_h.h"
-#endif
 
 std::function<decltype(_close)> close_handler;
 std::function<decltype(_dup)> dup_handler;
@@ -188,36 +185,9 @@ _stop_and_delete_service(SC_HANDLE service_handle, const wchar_t* service_name)
 
 } // namespace Platform
 
-#if !defined(CONFIG_BPF_JIT_DISABLED) || !defined(CONFIG_BPF_INTERPRETER_DISABLED)
-// RPC related mock functions.
-
+// RPC related mock function - clean_up_rpc_binding is still needed
 RPC_STATUS
 clean_up_rpc_binding() { return RPC_S_OK; }
-
-_Must_inspect_result_ ebpf_result_t
-ebpf_rpc_load_program(
-    _In_ const ebpf_program_load_info* info, _Outptr_result_maybenull_z_ const char** logs, _Inout_ uint32_t* logs_size)
-{
-    // Set the handle of program being verified in thread-local storage.
-    set_program_under_verification(reinterpret_cast<ebpf_handle_t>(info->program_handle));
-
-    // Short circuit rpc call to service lib.
-    ebpf_result_t result = ebpf_verify_and_load_program(
-        &info->program_type,
-        reinterpret_cast<ebpf_handle_t>(info->program_handle),
-        info->execution_context,
-        info->execution_type,
-        info->map_count,
-        info->handle_map,
-        info->instruction_count,
-        reinterpret_cast<ebpf_inst*>(info->instructions),
-        const_cast<const char**>(logs),
-        logs_size);
-
-    ebpf_clear_thread_local_storage();
-    return result;
-}
-#endif
 
 _Must_inspect_result_ ebpf_result_t
 ebpf_rpc_authorize_native_module(_In_ const GUID* module_id, _In_z_ const char* image_path)

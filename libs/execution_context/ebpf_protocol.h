@@ -64,10 +64,6 @@ typedef enum _ebpf_code_type
     EBPF_CODE_MAX = EBPF_CODE_NATIVE,
 } ebpf_code_type_t;
 
-// Deprecated code types - not supported.
-#define EBPF_CODE_JIT ((ebpf_code_type_t)0xFFFF)
-#define EBPF_CODE_EBPF ((ebpf_code_type_t)0xFFFE)
-
 typedef struct _ebpf_operation_header
 {
     uint16_t length;

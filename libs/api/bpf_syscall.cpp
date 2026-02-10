@@ -304,68 +304,10 @@ bpf(int cmd, union bpf_attr* attr, unsigned int size)
             return bpf_prog_get_next_id(next_id_attr->start_id, &next_id_attr->next_id);
         }
         case BPF_PROG_LOAD: {
-#if !defined(CONFIG_BPF_JIT_DISABLED) || !defined(CONFIG_BPF_INTERPRETER_DISABLED)
-            ExtensibleStruct<sys_bpf_prog_load_attr_t> prog_load_attr((void*)attr, (size_t)size);
-
-            check_zero(
-                &prog_load_attr,
-                offsetof(sys_bpf_prog_load_attr_t, prog_ifindex),
-                offsetof(sys_bpf_prog_load_attr_t, log_true_size));
-
-            if (prog_load_attr->prog_flags != 0) {
-                return -EINVAL;
-            }
-
-            if (prog_load_attr->log_level > 1) {
-                // Only allow BPF_LOG_LEVEL_BRANCH for now.
-                // Keep in mind that log_level is a bitmask!
-                return -EINVAL;
-            }
-
-            if (!!prog_load_attr->log_level != !!prog_load_attr->log_buf) {
-                // log_buf is only allowed when log_level is set, and vice versa.
-                return -EINVAL;
-            }
-
-            const ebpf_program_type_t* program_type = ebpf_get_ebpf_program_type(prog_load_attr->prog_type);
-            if (program_type == nullptr) {
-                return -EINVAL;
-            }
-
-            const char* name = prog_load_attr->prog_name;
-            size_t name_length;
-
-            if (!is_valid_name(name, &name_length)) {
-                return -EINVAL;
-            }
-
-            if (name_length == 0) {
-                // Disable using sha256 as object name.
-                name = "";
-            }
-
-            fd_t program_fd = ebpf_fd_invalid;
-            uint32_t log_size = prog_load_attr->log_size;
-            ebpf_result_t result = ebpf_program_load_bytes(
-                program_type,
-                name,
-                EBPF_EXECUTION_ANY,
-                reinterpret_cast<const ebpf_inst*>(prog_load_attr->insns),
-                prog_load_attr->insn_cnt,
-                reinterpret_cast<char*>(prog_load_attr->log_buf),
-                log_size,
-                &program_fd,
-                &prog_load_attr->log_true_size);
-            if (result != EBPF_SUCCESS) {
-                return -ebpf_result_to_errno(result);
-            }
-
-            return program_fd;
-#else
-            // Allow distinguishing this from ERROR_CALL_NOT_IMPLEMENTED.
+            // JIT and interpreter have been removed.
+            // Only native programs (.sys files) are supported.
             SetLastError(ERROR_NOT_SUPPORTED);
             return -EINVAL;
-#endif
         }
         case BPF_PROG_TEST_RUN: {
             ExtensibleStruct<sys_bpf_prog_run_attr_t> prog_run((void*)attr, (size_t)size);

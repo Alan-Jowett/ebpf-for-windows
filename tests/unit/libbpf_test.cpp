@@ -2300,7 +2300,7 @@ _test_enumerate_link_IDs_with_bpf(ebpf_execution_type_t execution_type)
     // Pin the detached link.
     memset(&attr, 0, sizeof(attr));
     attr.obj_pin.bpf_fd = fd1;
-    attr.obj_pin.pathname = (uintptr_t)"MyPath";
+    attr.obj_pin.pathname = (uintptr_t) "MyPath";
     REQUIRE(bpf(BPF_OBJ_PIN, &attr, sizeof(attr)) == 0);
 
     // Verify that bpf_fd must be 0 when calling BPF_OBJ_GET.
@@ -3800,7 +3800,7 @@ _hash_of_map_initial_value_test(ebpf_execution_type_t execution_type)
 TEST_CASE("hash_of_map", "[libbpf]")
 {
 #if !defined(CONFIG_BPF_JIT_DISABLED)
-    _hash_of_map_initial_value_test(EBPF_EXECUTION_JIT);
+    _hash_of_map_initial_value_test(EBPF_EXECUTION_NATIVE);
 #endif
     _hash_of_map_initial_value_test(EBPF_EXECUTION_NATIVE);
 }

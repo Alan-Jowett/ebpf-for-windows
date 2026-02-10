@@ -42,7 +42,7 @@ FUZZ_EXPORT int __cdecl LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
             return 0;
         }
 
-        bpf_object->execution_type = EBPF_EXECUTION_INTERPRET;
+        bpf_object->execution_type = EBPF_EXECUTION_NATIVE;
 
         if (bpf_object__load(bpf_object) == 0) {
             // For each program, run it with bpf_prog_test_run

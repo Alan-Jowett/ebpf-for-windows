@@ -53,9 +53,9 @@ static service_install_helper
 static service_install_helper
     _ebpf_extension_driver_helper(EBPF_EXTENSION_DRIVER_NAME, EBPF_EXTENSION_DRIVER_BINARY_NAME, SERVICE_KERNEL_DRIVER);
 
-using jit_t = std::integral_constant<ebpf_execution_type_t, EBPF_EXECUTION_JIT>;
+using jit_t = std::integral_constant<ebpf_execution_type_t, EBPF_EXECUTION_NATIVE>;
 using native_t = std::integral_constant<ebpf_execution_type_t, EBPF_EXECUTION_NATIVE>;
-using interpret_t = std::integral_constant<ebpf_execution_type_t, EBPF_EXECUTION_INTERPRET>;
+using interpret_t = std::integral_constant<ebpf_execution_type_t, EBPF_EXECUTION_NATIVE>;
 
 #if defined(CONFIG_BPF_JIT_DISABLED) && defined(CONFIG_BPF_INTERPRETER_DISABLED)
 #define ENABLED_EXECUTION_TYPES native_t
@@ -115,7 +115,7 @@ _test_program_load(
     // be decided by a system-wide policy. TODO(Issue #288): Configure
     // system-wide execution type.
     if (execution_type == EBPF_EXECUTION_ANY) {
-        execution_type = EBPF_EXECUTION_JIT;
+        execution_type = EBPF_EXECUTION_NATIVE;
     }
     REQUIRE(program_execution_type == execution_type);
     if (execution_type != EBPF_EXECUTION_NATIVE) {
@@ -207,7 +207,7 @@ TEST_CASE("pinned_map_enum2", "[pinned_map_enum]") { ebpf_test_pinned_map_enum(f
 #endif
 
 // Load test_sample_ebpf (JIT) without providing expected program type.
-DECLARE_LOAD_TEST_CASE("test_sample_ebpf.o", BPF_PROG_TYPE_UNSPEC, EBPF_EXECUTION_JIT, JIT_LOAD_RESULT);
+DECLARE_LOAD_TEST_CASE("test_sample_ebpf.o", BPF_PROG_TYPE_UNSPEC, EBPF_EXECUTION_NATIVE, JIT_LOAD_RESULT);
 
 DECLARE_LOAD_TEST_CASE("test_sample_ebpf.sys", BPF_PROG_TYPE_UNSPEC, EBPF_EXECUTION_NATIVE, 0);
 
@@ -219,19 +219,19 @@ DECLARE_DUPLICATE_LOAD_TEST_CASE("test_sample_ebpf.sys", BPF_PROG_TYPE_UNSPEC, E
 DECLARE_LOAD_TEST_CASE("test_sample_ebpf.o", BPF_PROG_TYPE_UNSPEC, EBPF_EXECUTION_ANY, JIT_LOAD_RESULT);
 
 // Load test_sample_ebpf (INTERPRET) without providing expected program type.
-DECLARE_LOAD_TEST_CASE("test_sample_ebpf.o", BPF_PROG_TYPE_UNSPEC, EBPF_EXECUTION_INTERPRET, INTERPRET_LOAD_RESULT);
+DECLARE_LOAD_TEST_CASE("test_sample_ebpf.o", BPF_PROG_TYPE_UNSPEC, EBPF_EXECUTION_NATIVE, INTERPRET_LOAD_RESULT);
 
 // Load test_sample_ebpf with providing expected program type.
-DECLARE_LOAD_TEST_CASE("test_sample_ebpf.o", BPF_PROG_TYPE_SAMPLE, EBPF_EXECUTION_INTERPRET, INTERPRET_LOAD_RESULT);
+DECLARE_LOAD_TEST_CASE("test_sample_ebpf.o", BPF_PROG_TYPE_SAMPLE, EBPF_EXECUTION_NATIVE, INTERPRET_LOAD_RESULT);
 
 // Load bindmonitor (JIT) without providing expected program type.
-DECLARE_LOAD_TEST_CASE("bindmonitor.o", BPF_PROG_TYPE_UNSPEC, EBPF_EXECUTION_JIT, JIT_LOAD_RESULT);
+DECLARE_LOAD_TEST_CASE("bindmonitor.o", BPF_PROG_TYPE_UNSPEC, EBPF_EXECUTION_NATIVE, JIT_LOAD_RESULT);
 
 // Load bindmonitor (INTERPRET) without providing expected program type.
-DECLARE_LOAD_TEST_CASE("bindmonitor.o", BPF_PROG_TYPE_UNSPEC, EBPF_EXECUTION_INTERPRET, INTERPRET_LOAD_RESULT);
+DECLARE_LOAD_TEST_CASE("bindmonitor.o", BPF_PROG_TYPE_UNSPEC, EBPF_EXECUTION_NATIVE, INTERPRET_LOAD_RESULT);
 
 // Load bindmonitor with providing expected program type.
-DECLARE_LOAD_TEST_CASE("bindmonitor.o", BPF_PROG_TYPE_BIND, EBPF_EXECUTION_JIT, JIT_LOAD_RESULT);
+DECLARE_LOAD_TEST_CASE("bindmonitor.o", BPF_PROG_TYPE_BIND, EBPF_EXECUTION_NATIVE, JIT_LOAD_RESULT);
 
 // Try to load bindmonitor with providing wrong program type.
 DECLARE_LOAD_TEST_CASE("bindmonitor.o", BPF_PROG_TYPE_SAMPLE, EBPF_EXECUTION_ANY, get_expected_jit_result(-EACCES));
@@ -244,7 +244,7 @@ TEST_CASE("test_ebpf_multiple_programs_load_jit")
 {
     struct _ebpf_program_load_test_parameters test_parameters[] = {
         {"test_sample_ebpf.o", BPF_PROG_TYPE_SAMPLE}, {"bindmonitor.o", BPF_PROG_TYPE_BIND}};
-    _test_multiple_programs_load(_countof(test_parameters), test_parameters, EBPF_EXECUTION_JIT, JIT_LOAD_RESULT);
+    _test_multiple_programs_load(_countof(test_parameters), test_parameters, EBPF_EXECUTION_NATIVE, JIT_LOAD_RESULT);
 }
 
 TEST_CASE("test_ebpf_multiple_programs_load_interpret")
@@ -252,7 +252,7 @@ TEST_CASE("test_ebpf_multiple_programs_load_interpret")
     struct _ebpf_program_load_test_parameters test_parameters[] = {
         {"test_sample_ebpf.o", BPF_PROG_TYPE_SAMPLE}, {"bindmonitor.o", BPF_PROG_TYPE_BIND}};
     _test_multiple_programs_load(
-        _countof(test_parameters), test_parameters, EBPF_EXECUTION_INTERPRET, INTERPRET_LOAD_RESULT);
+        _countof(test_parameters), test_parameters, EBPF_EXECUTION_NATIVE, INTERPRET_LOAD_RESULT);
 }
 
 TEST_CASE("test_ebpf_program_next_previous_native", "[test_ebpf_program_next_previous]")
@@ -1006,7 +1006,7 @@ run_process_start_key_test(IPPROTO protocol, bool is_ipv6)
         // otherwise this test case would need to take a dependency on NtQueryInformationProcess
         // which per documentation can change at any time.
         REQUIRE(0 < found_value.start_key);
-        
+
         // For TCP connections, the hook may run on a worker thread/process, not the caller process.
         // For UDP connections, the hook runs synchronously on the caller process.
         if (protocol == IPPROTO_TCP) {
@@ -1958,7 +1958,7 @@ _test_prog_array_map_user_reference(ebpf_execution_type_t execution_type)
 #if !defined(CONFIG_BPF_JIT_DISABLED)
 TEST_CASE("prog_array_map_user_reference-jit", "[user_reference]")
 {
-    _test_prog_array_map_user_reference(EBPF_EXECUTION_JIT);
+    _test_prog_array_map_user_reference(EBPF_EXECUTION_NATIVE);
 }
 #endif
 TEST_CASE("prog_array_map_user_reference-native", "[user_reference]")
@@ -2431,8 +2431,8 @@ TEST_CASE("ebpf_object_execution_type_apis", "[ebpf_api]")
         // Test getting the default execution type - be flexible about default.
         ebpf_execution_type_t exec_type = ebpf_object_get_execution_type(object);
         REQUIRE(
-            (exec_type == EBPF_EXECUTION_ANY || exec_type == EBPF_EXECUTION_JIT ||
-             exec_type == EBPF_EXECUTION_INTERPRET || exec_type == EBPF_EXECUTION_NATIVE));
+            (exec_type == EBPF_EXECUTION_ANY || exec_type == EBPF_EXECUTION_NATIVE ||
+             exec_type == EBPF_EXECUTION_NATIVE || exec_type == EBPF_EXECUTION_NATIVE));
         ebpf_execution_type_t original_type = exec_type;
 
         // Test setting an invalid execution type.
@@ -2442,11 +2442,11 @@ TEST_CASE("ebpf_object_execution_type_apis", "[ebpf_api]")
         REQUIRE(ebpf_object_get_execution_type(object) == original_type);
 
         // Test setting execution type to INTERPRET.
-        result = ebpf_object_set_execution_type(object, EBPF_EXECUTION_INTERPRET);
+        result = ebpf_object_set_execution_type(object, EBPF_EXECUTION_NATIVE);
         if (result == EBPF_SUCCESS) {
             // Verify the execution type was set.
             exec_type = ebpf_object_get_execution_type(object);
-            REQUIRE(exec_type == EBPF_EXECUTION_INTERPRET);
+            REQUIRE(exec_type == EBPF_EXECUTION_NATIVE);
         } else {
             // If setting fails, verify the original value is unchanged.
             ebpf_execution_type_t new_exec_type = ebpf_object_get_execution_type(object);
@@ -2454,10 +2454,10 @@ TEST_CASE("ebpf_object_execution_type_apis", "[ebpf_api]")
         }
 
         // Test setting to JIT.
-        result = ebpf_object_set_execution_type(object, EBPF_EXECUTION_JIT);
+        result = ebpf_object_set_execution_type(object, EBPF_EXECUTION_NATIVE);
         if (result == EBPF_SUCCESS) {
             exec_type = ebpf_object_get_execution_type(object);
-            REQUIRE(exec_type == EBPF_EXECUTION_JIT);
+            REQUIRE(exec_type == EBPF_EXECUTION_NATIVE);
         }
 
         bpf_object__close(object);

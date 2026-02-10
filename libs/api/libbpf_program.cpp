@@ -26,27 +26,10 @@ bpf_load_program_xattr(const struct bpf_load_program_attr* load_attr, char* log_
         return libbpf_err(-EINVAL);
     }
 
-#if !defined(CONFIG_BPF_JIT_DISABLED) || !defined(CONFIG_BPF_INTERPRETER_DISABLED)
-    fd_t program_fd;
-    ebpf_result_t result = ebpf_program_load_bytes(
-        program_type,
-        load_attr->name,
-        EBPF_EXECUTION_ANY,
-        reinterpret_cast<const ebpf_inst*>(load_attr->insns),
-        (uint32_t)load_attr->insns_cnt,
-        log_buf,
-        log_buf_sz,
-        &program_fd,
-        nullptr);
-    if (result != EBPF_SUCCESS) {
-        return libbpf_result_err(result);
-    }
-    return program_fd;
-#else
+    // JIT and interpreter have been removed. Only native programs are supported.
     UNREFERENCED_PARAMETER(log_buf);
     UNREFERENCED_PARAMETER(log_buf_sz);
     return libbpf_err(-ENOTSUP);
-#endif
 }
 
 int
@@ -87,31 +70,11 @@ bpf_prog_load(
         return libbpf_err(-EINVAL);
     }
 
-#if !defined(CONFIG_BPF_JIT_DISABLED) || !defined(CONFIG_BPF_INTERPRETER_DISABLED)
-    char* log_buffer = (opts) ? opts->log_buf : nullptr;
-    size_t log_buffer_size = (opts) ? opts->log_size : 0;
-
-    fd_t program_fd;
-    ebpf_result_t result = ebpf_program_load_bytes(
-        program_type,
-        prog_name,
-        EBPF_EXECUTION_ANY,
-        reinterpret_cast<const ebpf_inst*>(insns),
-        (uint32_t)insn_cnt,
-        log_buffer,
-        log_buffer_size,
-        &program_fd,
-        nullptr);
-    if (result != EBPF_SUCCESS) {
-        return libbpf_result_err(result);
-    }
-    return program_fd;
-#else
+    // JIT and interpreter have been removed. Only native programs are supported.
     UNREFERENCED_PARAMETER(prog_name);
     UNREFERENCED_PARAMETER(insn_cnt);
     UNREFERENCED_PARAMETER(opts);
     return libbpf_err(-ENOTSUP);
-#endif
 }
 
 int

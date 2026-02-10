@@ -18,38 +18,12 @@ ebpf_server_verify_and_load_program(
     /* [ref][out] */ uint32_t* logs_size,
     /* [ref][size_is][size_is][out] */ char** logs)
 {
-#if !defined(CONFIG_BPF_JIT_DISABLED) || !defined(CONFIG_BPF_INTERPRETER_DISABLED)
-    ebpf_result_t result;
-
-    if (info->instruction_count == 0) {
-        return EBPF_INVALID_ARGUMENT;
-    }
-
-    // Set the handle of program being verified in thread-local storage.
-    set_program_under_verification(reinterpret_cast<ebpf_handle_t>(info->program_handle));
-
-    result = ebpf_verify_and_load_program(
-        &info->program_type,
-        reinterpret_cast<ebpf_handle_t>(info->program_handle),
-        info->execution_context,
-        info->execution_type,
-        info->map_count,
-        info->handle_map,
-        info->instruction_count,
-        reinterpret_cast<ebpf_inst*>(info->instructions),
-        const_cast<const char**>(logs),
-        logs_size);
-
-    ebpf_clear_thread_local_storage();
-    return result;
-#else
-    // JIT and interpreter are disabled.
-    // Return EBPF_OPERATION_NOT_SUPPORTED to indicate that the program cannot be loaded.
+    // JIT and interpreter have been removed.
+    // Return EBPF_OPERATION_NOT_SUPPORTED to indicate that the program cannot be loaded via bytecode.
     UNREFERENCED_PARAMETER(info);
     UNREFERENCED_PARAMETER(logs_size);
     UNREFERENCED_PARAMETER(logs);
     return EBPF_OPERATION_NOT_SUPPORTED;
-#endif
 }
 
 ebpf_result_t

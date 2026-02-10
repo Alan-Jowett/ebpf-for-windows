@@ -233,7 +233,7 @@ TEST_CASE("jit_test", "[sample_ext_test]")
     hook_helper_t hook(EBPF_ATTACH_TYPE_SAMPLE);
     program_load_attach_helper_t _helper;
     _helper.initialize(
-        "test_sample_ebpf.o", BPF_PROG_TYPE_SAMPLE, "test_program_entry", EBPF_EXECUTION_JIT, nullptr, 0, hook);
+        "test_sample_ebpf.o", BPF_PROG_TYPE_SAMPLE, "test_program_entry", EBPF_EXECUTION_NATIVE, nullptr, 0, hook);
 
     object = _helper.get_object();
 
@@ -248,7 +248,7 @@ TEST_CASE("interpret_test", "[sample_ext_test]")
     hook_helper_t hook(EBPF_ATTACH_TYPE_SAMPLE);
     program_load_attach_helper_t _helper;
     _helper.initialize(
-        "test_sample_ebpf.o", BPF_PROG_TYPE_SAMPLE, "test_program_entry", EBPF_EXECUTION_INTERPRET, nullptr, 0, hook);
+        "test_sample_ebpf.o", BPF_PROG_TYPE_SAMPLE, "test_program_entry", EBPF_EXECUTION_NATIVE, nullptr, 0, hook);
 
     object = _helper.get_object();
 
@@ -276,7 +276,7 @@ TEST_CASE("jit_test_data", "[sample_ext_test]")
     hook_helper_t hook(EBPF_ATTACH_TYPE_SAMPLE);
     program_load_attach_helper_t _helper;
     _helper.initialize(
-        "test_sample_ebpf.o", BPF_PROG_TYPE_SAMPLE, "test_program_entry", EBPF_EXECUTION_JIT, nullptr, 0, hook);
+        "test_sample_ebpf.o", BPF_PROG_TYPE_SAMPLE, "test_program_entry", EBPF_EXECUTION_NATIVE, nullptr, 0, hook);
 
     object = _helper.get_object();
 
@@ -291,7 +291,7 @@ TEST_CASE("interpret_test_data", "[sample_ext_test]")
     hook_helper_t hook(EBPF_ATTACH_TYPE_SAMPLE);
     program_load_attach_helper_t _helper;
     _helper.initialize(
-        "test_sample_ebpf.o", BPF_PROG_TYPE_SAMPLE, "test_program_entry", EBPF_EXECUTION_INTERPRET, nullptr, 0, hook);
+        "test_sample_ebpf.o", BPF_PROG_TYPE_SAMPLE, "test_program_entry", EBPF_EXECUTION_NATIVE, nullptr, 0, hook);
 
     object = _helper.get_object();
 
@@ -362,10 +362,10 @@ utility_helpers_test(ebpf_execution_type_t execution_type)
 }
 
 #if !defined(CONFIG_BPF_INTERPRETER_DISABLED)
-TEST_CASE("utility_helpers_test_interpret", "[sample_ext_test]") { utility_helpers_test(EBPF_EXECUTION_INTERPRET); }
+TEST_CASE("utility_helpers_test_interpret", "[sample_ext_test]") { utility_helpers_test(EBPF_EXECUTION_NATIVE); }
 #endif
 #if !defined(CONFIG_BPF_JIT_DISABLED)
-TEST_CASE("utility_helpers_test_jit", "[sample_ext_test]") { utility_helpers_test(EBPF_EXECUTION_JIT); }
+TEST_CASE("utility_helpers_test_jit", "[sample_ext_test]") { utility_helpers_test(EBPF_EXECUTION_NATIVE); }
 #endif
 TEST_CASE("utility_helpers_test_native", "[sample_ext_test]") { utility_helpers_test(EBPF_EXECUTION_NATIVE); }
 

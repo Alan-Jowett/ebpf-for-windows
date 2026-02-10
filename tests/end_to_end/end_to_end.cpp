@@ -1187,7 +1187,7 @@ TEST_CASE("map_pinning_test", "[end_to_end]")
     result = ebpf_program_load(
         SAMPLE_PATH "bindmonitor.o",
         BPF_PROG_TYPE_UNSPEC,
-        EBPF_EXECUTION_INTERPRET,
+        EBPF_EXECUTION_NATIVE,
         &unique_object,
         &program_fd,
         &error_message);
@@ -1486,7 +1486,7 @@ TEST_CASE("explicit_detach", "[end_to_end]")
     result = ebpf_program_load(
         SAMPLE_PATH "test_sample_ebpf.o",
         BPF_PROG_TYPE_UNSPEC,
-        EBPF_EXECUTION_INTERPRET,
+        EBPF_EXECUTION_NATIVE,
         &unique_object,
         &program_fd,
         &error_message);
@@ -1537,7 +1537,7 @@ TEST_CASE("implicit_explicit_detach", "[end_to_end]")
     result = ebpf_program_load(
         SAMPLE_PATH "test_sample_ebpf.o",
         BPF_PROG_TYPE_UNSPEC,
-        EBPF_EXECUTION_INTERPRET,
+        EBPF_EXECUTION_NATIVE,
         &unique_object,
         &program_fd,
         &error_message);
@@ -1698,7 +1698,7 @@ TEST_CASE("printk", "[end_to_end]")
     uint32_t ifindex = 0;
     program_load_attach_helper_t program_helper;
     program_helper.initialize(
-        SAMPLE_PATH "printk.o", BPF_PROG_TYPE_BIND, "func", EBPF_EXECUTION_INTERPRET, &ifindex, sizeof(ifindex), hook);
+        SAMPLE_PATH "printk.o", BPF_PROG_TYPE_BIND, "func", EBPF_EXECUTION_NATIVE, &ifindex, sizeof(ifindex), hook);
 
     // The current bind hook only works with IPv4, so compose a sample IPv4 context.
     SOCKADDR_IN addr = {AF_INET};
@@ -1755,7 +1755,7 @@ TEST_CASE("link_tests", "[end_to_end]")
     REQUIRE(sample_program_info.initialize(EBPF_PROGRAM_TYPE_SAMPLE) == EBPF_SUCCESS);
     program_load_attach_helper_t program_helper;
     program_helper.initialize(
-        SAMPLE_PATH "bpf.o", BPF_PROG_TYPE_SAMPLE, "func", EBPF_EXECUTION_INTERPRET, nullptr, 0, hook);
+        SAMPLE_PATH "bpf.o", BPF_PROG_TYPE_SAMPLE, "func", EBPF_EXECUTION_NATIVE, nullptr, 0, hook);
 
     // Dummy context (not used by the eBPF program).
     INITIALIZE_SAMPLE_CONTEXT
@@ -2612,8 +2612,8 @@ TEST_CASE("test_ebpf_object_set_execution_type", "[end_to_end]")
     REQUIRE(native_object != nullptr);
 
     // Try to set incorrect execution type.
-    REQUIRE(ebpf_object_set_execution_type(native_object, EBPF_EXECUTION_JIT) == EBPF_INVALID_ARGUMENT);
-    REQUIRE(ebpf_object_set_execution_type(native_object, EBPF_EXECUTION_INTERPRET) == EBPF_INVALID_ARGUMENT);
+    REQUIRE(ebpf_object_set_execution_type(native_object, EBPF_EXECUTION_NATIVE) == EBPF_INVALID_ARGUMENT);
+    REQUIRE(ebpf_object_set_execution_type(native_object, EBPF_EXECUTION_NATIVE) == EBPF_INVALID_ARGUMENT);
 
     // The following should succeed.
     REQUIRE(ebpf_object_set_execution_type(native_object, EBPF_EXECUTION_ANY) == EBPF_SUCCESS);
@@ -2632,11 +2632,11 @@ TEST_CASE("test_ebpf_object_set_execution_type", "[end_to_end]")
 
     // The following should succeed.
     REQUIRE(ebpf_object_set_execution_type(jit_object, EBPF_EXECUTION_ANY) == EBPF_SUCCESS);
-    REQUIRE(ebpf_object_get_execution_type(jit_object) == EBPF_EXECUTION_JIT);
-    REQUIRE(ebpf_object_set_execution_type(jit_object, EBPF_EXECUTION_JIT) == EBPF_SUCCESS);
-    REQUIRE(ebpf_object_get_execution_type(jit_object) == EBPF_EXECUTION_JIT);
-    REQUIRE(ebpf_object_set_execution_type(jit_object, EBPF_EXECUTION_INTERPRET) == EBPF_SUCCESS);
-    REQUIRE(ebpf_object_get_execution_type(jit_object) == EBPF_EXECUTION_INTERPRET);
+    REQUIRE(ebpf_object_get_execution_type(jit_object) == EBPF_EXECUTION_NATIVE);
+    REQUIRE(ebpf_object_set_execution_type(jit_object, EBPF_EXECUTION_NATIVE) == EBPF_SUCCESS);
+    REQUIRE(ebpf_object_get_execution_type(jit_object) == EBPF_EXECUTION_NATIVE);
+    REQUIRE(ebpf_object_set_execution_type(jit_object, EBPF_EXECUTION_NATIVE) == EBPF_SUCCESS);
+    REQUIRE(ebpf_object_get_execution_type(jit_object) == EBPF_EXECUTION_NATIVE);
 
     bpf_object__close(jit_object);
 }

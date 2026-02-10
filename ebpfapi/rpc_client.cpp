@@ -29,39 +29,6 @@ static std::mutex _rpc_binding_handle_mutex;
 static RPC_STATUS
 _initialize_rpc_binding();
 
-#if !defined(CONFIG_BPF_JIT_DISABLED) || !defined(CONFIG_BPF_INTERPRETER_DISABLED)
-_Must_inspect_result_ ebpf_result_t
-ebpf_rpc_load_program(
-    _In_ const ebpf_program_load_info* info,
-    _Outptr_result_maybenull_z_ const char** logs,
-    _Inout_ uint32_t* logs_size) noexcept
-{
-    ebpf_result_t result;
-
-    if (_initialize_rpc_binding() != RPC_S_OK) {
-        return EBPF_NO_MEMORY;
-    }
-
-    RpcTryExcept
-    {
-        result = ebpf_client_verify_and_load_program(
-            const_cast<ebpf_program_load_info*>(info), logs_size, const_cast<char**>(logs));
-    }
-    RpcExcept(RpcExceptionFilter(RpcExceptionCode()))
-    {
-        EBPF_LOG_MESSAGE_UINT64(
-            EBPF_TRACELOG_LEVEL_ERROR,
-            EBPF_TRACELOG_KEYWORD_API,
-            "RPC call ebpf_client_verify_and_load_program threw exception",
-            RpcExceptionCode());
-        result = EBPF_RPC_EXCEPTION;
-    }
-    RpcEndExcept
-
-        return result;
-}
-#endif // !defined(CONFIG_BPF_JIT_DISABLED) || !defined(CONFIG_BPF_INTERPRETER_DISABLED)
-
 _Must_inspect_result_ ebpf_result_t
 ebpf_rpc_authorize_native_module(_In_ const GUID* module_id, _In_z_ const char* image_path) noexcept
 {

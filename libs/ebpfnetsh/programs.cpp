@@ -31,8 +31,7 @@ static TOKEN_VALUE _boolean_constraint_enum[] = {
 };
 
 static TOKEN_VALUE _ebpf_execution_type_enum[] = {
-    {L"jit", EBPF_EXECUTION_JIT},
-    {L"interpret", EBPF_EXECUTION_INTERPRET},
+    {L"native", EBPF_EXECUTION_NATIVE},
 };
 
 typedef enum
@@ -146,7 +145,7 @@ handle_ebpf_add_program(
     bpf_prog_type prog_type = BPF_PROG_TYPE_UNSPEC;
     bpf_attach_type attach_type = BPF_ATTACH_TYPE_UNSPEC;
     pinned_type_t pinned_type = PT_FIRST; // Like bpftool, we default to pin first.
-    ebpf_execution_type_t execution = EBPF_EXECUTION_JIT;
+    ebpf_execution_type_t execution = EBPF_EXECUTION_NATIVE;
     wchar_t* interface_parameter = nullptr;
     wchar_t* compartment_parameter = nullptr;
 

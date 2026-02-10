@@ -14,11 +14,6 @@ extern "C"
         EBPF_EXECUTION_NATIVE ///< Execute from native driver.
     } ebpf_execution_type_t;
 
-    // Deprecated execution types - kept for API compatibility but not supported.
-    // Using these values will result in an error.
-#define EBPF_EXECUTION_JIT ((ebpf_execution_type_t)0xFFFF)
-#define EBPF_EXECUTION_INTERPRET ((ebpf_execution_type_t)0xFFFE)
-
 #ifdef __cplusplus
 }
 #endif

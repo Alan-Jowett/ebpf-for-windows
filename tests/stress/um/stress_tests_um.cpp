@@ -254,14 +254,14 @@ _droppacket_stress_thread_function(const stress_test_thread_context& test_params
 // user-mode tests.
 static const std::map<std::string, test_program_attributes> _test_program_info = {
     {{"droppacket"},
-     {{"droppacket.o"}, {}, {}, _droppacket_stress_thread_function, BPF_PROG_TYPE_UNSPEC, EBPF_EXECUTION_JIT}},
+     {{"droppacket.o"}, {}, {}, _droppacket_stress_thread_function, BPF_PROG_TYPE_UNSPEC, EBPF_EXECUTION_NATIVE}},
     {{"bindmonitor_tailcall"},
      {{"bindmonitor_tailcall.o"},
       {},
       {},
       _bindmonitor_tailcall_stress_thread_function,
       BPF_PROG_TYPE_UNSPEC,
-      EBPF_EXECUTION_JIT}}};
+      EBPF_EXECUTION_NATIVE}}};
 
 // This call is called by the common test initialization code to get a list of programs supported by the user mode or
 // kernel mode test suites.  (For example, some programs could be meant for kernel mode stress testing only).

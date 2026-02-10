@@ -4,10 +4,10 @@
 #include "ebpf_core.h"
 #include "ebpf_handle.h"
 #include "ebpf_program.h"
-#include "spec/vm_isa.hpp"
 #include "helpers.h"
 #include "libfuzzer.h"
 #include "platform.h"
+#include "spec/vm_isa.hpp"
 
 #include <chrono>
 #include <condition_variable>
@@ -340,7 +340,7 @@ class fuzz_wrapper
                 {reinterpret_cast<uint8_t*>(name.data()), name.size()},
                 {reinterpret_cast<uint8_t*>(section.data()), section.size()},
                 {reinterpret_cast<uint8_t*>(file.data()), file.size()},
-                EBPF_CODE_EBPF};
+                EBPF_CODE_NATIVE};
             ebpf_handle_t handle;
             if (ebpf_program_create_and_initialize(&params, &handle) == EBPF_SUCCESS) {
                 handles.push_back(handle);
@@ -358,8 +358,11 @@ class fuzz_wrapper
                 }};
 
             if (ebpf_core_load_code(
-                    handle, EBPF_CODE_EBPF, nullptr, reinterpret_cast<uint8_t*>(instructions), sizeof(instructions)) !=
-                EBPF_SUCCESS) {
+                    handle,
+                    EBPF_CODE_NATIVE,
+                    nullptr,
+                    reinterpret_cast<uint8_t*>(instructions),
+                    sizeof(instructions)) != EBPF_SUCCESS) {
                 throw std::runtime_error("load code failed");
             }
         }
