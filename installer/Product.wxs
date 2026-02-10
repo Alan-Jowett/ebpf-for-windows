@@ -87,7 +87,6 @@ SPDX-License-Identifier: MIT
 		<Directory Id="TARGETDIR" Name="SourceDir">
 			<Directory Id="ProgramFiles64Folder">
 				<Directory Id="INSTALLFOLDER" Name="ebpf-for-windows">
-					<Directory Id="dir_JIT" Name="JIT" />
 					<Directory Id="dir_drivers" Name="drivers"/>
 				</Directory>
 			</Directory>
@@ -165,7 +164,7 @@ SPDX-License-Identifier: MIT
 		<CustomAction Id="eBPF_netsh_helper_uninstall_rollback" BinaryKey="WixCA" DllEntry="WixQuietExec64" Execute="deferred" Return="ignore" Impersonate="no"/>
 
 		<!--Install/Uninstall the eBPF Service -->
-		<ComponentGroup Id="eBPF_Service" Directory="dir_JIT">
+		<ComponentGroup Id="eBPF_Service" Directory="INSTALLFOLDER">
 			<Component Id="EBPFSVC.PDB" DiskId="1" Guid="{D1935DF0-2FC7-42F5-81E5-19AF88D6244B}">
 				<File Id="EBPFSVC.PDB" Name="EbpfSvc.pdb" Source="$(var.ebpfsvc.TargetDir)ebpfsvc.pdb" />
 			</Component>
