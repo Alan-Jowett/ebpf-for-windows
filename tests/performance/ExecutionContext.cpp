@@ -7,11 +7,6 @@
 
 #include "performance.h"
 
-extern "C"
-{
-#include "ubpf.h"
-}
-
 #include <numeric>
 #include <optional>
 
@@ -37,45 +32,6 @@ typedef class _ebpf_program_test_state
         delete program_info_provider;
         ebpf_core_terminate();
     }
-
-#if !defined(CONFIG_BPF_JIT_DISABLED) || !defined(CONFIG_BPF_INTERPRETER_DISABLED)
-    void
-    prepare_jit_program()
-    {
-        ubpf_vm* vm = ubpf_create();
-        REQUIRE(vm != nullptr);
-
-        // Disable read-only bytecode feature as it uses mmap which is not implemented in the Windows shim.
-        ubpf_toggle_readonly_bytecode(vm, false);
-
-        char* error_message = nullptr;
-        std::vector<uint8_t> machine_code(1024);
-        size_t machine_code_size = machine_code.size();
-        REQUIRE(
-            ubpf_load(
-                vm,
-                reinterpret_cast<uint8_t*>(byte_code.data()),
-                static_cast<uint32_t>(byte_code.size() * sizeof(ebpf_instruction_t)),
-                &error_message) == 0);
-        REQUIRE(ubpf_translate(vm, machine_code.data(), &machine_code_size, &error_message) == 0);
-        machine_code.resize(machine_code_size);
-        REQUIRE(
-            ebpf_program_load_code(program, EBPF_CODE_NATIVE, nullptr, machine_code.data(), machine_code.size()) ==
-            EBPF_SUCCESS);
-    }
-
-    void
-    prepare_interpret_program()
-    {
-        REQUIRE(
-            ebpf_program_load_code(
-                program,
-                EBPF_CODE_NATIVE,
-                nullptr,
-                reinterpret_cast<uint8_t*>(byte_code.data()),
-                byte_code.size() * sizeof(ebpf_instruction_t)) == EBPF_SUCCESS);
-    }
-#endif
 
     void
     test(void* context)

@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: MIT
 
 add_subdirectory("ebpf-verifier" EXCLUDE_FROM_ALL)
-add_subdirectory("ubpf" EXCLUDE_FROM_ALL)
 add_subdirectory("usersim" EXCLUDE_FROM_ALL)
 
 # Special target that we can link to external dependencies

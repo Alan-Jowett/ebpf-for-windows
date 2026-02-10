@@ -63,15 +63,12 @@ See [docs/AutomatedTests.md](../docs/AutomatedTests.md) for test categories and 
 ### External Dependencies (in `external/`)
 
 - **ebpf-verifier** (PREVAIL): Validates eBPF program safety
-- **ubpf**: JIT compiler and interpreter
 - **usersim**: User-mode simulation of kernel APIs for testing
 - **Catch2**: Test framework
 
 ### Program Execution Modes
 
-1. **Native** (preferred): eBPF → bpf2c → C → Windows driver (.sys)
-2. **JIT**: eBPF bytecode → native code at runtime via ubpf
-3. **Interpreter**: Direct bytecode execution (debug builds only)
+1. **Native**: eBPF → bpf2c → C → Windows driver (.sys)
 
 ## Code Conventions
 

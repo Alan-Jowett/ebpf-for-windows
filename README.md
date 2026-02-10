@@ -80,7 +80,6 @@ If you have issues with an eBPF program, start with the [Troubleshooting Guide](
 No.
 
 The eBPF for Windows project leverages existing projects, including
-the [IOVisor uBPF project](https://github.com/iovisor/ubpf) and
 the [PREVAIL verifier](https://github.com/vbpf/ebpf-verifier),
 running them on top of Windows by adding the Windows-specific hosting environment for that code.
 
