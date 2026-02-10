@@ -36,22 +36,12 @@ the `bpf2c` tool converts every instruction in the bytecode to equivalent `C` st
 [native code generation](docs/NativeCodeGeneration.md) document. The generated `C` code is then built into a windows driver
 module (stored in a `.sys` file) using the standard visual studio toolchain. The generated driver is also known as the native eBPF program.
 
-   **Note:** This is the *preferred* way of deploying eBPF programs.
+   **Note:** This is the *only* supported way of deploying eBPF programs in production.
    See the [FAQ on HVCI](readme.md#3-will-ebpf-work-with-hypervisor-enforced-code-integrity-hvci) for details as to why this mode is
-   also the most secure.
+   the most secure.
 
-1. **JIT Compiler**
-In this approach a user mode service (`eBPFSvc.exe`) *JIT compiles* the eBPF bytecode via the [uBPF](https://github.com/iovisor/ubpf) JIT compiler
-into native code that is passed to the kernel-mode execution context.
-
-1. **Interpreter**
-In this approach the bytecode can be directly loaded into an *interpreter* (from [uBPF](https://github.com/iovisor/ubpf)) in the
-kernel-mode execution context.
-       **Note:** The interpreter is present only in debug builds and not in release builds as it is considered less secure.
-
-*Note: The JIT Compiler and Interpreter are not shown in the architecture diagram.*
-
-*Note: For the JIT and interpreter approaches, The `eBPFSvc` service ensures that the eBPF programs pass all the verifier checks.*
+> **Deprecated:** JIT compilation and interpreter modes have been removed as of Issue #4997.
+> Only native execution mode is now supported.
 
 The eBPF programs can be consumed by any application, or via bpftool or the Netsh command line tool, which use a shared library (`ebpfapi.dll`) that exposes [Libbpf APIs](https://github.com/libbpf/libbpf). These APIs can be used to load the
 eBPF programs to the kernel-mode `execution context`.
@@ -109,25 +99,13 @@ to provide source code compatibility for applications that interact with eBPF pr
 
 ### 3. Will eBPF work with HyperVisor-enforced Code Integrity (HVCI)?
 
-Yes. With HVCI enabled, eBPF programs cannot be JIT compiled, but can be run in the native mode.
-To understand why JIT compiled mode does not work, we must first understand what HVCI does.
+Yes. eBPF programs run as native Windows drivers, which are fully compatible with HVCI.
 
 [HyperVisor-enforced Code Integrity (HVCI)](https://techcommunity.microsoft.com/t5/windows-insider-program/virtualization-based-security-vbs-and-hypervisor-enforced-code/m-p/240571)
-is a mechanism
-whereby a hypervisor, such as Hyper-V, uses hardware virtualization to protect kernel-mode processes against
+is a mechanism whereby a hypervisor, such as Hyper-V, uses hardware virtualization to protect kernel-mode processes against
 the injection and execution of malicious or unverified code. Code integrity validation is performed in a secure
 environment that is resistant to attack from malicious software, and page permissions for kernel mode are set and
 maintained by the hypervisor.
 
-Since a hypervisor doing such code integrity checks will refuse to accept code pages that aren't signed by
-a key that the hypervisor trusts, this does impact eBPF programs running natively.  As such, when HVCI
-is enabled, eBPF programs work fine in interpreted mode, but not when using JIT compilation because the JIT
-compiler does not have a key that the hypervisor trusts.  And since interpreted
-mode is absent in release builds, neither mode will work on an HVCI-enabled production system.
-
-Instead, a third mode is also supported by eBPF for Windows, in addition to JIT compiled and interpreted modes.
-This third mode entails compiling eBPF programs into regular Windows drivers that can be accepted by HVCI.
-For more discussion, see the [Native Code Generation documentation](docs/NativeCodeGeneration.md).
-
-<small>(Technically, interpreted mode eBPF programs would run with HVCI too, but the interpreter is disabled in release builds
-and is only supported in debug builds.)</small>
+eBPF for Windows compiles eBPF programs into regular Windows drivers (using the `bpf2c` tool) that can be signed
+and accepted by HVCI. For more discussion, see the [Native Code Generation documentation](docs/NativeCodeGeneration.md).
