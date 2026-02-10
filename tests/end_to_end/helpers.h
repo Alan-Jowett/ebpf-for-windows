@@ -27,12 +27,9 @@ typedef LARGE_INTEGER PHYSICAL_ADDRESS, *PPHYSICAL_ADDRESS;
     TEST_CASE(CONCAT(_name, _suffix), _group) { _function(_execution_type); }
 #define DECLARE_NATIVE_TEST(_name, _group, _function) \
     DECLARE_TEST_CASE(_name, _group, _function, "-native", EBPF_EXECUTION_NATIVE)
-#if !defined(CONFIG_BPF_INTERPRETER_DISABLED)
-#define DECLARE_INTERPRET_TEST(_name, _group, _function) \
-    DECLARE_TEST_CASE(_name, _group, _function, "-interpret", EBPF_EXECUTION_INTERPRET)
-#else
+
+// JIT and Interpreter test macros deprecated (Issue #4997)
 #define DECLARE_INTERPRET_TEST(_name, _group, _function)
-#endif
 
 #define DECLARE_CGROUP_SOCK_ADDR_LOAD_TEST2(file, name, attach_type, name_suffix, file_suffix, execution_type) \
     TEST_CASE("cgroup_sockaddr_load_test_" name "_" #attach_type "_" name_suffix, "[cgroup_sock_addr]")        \
@@ -761,7 +758,6 @@ static const ebpf_helper_function_prototype_t _xdp_test_ebpf_extension_helper_fu
      // Flags.
      {HELPER_FUNCTION_REALLOCATE_PACKET}}};
 
-
 static ebpf_helper_function_addresses_t _mock_xdp_helper_function_address_table = {
     EBPF_HELPER_FUNCTION_ADDRESSES_HEADER,
     EBPF_COUNT_OF(_mock_xdp_helper_functions),
@@ -805,8 +801,8 @@ _ebpf_bind_context_create(
     ebpf_result_t retval;
     *context = nullptr;
     bind_md_t* bind_context = nullptr;
-    bind_context_header_t* bind_context_header =
-        reinterpret_cast<bind_context_header_t*>(ebpf_allocate_with_tag(sizeof(bind_context_header_t), EBPF_POOL_TAG_DEFAULT));
+    bind_context_header_t* bind_context_header = reinterpret_cast<bind_context_header_t*>(
+        ebpf_allocate_with_tag(sizeof(bind_context_header_t), EBPF_POOL_TAG_DEFAULT));
     if (bind_context_header == nullptr) {
         retval = EBPF_NO_MEMORY;
         goto Done;
@@ -940,8 +936,8 @@ _ebpf_sock_addr_context_create(
     *context = nullptr;
 
     bpf_sock_addr_t* sock_addr_context = nullptr;
-    sock_addr_context_header_t* sock_addr_context_header =
-        reinterpret_cast<sock_addr_context_header_t*>(ebpf_allocate_with_tag(sizeof(sock_addr_context_header_t), EBPF_POOL_TAG_DEFAULT));
+    sock_addr_context_header_t* sock_addr_context_header = reinterpret_cast<sock_addr_context_header_t*>(
+        ebpf_allocate_with_tag(sizeof(sock_addr_context_header_t), EBPF_POOL_TAG_DEFAULT));
     if (sock_addr_context_header == nullptr) {
         retval = EBPF_NO_MEMORY;
         goto Done;
@@ -1065,8 +1061,8 @@ _ebpf_sock_ops_context_create(
     *context = nullptr;
 
     bpf_sock_ops_t* sock_ops_context = nullptr;
-    sock_ops_context_header_t* sock_ops_context_header =
-        reinterpret_cast<sock_ops_context_header_t*>(ebpf_allocate_with_tag(sizeof(sock_ops_context_header_t), EBPF_POOL_TAG_DEFAULT));
+    sock_ops_context_header_t* sock_ops_context_header = reinterpret_cast<sock_ops_context_header_t*>(
+        ebpf_allocate_with_tag(sizeof(sock_ops_context_header_t), EBPF_POOL_TAG_DEFAULT));
     if (sock_ops_context_header == nullptr) {
         retval = EBPF_NO_MEMORY;
         goto Done;

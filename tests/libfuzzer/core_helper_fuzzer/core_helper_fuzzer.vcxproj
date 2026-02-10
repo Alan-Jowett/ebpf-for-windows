@@ -150,9 +150,6 @@
     <ProjectReference Include="..\..\..\libs\shared\user\shared_user.vcxproj">
       <Project>{9388dd45-7941-45d7-b4ff-bc00f550af17}</Project>
     </ProjectReference>
-    <ProjectReference Condition="'$(DisableJIT)'!='True'" Include="..\..\..\libs\ubpf\user\ubpf_user.vcxproj">
-      <Project>{245f0ec7-1ebc-4d68-8b1f-f758ea9196ae}</Project>
-    </ProjectReference>
     <ProjectReference Include="..\..\..\netebpfext\user\netebpfext_user.vcxproj">
       <Project>{630bb78f-6211-41d8-8e3a-096e22e169ef}</Project>
     </ProjectReference>

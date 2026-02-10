@@ -176,9 +176,6 @@
     <ProjectReference Include="..\libs\shared\kernel\shared_kernel.vcxproj">
       <Project>{d1b81388-23ca-4e4b-916f-8d37989ae836}</Project>
     </ProjectReference>
-    <ProjectReference Condition="'$(Configuration)'=='Debug' Or '$(Configuration)'=='Release'" Include="..\libs\ubpf\kernel\ubpf_kernel.vcxproj">
-      <Project>{675b59f8-089e-40b5-8388-56254447cfa3}</Project>
-    </ProjectReference>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="resource.h" />
