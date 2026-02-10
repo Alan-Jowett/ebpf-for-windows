@@ -241,7 +241,7 @@ function_v4(void* context, const program_runtime_context_t* runtime_context)
 #line 37 "sample/thread_start_time.c"
     // Prologue.
 #line 37 "sample/thread_start_time.c"
-    uint64_t stack[(UBPF_STACK_SIZE + 7) / 8];
+    uint64_t stack[(BPF_STACK_SIZE + 7) / 8];
 #line 37 "sample/thread_start_time.c"
     register uint64_t r0 = 0;
 #line 37 "sample/thread_start_time.c"
@@ -374,7 +374,7 @@ function_v6(void* context, const program_runtime_context_t* runtime_context)
 #line 44 "sample/thread_start_time.c"
     // Prologue.
 #line 44 "sample/thread_start_time.c"
-    uint64_t stack[(UBPF_STACK_SIZE + 7) / 8];
+    uint64_t stack[(BPF_STACK_SIZE + 7) / 8];
 #line 44 "sample/thread_start_time.c"
     register uint64_t r0 = 0;
 #line 44 "sample/thread_start_time.c"

@@ -142,7 +142,7 @@ lookup(void* context, const program_runtime_context_t* runtime_context)
 #line 42 "sample/undocked/map_synchronized_update.c"
     // Prologue.
 #line 42 "sample/undocked/map_synchronized_update.c"
-    uint64_t stack[(UBPF_STACK_SIZE + 7) / 8];
+    uint64_t stack[(BPF_STACK_SIZE + 7) / 8];
 #line 42 "sample/undocked/map_synchronized_update.c"
     register uint64_t r0 = 0;
 #line 42 "sample/undocked/map_synchronized_update.c"

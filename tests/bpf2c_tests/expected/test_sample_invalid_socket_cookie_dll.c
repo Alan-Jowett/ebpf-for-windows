@@ -84,7 +84,7 @@ test_sample_invalid_socket_cookie(void* context, const program_runtime_context_t
 #line 31 "sample/undocked/test_sample_invalid_socket_cookie.c"
     // Prologue.
 #line 31 "sample/undocked/test_sample_invalid_socket_cookie.c"
-    uint64_t stack[(UBPF_STACK_SIZE + 7) / 8];
+    uint64_t stack[(BPF_STACK_SIZE + 7) / 8];
 #line 31 "sample/undocked/test_sample_invalid_socket_cookie.c"
     register uint64_t r0 = 0;
 #line 31 "sample/undocked/test_sample_invalid_socket_cookie.c"

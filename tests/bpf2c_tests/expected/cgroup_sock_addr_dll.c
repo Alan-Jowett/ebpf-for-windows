@@ -153,7 +153,7 @@ authorize_connect4(void* context, const program_runtime_context_t* runtime_conte
 #line 83 "sample/cgroup_sock_addr.c"
     // Prologue.
 #line 83 "sample/cgroup_sock_addr.c"
-    uint64_t stack[(UBPF_STACK_SIZE + 7) / 8];
+    uint64_t stack[(BPF_STACK_SIZE + 7) / 8];
 #line 83 "sample/cgroup_sock_addr.c"
     register uint64_t r0 = 0;
 #line 83 "sample/cgroup_sock_addr.c"
@@ -335,7 +335,7 @@ authorize_connect6(void* context, const program_runtime_context_t* runtime_conte
 #line 90 "sample/cgroup_sock_addr.c"
     // Prologue.
 #line 90 "sample/cgroup_sock_addr.c"
-    uint64_t stack[(UBPF_STACK_SIZE + 7) / 8];
+    uint64_t stack[(BPF_STACK_SIZE + 7) / 8];
 #line 90 "sample/cgroup_sock_addr.c"
     register uint64_t r0 = 0;
 #line 90 "sample/cgroup_sock_addr.c"
@@ -535,7 +535,7 @@ authorize_recv_accept4(void* context, const program_runtime_context_t* runtime_c
 #line 97 "sample/cgroup_sock_addr.c"
     // Prologue.
 #line 97 "sample/cgroup_sock_addr.c"
-    uint64_t stack[(UBPF_STACK_SIZE + 7) / 8];
+    uint64_t stack[(BPF_STACK_SIZE + 7) / 8];
 #line 97 "sample/cgroup_sock_addr.c"
     register uint64_t r0 = 0;
 #line 97 "sample/cgroup_sock_addr.c"
@@ -717,7 +717,7 @@ authorize_recv_accept6(void* context, const program_runtime_context_t* runtime_c
 #line 104 "sample/cgroup_sock_addr.c"
     // Prologue.
 #line 104 "sample/cgroup_sock_addr.c"
-    uint64_t stack[(UBPF_STACK_SIZE + 7) / 8];
+    uint64_t stack[(BPF_STACK_SIZE + 7) / 8];
 #line 104 "sample/cgroup_sock_addr.c"
     register uint64_t r0 = 0;
 #line 104 "sample/cgroup_sock_addr.c"

@@ -92,7 +92,7 @@ lookup(void* context, const program_runtime_context_t* runtime_context)
 #line 30 "sample/undocked/map_in_map_legacy_idx.c"
     // Prologue.
 #line 30 "sample/undocked/map_in_map_legacy_idx.c"
-    uint64_t stack[(UBPF_STACK_SIZE + 7) / 8];
+    uint64_t stack[(BPF_STACK_SIZE + 7) / 8];
 #line 30 "sample/undocked/map_in_map_legacy_idx.c"
     register uint64_t r0 = 0;
 #line 30 "sample/undocked/map_in_map_legacy_idx.c"

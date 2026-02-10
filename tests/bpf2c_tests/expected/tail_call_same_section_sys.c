@@ -247,7 +247,7 @@ callee(void* context, const program_runtime_context_t* runtime_context)
 #line 33 "sample/undocked/tail_call_same_section.c"
     // Prologue.
 #line 33 "sample/undocked/tail_call_same_section.c"
-    uint64_t stack[(UBPF_STACK_SIZE + 7) / 8];
+    uint64_t stack[(BPF_STACK_SIZE + 7) / 8];
 #line 33 "sample/undocked/tail_call_same_section.c"
     register uint64_t r0 = 0;
 #line 33 "sample/undocked/tail_call_same_section.c"
@@ -345,7 +345,7 @@ caller(void* context, const program_runtime_context_t* runtime_context)
 #line 33 "sample/undocked/tail_call_same_section.c"
     // Prologue.
 #line 33 "sample/undocked/tail_call_same_section.c"
-    uint64_t stack[(UBPF_STACK_SIZE + 7) / 8];
+    uint64_t stack[(BPF_STACK_SIZE + 7) / 8];
 #line 33 "sample/undocked/tail_call_same_section.c"
     register uint64_t r0 = 0;
 #line 33 "sample/undocked/tail_call_same_section.c"

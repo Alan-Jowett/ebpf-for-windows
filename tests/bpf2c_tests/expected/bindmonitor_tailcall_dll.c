@@ -220,7 +220,7 @@ BindMonitor(void* context, const program_runtime_context_t* runtime_context)
 #line 120 "sample/bindmonitor_tailcall.c"
     // Prologue.
 #line 120 "sample/bindmonitor_tailcall.c"
-    uint64_t stack[(UBPF_STACK_SIZE + 7) / 8];
+    uint64_t stack[(BPF_STACK_SIZE + 7) / 8];
 #line 120 "sample/bindmonitor_tailcall.c"
     register uint64_t r0 = 0;
 #line 120 "sample/bindmonitor_tailcall.c"
@@ -337,7 +337,7 @@ BindMonitor_Callee0(void* context, const program_runtime_context_t* runtime_cont
 #line 136 "sample/bindmonitor_tailcall.c"
     // Prologue.
 #line 136 "sample/bindmonitor_tailcall.c"
-    uint64_t stack[(UBPF_STACK_SIZE + 7) / 8];
+    uint64_t stack[(BPF_STACK_SIZE + 7) / 8];
 #line 136 "sample/bindmonitor_tailcall.c"
     register uint64_t r0 = 0;
 #line 136 "sample/bindmonitor_tailcall.c"
@@ -464,7 +464,7 @@ BindMonitor_Callee1(void* context, const program_runtime_context_t* runtime_cont
 #line 152 "sample/bindmonitor_tailcall.c"
     // Prologue.
 #line 152 "sample/bindmonitor_tailcall.c"
-    uint64_t stack[(UBPF_STACK_SIZE + 7) / 8];
+    uint64_t stack[(BPF_STACK_SIZE + 7) / 8];
 #line 152 "sample/bindmonitor_tailcall.c"
     register uint64_t r0 = 0;
 #line 152 "sample/bindmonitor_tailcall.c"

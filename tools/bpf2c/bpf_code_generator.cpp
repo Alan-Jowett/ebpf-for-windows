@@ -2031,7 +2031,7 @@ bpf_code_generator::emit_c_code(std::ostream& output_stream)
         program.get_register_name(1);
         program.get_register_name(10);
         output_stream << prolog_line_info << INDENT "// Prologue." << std::endl;
-        output_stream << prolog_line_info << INDENT "uint64_t stack[(UBPF_STACK_SIZE + 7) / 8];" << std::endl;
+        output_stream << prolog_line_info << INDENT "uint64_t stack[(BPF_STACK_SIZE + 7) / 8];" << std::endl;
         for (const auto& r : _register_names) {
             // Skip unused registers.
             if (program.referenced_registers.find(r) == program.referenced_registers.end()) {

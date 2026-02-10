@@ -266,7 +266,7 @@ test_utility_helpers(void* context, const program_runtime_context_t* runtime_con
 #line 33 "sample/undocked/test_utility_helpers.c"
     // Prologue.
 #line 33 "sample/undocked/test_utility_helpers.c"
-    uint64_t stack[(UBPF_STACK_SIZE + 7) / 8];
+    uint64_t stack[(BPF_STACK_SIZE + 7) / 8];
 #line 33 "sample/undocked/test_utility_helpers.c"
     register uint64_t r0 = 0;
 #line 33 "sample/undocked/test_utility_helpers.c"

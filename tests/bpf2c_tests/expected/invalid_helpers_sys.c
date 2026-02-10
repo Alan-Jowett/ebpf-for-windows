@@ -291,7 +291,7 @@ BindMonitor(void* context)
 #line 128 "sample/unsafe/invalid_helpers.c"
     // Prologue
 #line 128 "sample/unsafe/invalid_helpers.c"
-    uint64_t stack[(UBPF_STACK_SIZE + 7) / 8];
+    uint64_t stack[(BPF_STACK_SIZE + 7) / 8];
 #line 128 "sample/unsafe/invalid_helpers.c"
     register uint64_t r0 = 0;
 #line 128 "sample/unsafe/invalid_helpers.c"
@@ -400,7 +400,7 @@ BindMonitor_Callee0(void* context)
 #line 144 "sample/unsafe/invalid_helpers.c"
     // Prologue
 #line 144 "sample/unsafe/invalid_helpers.c"
-    uint64_t stack[(UBPF_STACK_SIZE + 7) / 8];
+    uint64_t stack[(BPF_STACK_SIZE + 7) / 8];
 #line 144 "sample/unsafe/invalid_helpers.c"
     register uint64_t r0 = 0;
 #line 144 "sample/unsafe/invalid_helpers.c"
@@ -511,7 +511,7 @@ BindMonitor_Callee1(void* context)
 #line 160 "sample/unsafe/invalid_helpers.c"
     // Prologue
 #line 160 "sample/unsafe/invalid_helpers.c"
-    uint64_t stack[(UBPF_STACK_SIZE + 7) / 8];
+    uint64_t stack[(BPF_STACK_SIZE + 7) / 8];
 #line 160 "sample/unsafe/invalid_helpers.c"
     register uint64_t r0 = 0;
 #line 160 "sample/unsafe/invalid_helpers.c"

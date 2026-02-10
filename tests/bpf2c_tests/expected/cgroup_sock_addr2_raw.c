@@ -130,7 +130,7 @@ connect_redirect4(void* context, const program_runtime_context_t* runtime_contex
 #line 130 "sample/cgroup_sock_addr2.c"
     // Prologue.
 #line 130 "sample/cgroup_sock_addr2.c"
-    uint64_t stack[(UBPF_STACK_SIZE + 7) / 8];
+    uint64_t stack[(BPF_STACK_SIZE + 7) / 8];
 #line 130 "sample/cgroup_sock_addr2.c"
     register uint64_t r0 = 0;
 #line 130 "sample/cgroup_sock_addr2.c"
@@ -569,7 +569,7 @@ connect_redirect6(void* context, const program_runtime_context_t* runtime_contex
 #line 137 "sample/cgroup_sock_addr2.c"
     // Prologue.
 #line 137 "sample/cgroup_sock_addr2.c"
-    uint64_t stack[(UBPF_STACK_SIZE + 7) / 8];
+    uint64_t stack[(BPF_STACK_SIZE + 7) / 8];
 #line 137 "sample/cgroup_sock_addr2.c"
     register uint64_t r0 = 0;
 #line 137 "sample/cgroup_sock_addr2.c"

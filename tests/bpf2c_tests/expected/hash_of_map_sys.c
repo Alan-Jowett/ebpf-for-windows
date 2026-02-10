@@ -247,7 +247,7 @@ lookup(void* context, const program_runtime_context_t* runtime_context)
 #line 36 "sample/undocked/hash_of_map.c"
     // Prologue.
 #line 36 "sample/undocked/hash_of_map.c"
-    uint64_t stack[(UBPF_STACK_SIZE + 7) / 8];
+    uint64_t stack[(BPF_STACK_SIZE + 7) / 8];
 #line 36 "sample/undocked/hash_of_map.c"
     register uint64_t r0 = 0;
 #line 36 "sample/undocked/hash_of_map.c"

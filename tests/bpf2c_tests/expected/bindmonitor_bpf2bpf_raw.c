@@ -57,7 +57,7 @@ BindMonitor_Caller(void* context, const program_runtime_context_t* runtime_conte
 #line 45 "sample/bindmonitor_bpf2bpf.c"
     // Prologue.
 #line 45 "sample/bindmonitor_bpf2bpf.c"
-    uint64_t stack[(UBPF_STACK_SIZE + 7) / 8];
+    uint64_t stack[(BPF_STACK_SIZE + 7) / 8];
 #line 45 "sample/bindmonitor_bpf2bpf.c"
     register uint64_t r0 = 0;
 #line 45 "sample/bindmonitor_bpf2bpf.c"

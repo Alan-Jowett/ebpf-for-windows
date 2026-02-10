@@ -216,8 +216,8 @@ extern "C"
 
     /**
      * @brief Store the helper function IDs that are used by the eBPF program in an array
-     *  inside the program object. The array index is the helper function ID to be used by
-     *  uBPF whereas the array value is the actual helper ID.
+     *  inside the program object. The array index is the helper function ID used internally
+     *  whereas the array value is the actual helper ID.
      *
      * @param[in, out] program Program object to query this on.
      * @param[in] helper_function_count Count of helper functions.

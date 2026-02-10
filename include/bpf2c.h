@@ -29,7 +29,7 @@ extern "C"
 {
 #endif
 
-#define UBPF_STACK_SIZE 512
+#define BPF_STACK_SIZE 512
 
 #define IMMEDIATE(X) (int32_t)X
 #define OFFSET(X) (int16_t)X

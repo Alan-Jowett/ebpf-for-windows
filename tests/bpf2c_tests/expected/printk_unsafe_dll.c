@@ -63,7 +63,7 @@ func(void* context)
 #line 18 "sample/unsafe/printk_unsafe.c"
     // Prologue
 #line 18 "sample/unsafe/printk_unsafe.c"
-    uint64_t stack[(UBPF_STACK_SIZE + 7) / 8];
+    uint64_t stack[(BPF_STACK_SIZE + 7) / 8];
 #line 18 "sample/unsafe/printk_unsafe.c"
     register uint64_t r0 = 0;
 #line 18 "sample/unsafe/printk_unsafe.c"

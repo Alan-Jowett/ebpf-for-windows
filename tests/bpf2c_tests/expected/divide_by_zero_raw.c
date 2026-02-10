@@ -76,7 +76,7 @@ divide_by_zero(void* context, const program_runtime_context_t* runtime_context)
 #line 32 "sample/undocked/divide_by_zero.c"
     // Prologue.
 #line 32 "sample/undocked/divide_by_zero.c"
-    uint64_t stack[(UBPF_STACK_SIZE + 7) / 8];
+    uint64_t stack[(BPF_STACK_SIZE + 7) / 8];
 #line 32 "sample/undocked/divide_by_zero.c"
     register uint64_t r0 = 0;
 #line 32 "sample/undocked/divide_by_zero.c"

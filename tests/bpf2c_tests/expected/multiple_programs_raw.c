@@ -39,7 +39,7 @@ program1(void* context, const program_runtime_context_t* runtime_context)
 #line 28 "sample/multiple_programs.c"
     // Prologue.
 #line 28 "sample/multiple_programs.c"
-    uint64_t stack[(UBPF_STACK_SIZE + 7) / 8];
+    uint64_t stack[(BPF_STACK_SIZE + 7) / 8];
 #line 28 "sample/multiple_programs.c"
     register uint64_t r0 = 0;
 #line 28 "sample/multiple_programs.c"
@@ -75,7 +75,7 @@ program2(void* context, const program_runtime_context_t* runtime_context)
 #line 35 "sample/multiple_programs.c"
     // Prologue.
 #line 35 "sample/multiple_programs.c"
-    uint64_t stack[(UBPF_STACK_SIZE + 7) / 8];
+    uint64_t stack[(BPF_STACK_SIZE + 7) / 8];
 #line 35 "sample/multiple_programs.c"
     register uint64_t r0 = 0;
 #line 35 "sample/multiple_programs.c"
@@ -111,7 +111,7 @@ program3(void* context, const program_runtime_context_t* runtime_context)
 #line 21 "sample/multiple_programs.c"
     // Prologue.
 #line 21 "sample/multiple_programs.c"
-    uint64_t stack[(UBPF_STACK_SIZE + 7) / 8];
+    uint64_t stack[(BPF_STACK_SIZE + 7) / 8];
 #line 21 "sample/multiple_programs.c"
     register uint64_t r0 = 0;
 #line 21 "sample/multiple_programs.c"
@@ -147,7 +147,7 @@ program4(void* context, const program_runtime_context_t* runtime_context)
 #line 42 "sample/multiple_programs.c"
     // Prologue.
 #line 42 "sample/multiple_programs.c"
-    uint64_t stack[(UBPF_STACK_SIZE + 7) / 8];
+    uint64_t stack[(BPF_STACK_SIZE + 7) / 8];
 #line 42 "sample/multiple_programs.c"
     register uint64_t r0 = 0;
 #line 42 "sample/multiple_programs.c"

@@ -133,7 +133,7 @@ recurse(void* context, const program_runtime_context_t* runtime_context)
 #line 45 "sample/undocked/tail_call_recursive.c"
     // Prologue.
 #line 45 "sample/undocked/tail_call_recursive.c"
-    uint64_t stack[(UBPF_STACK_SIZE + 7) / 8];
+    uint64_t stack[(BPF_STACK_SIZE + 7) / 8];
 #line 45 "sample/undocked/tail_call_recursive.c"
     register uint64_t r0 = 0;
 #line 45 "sample/undocked/tail_call_recursive.c"

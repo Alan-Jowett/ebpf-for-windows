@@ -315,7 +315,7 @@ BindMonitor(void* context)
 #line 146 "sample/unsafe/invalid_maps2.c"
     // Prologue
 #line 146 "sample/unsafe/invalid_maps2.c"
-    uint64_t stack[(UBPF_STACK_SIZE + 7) / 8];
+    uint64_t stack[(BPF_STACK_SIZE + 7) / 8];
 #line 146 "sample/unsafe/invalid_maps2.c"
     register uint64_t r0 = 0;
 #line 146 "sample/unsafe/invalid_maps2.c"
@@ -424,7 +424,7 @@ BindMonitor_Callee0(void* context)
 #line 162 "sample/unsafe/invalid_maps2.c"
     // Prologue
 #line 162 "sample/unsafe/invalid_maps2.c"
-    uint64_t stack[(UBPF_STACK_SIZE + 7) / 8];
+    uint64_t stack[(BPF_STACK_SIZE + 7) / 8];
 #line 162 "sample/unsafe/invalid_maps2.c"
     register uint64_t r0 = 0;
 #line 162 "sample/unsafe/invalid_maps2.c"
@@ -534,7 +534,7 @@ BindMonitor_Callee1(void* context)
 #line 178 "sample/unsafe/invalid_maps2.c"
     // Prologue
 #line 178 "sample/unsafe/invalid_maps2.c"
-    uint64_t stack[(UBPF_STACK_SIZE + 7) / 8];
+    uint64_t stack[(BPF_STACK_SIZE + 7) / 8];
 #line 178 "sample/unsafe/invalid_maps2.c"
     register uint64_t r0 = 0;
 #line 178 "sample/unsafe/invalid_maps2.c"

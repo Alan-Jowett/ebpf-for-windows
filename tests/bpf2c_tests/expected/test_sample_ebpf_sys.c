@@ -246,7 +246,7 @@ test_program_entry(void* context, const program_runtime_context_t* runtime_conte
 #line 33 "sample/undocked/test_sample_ebpf.c"
     // Prologue.
 #line 33 "sample/undocked/test_sample_ebpf.c"
-    uint64_t stack[(UBPF_STACK_SIZE + 7) / 8];
+    uint64_t stack[(BPF_STACK_SIZE + 7) / 8];
 #line 33 "sample/undocked/test_sample_ebpf.c"
     register uint64_t r0 = 0;
 #line 33 "sample/undocked/test_sample_ebpf.c"

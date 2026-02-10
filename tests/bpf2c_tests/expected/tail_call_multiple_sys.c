@@ -229,7 +229,7 @@ callee0(void* context, const program_runtime_context_t* runtime_context)
 #line 41 "sample/undocked/tail_call_multiple.c"
     // Prologue.
 #line 41 "sample/undocked/tail_call_multiple.c"
-    uint64_t stack[(UBPF_STACK_SIZE + 7) / 8];
+    uint64_t stack[(BPF_STACK_SIZE + 7) / 8];
 #line 41 "sample/undocked/tail_call_multiple.c"
     register uint64_t r0 = 0;
 #line 41 "sample/undocked/tail_call_multiple.c"
@@ -286,7 +286,7 @@ callee1(void* context, const program_runtime_context_t* runtime_context)
 #line 47 "sample/undocked/tail_call_multiple.c"
     // Prologue.
 #line 47 "sample/undocked/tail_call_multiple.c"
-    uint64_t stack[(UBPF_STACK_SIZE + 7) / 8];
+    uint64_t stack[(BPF_STACK_SIZE + 7) / 8];
 #line 47 "sample/undocked/tail_call_multiple.c"
     register uint64_t r0 = 0;
 #line 47 "sample/undocked/tail_call_multiple.c"
@@ -334,7 +334,7 @@ caller(void* context, const program_runtime_context_t* runtime_context)
 #line 30 "sample/undocked/tail_call_multiple.c"
     // Prologue.
 #line 30 "sample/undocked/tail_call_multiple.c"
-    uint64_t stack[(UBPF_STACK_SIZE + 7) / 8];
+    uint64_t stack[(BPF_STACK_SIZE + 7) / 8];
 #line 30 "sample/undocked/tail_call_multiple.c"
     register uint64_t r0 = 0;
 #line 30 "sample/undocked/tail_call_multiple.c"

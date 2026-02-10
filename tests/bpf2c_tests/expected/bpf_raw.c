@@ -39,7 +39,7 @@ func(void* context, const program_runtime_context_t* runtime_context)
 #line 17 "sample/custom_program_type/bpf.c"
     // Prologue.
 #line 17 "sample/custom_program_type/bpf.c"
-    uint64_t stack[(UBPF_STACK_SIZE + 7) / 8];
+    uint64_t stack[(BPF_STACK_SIZE + 7) / 8];
 #line 17 "sample/custom_program_type/bpf.c"
     register uint64_t r0 = 0;
 #line 17 "sample/custom_program_type/bpf.c"
