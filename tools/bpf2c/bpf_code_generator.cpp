@@ -45,12 +45,8 @@ using namespace prevail;
 #define INDENT "    "
 #define LINE_BREAK_WIDTH 120
 
-#define EBPF_MODE_ATOMIC 0xc0
-
 // Sign-extending load opcodes (RFC 9669)
-#define EBPF_OP_LDXSW (INST_CLS_LDX | INST_MODE_MEMSX | INST_SIZE_W)
-#define EBPF_OP_LDXSH (INST_CLS_LDX | INST_MODE_MEMSX | INST_SIZE_H)
-#define EBPF_OP_LDXSB (INST_CLS_LDX | INST_MODE_MEMSX | INST_SIZE_B)
+// These are now defined in ebpf_inst.h as EBPF_OP_LDXSW, EBPF_OP_LDXSH, EBPF_OP_LDXSB.
 
 #define EBPF_ATOMIC_FETCH 0x01
 #define EBPF_ATOMIC_ADD 0x00

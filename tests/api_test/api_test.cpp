@@ -5,7 +5,6 @@
 
 #include "api_internal.h"
 #include "api_test.h"
-#include "api_test_jit.h"
 #include "bpf/libbpf.h"
 #include "catch_wrapper.hpp"
 #include "common_tests.h"
@@ -46,6 +45,67 @@ CATCH_REGISTER_LISTENER(_watchdog)
 #define EBPF_EXTENSION_DRIVER_NAME L"netebpfext"
 
 #define WAIT_TIME_IN_MS 5000
+
+#define SAMPLE_PROGRAM_COUNT 1
+#define BIND_MONITOR_PROGRAM_COUNT 1
+
+#define SAMPLE_MAP_COUNT 1
+#define BIND_MONITOR_MAP_COUNT 3
+
+#if defined(CONFIG_BPF_JIT_DISABLED)
+#define JIT_LOAD_RESULT -ENOTSUP
+#else
+#define JIT_LOAD_RESULT 0
+#endif
+
+typedef struct _audit_entry
+{
+    uint64_t logon_id;
+    int32_t is_admin;
+} audit_entry_t;
+
+static int32_t
+get_expected_jit_result(int32_t expected_result)
+{
+#if defined(CONFIG_BPF_JIT_DISABLED)
+    UNREFERENCED_PARAMETER(expected_result);
+    return -ENOTSUP;
+#else
+    return expected_result;
+#endif
+}
+
+static void
+perform_socket_bind(const uint16_t test_port, bool expect_success = true)
+{
+    WSAData data;
+    int error = WSAStartup(2, &data);
+    if (error != 0) {
+        FAIL("Unable to load Winsock: " << error);
+        return;
+    }
+
+    SOCKET _socket = INVALID_SOCKET;
+    _socket = WSASocket(AF_INET6, SOCK_DGRAM, IPPROTO_UDP, nullptr, 0, 0);
+    REQUIRE(_socket != INVALID_SOCKET);
+    uint32_t ipv6_option = 0;
+    REQUIRE(
+        setsockopt(
+            _socket, IPPROTO_IPV6, IPV6_V6ONLY, reinterpret_cast<const char*>(&ipv6_option), sizeof(unsigned long)) ==
+        0);
+    SOCKADDR_STORAGE sock_addr;
+    sock_addr.ss_family = AF_INET6;
+    INETADDR_SETANY((PSOCKADDR)&sock_addr);
+
+    ((PSOCKADDR_IN6)&sock_addr)->sin6_port = htons(test_port);
+    if (expect_success) {
+        REQUIRE(bind(_socket, (PSOCKADDR)&sock_addr, sizeof(sock_addr)) == 0);
+    } else {
+        REQUIRE(bind(_socket, (PSOCKADDR)&sock_addr, sizeof(sock_addr)) != 0);
+    }
+
+    WSACleanup();
+}
 
 static service_install_helper
     _ebpf_core_driver_helper(EBPF_CORE_DRIVER_NAME, EBPF_CORE_DRIVER_BINARY_NAME, SERVICE_KERNEL_DRIVER);
@@ -745,6 +805,49 @@ TEST_CASE("duplicate_fd", "")
     REQUIRE(ebpf_close_fd(map_fd1) == EBPF_SUCCESS);
 }
 
+void
+tailcall_load_test(_In_z_ const char* file_name)
+{
+    int result;
+    struct bpf_object* object = nullptr;
+    fd_t program_fd;
+
+    result = program_load_helper(file_name, BPF_PROG_TYPE_SAMPLE, EBPF_EXECUTION_ANY, &object, &program_fd);
+    REQUIRE(result == 0);
+
+    REQUIRE(program_fd > 0);
+
+    // Set up tail calls.
+    struct bpf_program* callee0 = bpf_object__find_program_by_name(object, "callee0");
+    REQUIRE(callee0 != nullptr);
+    fd_t callee0_fd = bpf_program__fd(callee0);
+    REQUIRE(callee0_fd > 0);
+
+    struct bpf_program* callee1 = bpf_object__find_program_by_name(object, "callee1");
+    REQUIRE(callee1 != nullptr);
+    fd_t callee1_fd = bpf_program__fd(callee1);
+    REQUIRE(callee1_fd > 0);
+
+    // Test a legacy libbpf api alias.
+    REQUIRE(bpf_program__get_type(callee0) == BPF_PROG_TYPE_SAMPLE);
+
+    fd_t prog_map_fd = bpf_object__find_map_fd_by_name(object, "map");
+    REQUIRE(prog_map_fd > 0);
+
+    uint32_t index = 0;
+    REQUIRE(bpf_map_update_elem(prog_map_fd, &index, &callee0_fd, 0) == 0);
+    index = 1;
+    REQUIRE(bpf_map_update_elem(prog_map_fd, &index, &callee1_fd, 0) == 0);
+
+    // Cleanup tail calls.
+    index = 0;
+    REQUIRE(bpf_map_update_elem(prog_map_fd, &index, &ebpf_fd_invalid, 0) == 0);
+    index = 1;
+    REQUIRE(bpf_map_update_elem(prog_map_fd, &index, &ebpf_fd_invalid, 0) == 0);
+
+    bpf_object__close(object);
+}
+
 TEST_CASE("tailcall_load_test_native", "[tailcall_load_test]") { tailcall_load_test("tail_call_multiple.sys"); }
 
 int
@@ -1268,6 +1371,44 @@ TEST_CASE("nomap_load_test", "[native_tests]")
         _native_helper.get_file_name().c_str(), BPF_PROG_TYPE_BIND, "func", EBPF_EXECUTION_NATIVE, nullptr, 0, hook);
     auto object = _helper.get_object();
     REQUIRE(object != nullptr);
+}
+
+// Tests the following helper functions:
+// 1. bpf_get_current_pid_tgid()
+// 2. bpf_get_current_logon_id()
+// 3. bpf_is_current_admin()
+void
+bpf_user_helpers_test(ebpf_execution_type_t execution_type)
+{
+    struct bpf_object* object = nullptr;
+    uint64_t process_thread_id = get_current_pid_tgid();
+    hook_helper_t hook(EBPF_ATTACH_TYPE_BIND);
+    native_module_helper_t module_helper;
+    module_helper.initialize("bindmonitor", execution_type);
+    program_load_attach_helper_t _helper;
+    _helper.initialize(
+        module_helper.get_file_name().c_str(), BPF_PROG_TYPE_BIND, "BindMonitor", execution_type, nullptr, 0, hook);
+
+    object = _helper.get_object();
+
+    perform_socket_bind(0, true);
+
+    // Validate the contents of the audit map.
+    fd_t audit_map_fd = bpf_object__find_map_fd_by_name(object, "audit_map");
+    REQUIRE(audit_map_fd > 0);
+
+    audit_entry_t entry = {0};
+    int result = bpf_map_lookup_elem(audit_map_fd, &process_thread_id, &entry);
+    REQUIRE(result == 0);
+
+    REQUIRE(entry.is_admin == -1);
+
+    REQUIRE(entry.logon_id != 0);
+    SECURITY_LOGON_SESSION_DATA* data = NULL;
+    result = LsaGetLogonSessionData((PLUID)&entry.logon_id, &data);
+    REQUIRE(result == ERROR_SUCCESS);
+
+    LsaFreeReturnBuffer(data);
 }
 
 TEST_CASE("bpf_user_helpers_test_native", "[api_test]") { bpf_user_helpers_test(EBPF_EXECUTION_NATIVE); }

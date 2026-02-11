@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
-#include "ebpf.h"
+#include "ebpf_inst.h"
 #include "ebpf_program_types.h"
 #include "ebpf_structs.h"
 #include "elfio_wrapper.hpp"

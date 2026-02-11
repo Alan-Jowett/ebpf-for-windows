@@ -4,9 +4,9 @@
 
 #include "bpf/libbpf.h"
 #include "catch_wrapper.hpp"
-#include "ebpf.h"
 #include "ebpf_core.h"
 #include "ebpf_epoch.h"
+#include "ebpf_inst.h"
 #include "ebpf_maps.h"
 #include "ebpf_object.h"
 #include "ebpf_program.h"
