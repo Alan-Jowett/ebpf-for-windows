@@ -78,19 +78,6 @@ Special case: if a thread entered an epoch at IRQL < DISPATCH_LEVEL and later
 exits on a different CPU, the exit operation is forwarded (via the inter-CPU
 work queue) to the CPU where the enter occurred so the correct per-CPU list is updated.
 
-### Per-CPU work queues
-
-The epoch module uses a per-CPU *timed work queue* to drive its inter-CPU messaging and to
-process certain epoch operations on the correct target CPU.
-
-Each CPU has its own queue. Work items on that queue are processed:
-
-- Opportunistically, when `ebpf_epoch_exit()` flushes the current CPU's queue before returning.
-- As a backstop, when the queue's timer expires (batching multiple messages).
-
-This model allows the epoch module to batch background work under load (timer-driven) while still
-ensuring prompt processing at key correctness boundaries (exit-driven flush).
-
 When memory is no longer needed, it is first made non-reachable (all
 pointers to it are removed) after which it is stamped with the current
 epoch and inserted into a "free list". The timestamp the is point in time
@@ -118,25 +105,18 @@ if the following conditions are met:
 3. The local free list is not empty.
 
 The timer's DPC is targeted to CPU 0. When the timer fires, it initiates an epoch computation
-cycle by queuing a `PROPOSE_RELEASE_EPOCH` message to CPU 0's per-CPU work queue.
-The propose/commit message sequence is then forwarded CPU-by-CPU using the same work queues.
+cycle via the CPU work queues.
 
 ### Propose phase
 
-During the propose phase, the system determines the **safe release epoch** by passing a
-`PROPOSE_RELEASE_EPOCH` message sequentially across all CPUs, starting with CPU 0. The message
-carries the proposed release-epoch value.
+The propose phase walks all CPUs to determine a safe epoch boundary:
 
-- CPU 0 atomically increments the globally published current epoch, updates its local current epoch
-    cache, and initializes the message's proposed release epoch to that new value.
-- Each subsequent CPU updates its local current epoch cache to the value carried in the message.
-- Every CPU, including CPU 0, computes the minimum epoch from its local epoch-state list. If this
-    minimum is lower than the message's proposed epoch, the message is updated with that lower value.
-- The CPU then forwards the (potentially updated) message to the next CPU.
+- CPU 0 advances the globally published epoch and initializes `proposed_release_epoch` to that new value.
+- Every other CPU updates its local `current_epoch` cache to the value provided by CPU 0.
+- Each CPU computes the minimum `epoch` value among active epoch participants on that CPU.
+- The message's `proposed_release_epoch` becomes the minimum over all CPUs.
 
-After the final CPU processes the message, it converts it into a `COMMIT_RELEASE_EPOCH` message
-containing the final proposed release epoch and sends it back to CPU 0. This begins the commit
-phase of the cycle.
+The last CPU converts the message into a commit message and sends it back to CPU 0.
 
 ### Commit phase
 
@@ -169,13 +149,6 @@ For passive-level callers, the epoch module provides `ebpf_epoch_synchronize()`.
 This function blocks until an epoch computation has run and a synchronization object
 queued to the epoch free list has been processed, providing a way to wait for previously
 queued epoch work to become reclaimable.
-
-**Important:** Work item callbacks run **outside of any epoch** by default.
-If a work item callback needs to access epoch-managed data structures
-(such as hash tables created with `ebpf_hash_table_create` using the default
-epoch-based allocator), the callback must explicitly call `ebpf_epoch_enter()`
-and `ebpf_epoch_exit()` to ensure proper epoch protection and avoid
-use-after-free issues.
 
 ## Future investigations
 The implementation currently performs epoch computations via inter-CPU messaging and

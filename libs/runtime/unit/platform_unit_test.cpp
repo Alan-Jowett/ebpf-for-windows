@@ -113,33 +113,40 @@ typedef struct _epoch_spin_test_context
 static void
 _epoch_skew_test_work_item_callback(_Inout_ void* context)
 {
-    auto* callback_context = (epoch_skew_test_callback_context_t*)context;
-    callback_context->callback_invoked->store(true, std::memory_order_release);
-    if (callback_context->reader_active->load(std::memory_order_acquire)) {
-        callback_context->callback_while_reader_active->store(true, std::memory_order_release);
+    if (context == nullptr) {
+        return;
+    }
+    auto* ctx = (epoch_skew_test_callback_context_t*)context;
+    ctx->callback_invoked->store(true, std::memory_order_release);
+    if (ctx->reader_active->load(std::memory_order_acquire)) {
+        ctx->callback_while_reader_active->store(true, std::memory_order_release);
     }
 }
 
 static void
 _epoch_spin_test_work_item_callback(_Inout_ void* context)
 {
-    auto* callback_context = (epoch_spin_test_context_t*)context;
-    if (callback_context->object != nullptr && callback_context->object_size != 0) {
+    if (context == nullptr) {
+        return;
+    }
+    auto* ctx = (epoch_spin_test_context_t*)context;
+    if (ctx->object != nullptr && ctx->object_size != 0) {
         // The test uses VirtualAlloc'd objects and turns them into a guard page before freeing.
         // This makes an unsafe early reclamation much more likely to manifest as an access violation
         // (reader touches freed memory) instead of silently reading stale bytes from an allocator pool.
         DWORD old_protection = 0;
-        (void)VirtualProtect(callback_context->object, callback_context->object_size, PAGE_NOACCESS, &old_protection);
-        (void)VirtualFree(callback_context->object, 0, MEM_RELEASE);
+        (void)VirtualProtect(ctx->object, ctx->object_size, PAGE_NOACCESS, &old_protection);
+        (void)VirtualFree(ctx->object, 0, MEM_RELEASE);
     }
-    callback_context->work_items_invoked->fetch_add(1, std::memory_order_relaxed);
-    if (callback_context->reader_active->load(std::memory_order_acquire)) {
-        callback_context->callbacks_while_reader_active->fetch_add(1, std::memory_order_relaxed);
+    ctx->work_items_invoked->fetch_add(1, std::memory_order_relaxed);
+    if (ctx->reader_active->load(std::memory_order_acquire)) {
+        ctx->callbacks_while_reader_active->fetch_add(1, std::memory_order_relaxed);
     }
-    delete callback_context;
+    delete ctx;
 }
 
-_Success_(return) static bool _try_get_environment_variable_u32(_In_z_ const char* name, _Out_ uint32_t* value)
+static bool
+_try_get_environment_variable_u32(const char* name, uint32_t& value)
 {
     char buffer[64] = {0};
     DWORD length = GetEnvironmentVariableA(name, buffer, static_cast<DWORD>(sizeof(buffer)));
@@ -153,12 +160,12 @@ _Success_(return) static bool _try_get_environment_variable_u32(_In_z_ const cha
         return false;
     }
 
-    *value = static_cast<uint32_t>(parsed);
+    value = static_cast<uint32_t>(parsed);
     return true;
 }
 
 static bool
-_environment_variable_equals(_In_z_ const char* name, _In_z_ const char* expected)
+_environment_variable_equals(const char* name, const char* expected)
 {
     char buffer[64] = {0};
     DWORD length = GetEnvironmentVariableA(name, buffer, static_cast<DWORD>(sizeof(buffer)));
@@ -173,7 +180,7 @@ static uint32_t
 _get_epoch_spin_test_duration_seconds()
 {
     uint32_t seconds = 0;
-    if (_try_get_environment_variable_u32("EBPF_EPOCH_SPIN_TEST_SECONDS", &seconds) && seconds > 0) {
+    if (_try_get_environment_variable_u32("EBPF_EPOCH_SPIN_TEST_SECONDS", seconds) && seconds > 0) {
         return seconds;
     }
 
@@ -739,12 +746,12 @@ TEST_CASE("epoch_test_stale_items", "[platform]")
     }
 }
 
-// This test validates a regression scenario for a potential correctness hazard
+// It is a regression benchmark for a potential correctness hazard
 // where one CPU hands out a newer epoch to readers while another CPU may still stamp retirements
 // with an older epoch due to delayed processing of the propose message.
 //
-// The test verifies that the epoch implementation correctly prevents premature reclamation by
-// ensuring a work item callback never runs while a reader is still active in a newer epoch.
+// The test FAILS if the hazard is observed (i.e., a work item callback runs while a reader is still
+// active in a newer epoch). It should pass once the epoch implementation is fixed.
 TEST_CASE("epoch_test_epoch_skew_reclamation_hazard", "[platform]")
 {
     _test_helper test_helper;
@@ -821,9 +828,6 @@ TEST_CASE("epoch_test_epoch_skew_reclamation_hazard", "[platform]")
                     memory_to_free = nullptr;
 
                     // Retire a work item as an observable proxy for reclamation.
-                    // The work item callback will fire when the epoch advances past the retire stamp.
-                    // We use this to detect if reclamation happens while a reader is still active.
-                    // Note: The work item doesn't free additional memory - it just observes timing.
                     work_item = ebpf_epoch_allocate_work_item(
                         &callback_context,
                         reinterpret_cast<const void (*)(_Inout_ void*)>(_epoch_skew_test_work_item_callback));
@@ -1012,7 +1016,7 @@ TEST_CASE("epoch_test_spin_reclamation_stress", "[platform]")
         volatile uint64_t magic;
         volatile uint64_t generation;
     };
-    constexpr uint64_t EPOCH_SPIN_OBJECT_MAGIC = 0xE0C41E0C'BEEFBEEF;
+    constexpr uint64_t epoch_spin_magic = 0xE0C41E0C'BEEFBEEF;
 
     // Allocate each shared object from the OS so we can make reclamation visible (guard + free).
     auto allocate_object = [&]() -> epoch_spin_shared_object_t* {
@@ -1021,7 +1025,7 @@ TEST_CASE("epoch_test_spin_reclamation_stress", "[platform]")
             return nullptr;
         }
         auto* obj = reinterpret_cast<epoch_spin_shared_object_t*>(memory);
-        obj->magic = EPOCH_SPIN_OBJECT_MAGIC;
+        obj->magic = epoch_spin_magic;
         obj->generation = 0;
         return obj;
     };
@@ -1039,10 +1043,6 @@ TEST_CASE("epoch_test_spin_reclamation_stress", "[platform]")
     // Keep the number of outstanding work items bounded so the test can run for long durations
     // without accumulating unbounded memory or taking excessive time to drain at the end.
     constexpr uint64_t max_outstanding_work_items = 256;
-    // Also cap how many OS allocations we are willing to hold onto if scheduling stalls.
-    // If epoch work items stop being invoked, the previous logic could allocate unbounded pages
-    // and eventually exhaust system commit (causing unrelated processes to fail-fast).
-    constexpr size_t max_deferred_frees = 4096;
 
     std::atomic<epoch_spin_shared_object_t*> shared_object{allocate_object()};
     if (shared_object.load(std::memory_order_acquire) == nullptr) {
@@ -1071,7 +1071,7 @@ TEST_CASE("epoch_test_spin_reclamation_stress", "[platform]")
                 // If reclamation is unsafe, an early free can manifest as an AV during these reads.
                 for (size_t i = 0; i < 8; i++) {
                     const uint64_t magic = obj->magic;
-                    if (magic != EPOCH_SPIN_OBJECT_MAGIC) {
+                    if (magic != epoch_spin_magic) {
                         thread_error.store(true, std::memory_order_release);
                         break;
                     }
@@ -1136,23 +1136,8 @@ TEST_CASE("epoch_test_spin_reclamation_stress", "[platform]")
         while (!stop.load(std::memory_order_acquire) && !stop_token.stop_requested() &&
                (std::chrono::steady_clock::now() < deadline) && !thread_error.load(std::memory_order_acquire)) {
             // Retry deferred frees first.
-            if (!deferred_frees.empty()) {
-                if (try_schedule_free(deferred_frees.back())) {
-                    deferred_frees.pop_back();
-                    continue;
-                }
-
-                if (deferred_frees.size() > max_deferred_frees) {
-                    std::cerr << "Deferred frees exceeded limit (" << deferred_frees.size()
-                              << "); epoch work items may be stalled" << std::endl;
-                    thread_error.store(true, std::memory_order_release);
-                    break;
-                }
-
-                // Avoid allocating more memory while we are unable to schedule frees.
-                // Help the system make progress and try again.
-                ebpf_epoch_synchronize();
-                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            if (!deferred_frees.empty() && try_schedule_free(deferred_frees.back())) {
+                deferred_frees.pop_back();
                 continue;
             }
 
@@ -1166,12 +1151,6 @@ TEST_CASE("epoch_test_spin_reclamation_stress", "[platform]")
             epoch_spin_shared_object_t* old_obj = shared_object.exchange(new_obj, std::memory_order_acq_rel);
             if (old_obj != nullptr && !try_schedule_free(old_obj)) {
                 deferred_frees.push_back(old_obj);
-                if (deferred_frees.size() > max_deferred_frees) {
-                    std::cerr << "Deferred frees exceeded limit (" << deferred_frees.size()
-                              << "); epoch work items may be stalled" << std::endl;
-                    thread_error.store(true, std::memory_order_release);
-                    break;
-                }
             }
         }
 
@@ -2086,10 +2065,29 @@ run_ring_buffer_stress_test(
         failed_returns,
         failed_waits,
         reserve_count);
+    std::cout << " == test case " << parameters->test_name << " (" << std::endl
+              << parameters->test_string << ")" << std::endl;
+    std::cout << "Consumer late: " << consumer_late << std::endl
+              << "Late producer threads: " << late_producer_threads << std::endl
+              << "Producer loops: " << producer_loops << std::endl
+              << "Consumer loops: " << consumer_loops << std::endl
+              << "Consumer records: " << consumer_records << std::endl
+              << "Locked records read: " << locked_records_read << std::endl
+              << "Discarded records read: " << discarded_records_read << std::endl
+              << "Empty records read: " << empty_records_read << std::endl
+              << "Failed returns: " << failed_returns << std::endl
+              << "Failed waits: " << failed_waits << std::endl;
+
     if (use_output) {
         CAPTURE(output_count);
+        std::cout << "Output count: " << output_count << std::endl;
     } else {
         CAPTURE(reserve_count, submit_count, discard_count, failed_submits, failed_discards);
+        std::cout << "Reserve count: " << reserve_count << std::endl
+                  << "Submit count: " << submit_count << std::endl
+                  << "Discard count: " << discard_count << std::endl
+                  << "Failed submits: " << failed_submits << std::endl
+                  << "Failed discards: " << failed_discards << std::endl;
     }
 
     // Read any remaining records.
@@ -2124,6 +2122,10 @@ run_ring_buffer_stress_test(
         }
     }
     CAPTURE(remaining_records, remaining_discards, remaining_locked, remaining_failed_returns);
+    std::cout << "Remaining records: " << remaining_records << std::endl
+              << "Remaining discards: " << remaining_discards << std::endl
+              << "Remaining locked: " << remaining_locked << std::endl
+              << "Remaining failed returns: " << remaining_failed_returns << std::endl;
 
     REQUIRE(blocked_threads == 0);
 
@@ -2362,7 +2364,6 @@ TEST_CASE("ring_buffer_notify", "[platform][ring_buffer]")
     REQUIRE(KeWaitForSingleObject(&event, Executive, KernelMode, TRUE, &short_timeout) == STATUS_TIMEOUT);
 
     // Discard a record with FORCE_WAKEUP.
-    reserved_data = nullptr;
     REQUIRE(ebpf_ring_buffer_reserve(ring_buffer, &reserved_data, data.size()) == EBPF_SUCCESS);
     REQUIRE(reserved_data != nullptr);
     REQUIRE(ebpf_ring_buffer_discard(reserved_data, EBPF_RINGBUF_FLAG_FORCE_WAKEUP) == EBPF_SUCCESS);
