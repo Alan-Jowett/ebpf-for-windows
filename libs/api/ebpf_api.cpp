@@ -5639,3 +5639,20 @@ ebpf_perf_buffer_get_wait_handle(_In_ const struct perf_buffer* pb) EBPF_NO_EXCE
 
     return pb->wait_handle;
 }
+
+_Must_inspect_result_ ebpf_result_t
+ebpf_set_namespace(_In_ const GUID* namespace_guid) NO_EXCEPT_TRY
+{
+    EBPF_LOG_ENTRY();
+    ebpf_result_t result = EBPF_SUCCESS;
+
+    if (namespace_guid == NULL) {
+        EBPF_RETURN_RESULT(EBPF_INVALID_ARGUMENT);
+    }
+
+    ebpf_operation_set_namespace_request_t request{
+        sizeof(request), ebpf_operation_id_t::EBPF_OPERATION_SET_NAMESPACE, *namespace_guid};
+    result = win32_error_code_to_ebpf_result(invoke_ioctl(request));
+    EBPF_RETURN_RESULT(result);
+}
+CATCH_NO_MEMORY_EBPF_RESULT
