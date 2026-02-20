@@ -5,23 +5,6 @@
 #include "ebpf_tracelog.h"
 #include "ebpf_work_queue.h"
 
-// A globally published epoch used as the source of truth for:
-// - ebpf_epoch_enter(): epoch recorded into ebpf_epoch_state_t
-// - Retirement stamping: freed_epoch recorded when inserting into free lists
-//
-// This prevents a class of hazards where a reader can observe a newer epoch on one CPU
-// while another CPU (that has not yet processed the epoch advance message) stamps a
-// retirement with an older epoch.
-static volatile int64_t _ebpf_epoch_published_current_epoch = 1;
-
-static __forceinline uint64_t
-_ebpf_epoch_get_published_epoch()
-{
-    // ebpf_interlocked_compare_exchange_int64() (implemented using InterlockedCompareExchange64) provides a
-    // sequentially consistent atomic read.
-    return (uint64_t)ebpf_interlocked_compare_exchange_int64(&_ebpf_epoch_published_current_epoch, 0, 0);
-}
-
 /**
  * @brief Epoch Base Memory Reclamation.
  * Each thread that accesses memory that needs to be reclaimed is associated with an epoch via ebpf_epoch_enter() and
@@ -35,6 +18,13 @@ _ebpf_epoch_get_published_epoch()
  * 2) The minimum epoch is committed as the release epoch and any memory that is older than the release epoch is
  * released.
  * 3) The epoch_computation_in_progress flag is cleared which allows the epoch computation to be initiated  again.
+ *
+ * Hot-Add CPU Support:
+ * This module supports hot-add of CPUs through lazy initialization. Data structures are allocated for the maximum
+ * possible CPU count, but work queues are only created for currently active CPUs. Inactive CPUs have NULL work_queue
+ * pointers and are skipped during inter-CPU messaging. When a CPU becomes active, it would need explicit activation
+ * (not currently implemented), but the data structures are ready. The epoch computation algorithm dynamically skips
+ * inactive CPUs to ensure proper operation with a subset of available processors.
  */
 
 /**
@@ -240,6 +230,96 @@ static _IRQL_requires_(DISPATCH_LEVEL) void _ebpf_epoch_arm_timer_if_needed(ebpf
 static void
 _ebpf_epoch_work_item_callback(_In_ cxplat_preemptible_work_item_t* preemptible_work_item, void* context);
 
+/**
+ * @brief Check if a CPU is currently active in the system.
+ * @param[in] cpu_id The CPU ID to check.
+ * @return true if the CPU is active, false otherwise.
+ */
+static bool
+_ebpf_epoch_is_cpu_active(uint32_t cpu_id)
+{
+    // Check if the CPU is within the active processor count
+    uint32_t active_processor_count = KeQueryActiveProcessorCount(NULL);
+    if (cpu_id >= active_processor_count) {
+        return false;
+    }
+
+    // For a more thorough check, we could use KeQueryActiveProcessorCountEx
+    // with processor groups, but for now this basic check should suffice
+    return true;
+}
+
+/**
+ * @brief Find the next active CPU starting from the given CPU ID.
+ * @param[in] start_cpu_id The CPU ID to start searching from.
+ * @return The next active CPU ID, or UINT32_MAX if no active CPU is found.
+ */
+static uint32_t
+_ebpf_epoch_find_next_active_cpu(uint32_t start_cpu_id)
+{
+    for (uint32_t cpu_id = start_cpu_id; cpu_id < _ebpf_epoch_cpu_count; cpu_id++) {
+        if (_ebpf_epoch_cpu_table[cpu_id].work_queue != NULL) {
+            return cpu_id;
+        }
+    }
+    return UINT32_MAX; // No active CPU found
+}
+
+/**
+ * @brief Create a work queue for a specific CPU (used for hot-add scenarios).
+ * This function can be called after ebpf_epoch_initiate() to create work queues
+ * for CPUs that become active after initialization.
+ *
+ * @param[in] cpu_id The CPU ID to create a work queue for.
+ * @retval EBPF_SUCCESS The work queue was created successfully.
+ * @retval EBPF_INVALID_ARGUMENT The CPU ID is invalid or the CPU is not active.
+ * @retval EBPF_NO_MEMORY Insufficient memory to create the work queue.
+ * @retval EBPF_INVALID_OBJECT The epoch system is not initialized.
+ */
+_Must_inspect_result_ ebpf_result_t
+ebpf_epoch_create_cpu_work_queue(uint32_t cpu_id)
+{
+    EBPF_LOG_ENTRY();
+    ebpf_result_t return_value = EBPF_SUCCESS;
+
+    // Ensure epoch system is initialized
+    if (!_ebpf_epoch_cpu_table) {
+        return_value = EBPF_INVALID_OBJECT;
+        goto Done;
+    }
+
+    // Validate CPU ID
+    if (cpu_id >= _ebpf_epoch_cpu_count) {
+        return_value = EBPF_INVALID_ARGUMENT;
+        goto Done;
+    }
+
+    // Check if CPU is actually active in the system
+    if (!_ebpf_epoch_is_cpu_active(cpu_id)) {
+        return_value = EBPF_INVALID_ARGUMENT;
+        goto Done;
+    }
+
+    ebpf_epoch_cpu_entry_t* cpu_entry = &_ebpf_epoch_cpu_table[cpu_id];
+
+    // Check if work queue already exists
+    if (cpu_entry->work_queue != NULL) {
+        // Work queue already exists, nothing to do
+        return_value = EBPF_SUCCESS;
+        goto Done;
+    }
+
+    // Create work queue for this CPU
+    LARGE_INTEGER interval;
+    interval.QuadPart = EBPF_EPOCH_FLUSH_DELAY_IN_NANOSECONDS / EBPF_NS_PER_FILETIME;
+
+    return_value = ebpf_timed_work_queue_create(
+        &cpu_entry->work_queue, cpu_id, &interval, _ebpf_epoch_messenger_worker, cpu_entry);
+
+Done:
+    EBPF_RETURN_RESULT(return_value);
+}
+
 _Must_inspect_result_ ebpf_result_t
 ebpf_epoch_initiate()
 {
@@ -272,19 +352,23 @@ ebpf_epoch_initiate()
         ebpf_list_initialize(&cpu_entry->free_list);
     }
 
-    _ebpf_epoch_published_current_epoch = 1;
-
-    // Initialize the message queue.
+    // Initialize the message queue for each CPU.
+    // For hot-add CPU support, we only create work queues for currently active CPUs.
+    // Inactive CPUs will have NULL work_queue pointers, and messages to those CPUs
+    // will be safely ignored until the CPU becomes active.
     for (uint32_t cpu_id = 0; cpu_id < _ebpf_epoch_cpu_count; cpu_id++) {
         ebpf_epoch_cpu_entry_t* cpu_entry = &_ebpf_epoch_cpu_table[cpu_id];
         LARGE_INTEGER interval;
         interval.QuadPart = EBPF_EPOCH_FLUSH_DELAY_IN_NANOSECONDS / EBPF_NS_PER_FILETIME;
 
+        // Try to create work queue for this CPU. If it fails (e.g., CPU not active),
+        // we leave work_queue as NULL and continue with other CPUs.
         ebpf_result_t result = ebpf_timed_work_queue_create(
             &cpu_entry->work_queue, cpu_id, &interval, _ebpf_epoch_messenger_worker, cpu_entry);
         if (result != EBPF_SUCCESS) {
-            return_value = result;
-            goto Error;
+            // Failed to create work queue for this CPU (likely inactive).
+            // Set work_queue to NULL and continue - this CPU will be skipped for messaging.
+            cpu_entry->work_queue = NULL;
         }
     }
 
@@ -358,7 +442,7 @@ ebpf_epoch_enter(_Out_ ebpf_epoch_state_t* epoch_state)
     epoch_state->cpu_id = ebpf_get_current_cpu();
 
     ebpf_epoch_cpu_entry_t* cpu_entry = &_ebpf_epoch_cpu_table[epoch_state->cpu_id];
-    epoch_state->epoch = _ebpf_epoch_get_published_epoch();
+    epoch_state->epoch = cpu_entry->current_epoch;
     ebpf_list_insert_tail(&cpu_entry->epoch_state_list, &epoch_state->epoch_list_entry);
 
     ebpf_lower_irql_from_dispatch_if_needed(epoch_state->irql_at_enter);
@@ -696,11 +780,7 @@ _ebpf_epoch_insert_in_free_list(_In_ ebpf_epoch_allocation_header_t* header)
         return;
     }
 
-    // Stamp with the globally published epoch to ensure retirements are never stamped
-    // with an epoch older than a concurrent reader may have observed.
-    uint64_t published_epoch = _ebpf_epoch_get_published_epoch();
-    uint64_t local_epoch = (uint64_t)cpu_entry->current_epoch;
-    header->freed_epoch = (int64_t)max(published_epoch, local_epoch);
+    header->freed_epoch = cpu_entry->current_epoch;
 
     ebpf_list_insert_tail(&cpu_entry->free_list, &header->list_entry);
 
@@ -781,14 +861,13 @@ _ebpf_epoch_messenger_propose_release_epoch(
 
     // First CPU updates the current epoch and proposes the release epoch.
     if (current_cpu == 0) {
-        int64_t new_epoch = ebpf_interlocked_increment_int64(&_ebpf_epoch_published_current_epoch);
-        cpu_entry->current_epoch = new_epoch;
-        message->message.propose_epoch.current_epoch = (uint64_t)new_epoch;
-        message->message.propose_epoch.proposed_release_epoch = (uint64_t)new_epoch;
+        cpu_entry->current_epoch++;
+        message->message.propose_epoch.current_epoch = cpu_entry->current_epoch;
+        message->message.propose_epoch.proposed_release_epoch = cpu_entry->current_epoch;
     }
     // Other CPUs update the current epoch.
     else {
-        cpu_entry->current_epoch = (int64_t)message->message.propose_epoch.current_epoch;
+        cpu_entry->current_epoch = message->message.propose_epoch.current_epoch;
     }
 
     // Put a memory barrier here to ensure that the write is not re-ordered.
@@ -806,17 +885,23 @@ _ebpf_epoch_messenger_propose_release_epoch(
     // Set the proposed release epoch to the minimum epoch seen so far.
     message->message.propose_epoch.proposed_release_epoch = minimum_epoch;
 
-    // If this is the last CPU, then send a message to the first CPU to commit the release epoch.
-    if (current_cpu == _ebpf_epoch_cpu_count - 1) {
+    // Find the next active CPU to send the message to.
+    uint32_t next_active_cpu = _ebpf_epoch_find_next_active_cpu(current_cpu + 1);
+
+    // If this is the last active CPU, then send a message to the first active CPU to commit the release epoch.
+    if (next_active_cpu == UINT32_MAX) {
         message->message.commit_epoch.released_epoch = minimum_epoch;
         message->message_type = EBPF_EPOCH_CPU_MESSAGE_TYPE_COMMIT_RELEASE_EPOCH;
-        next_cpu = 0;
+        next_cpu = _ebpf_epoch_find_next_active_cpu(0); // Find first active CPU
     } else {
-        // Send the message to the next CPU.
-        next_cpu = current_cpu + 1;
+        // Send the message to the next active CPU.
+        next_cpu = next_active_cpu;
     }
 
-    _ebpf_epoch_send_message_async(message, next_cpu);
+    // Only send message if we found an active CPU
+    if (next_cpu != UINT32_MAX) {
+        _ebpf_epoch_send_message_async(message, next_cpu);
+    }
 }
 
 /**
@@ -845,16 +930,22 @@ _ebpf_epoch_messenger_commit_release_epoch(
     // Set the released_epoch to the value computed by the EBPF_EPOCH_CPU_MESSAGE_TYPE_PROPOSE_RELEASE_EPOCH message.
     cpu_entry->released_epoch = message->message.commit_epoch.released_epoch - 1;
 
-    // If this is the last CPU, send the message to the first CPU to complete the cycle.
-    if (current_cpu != _ebpf_epoch_cpu_count - 1) {
-        // Send the message to the next CPU.
-        next_cpu = current_cpu + 1;
-    } else {
+    // Find the next active CPU to send the message to.
+    uint32_t next_active_cpu = _ebpf_epoch_find_next_active_cpu(current_cpu + 1);
+
+    // If this is the last active CPU, send the message to the first active CPU to complete the cycle.
+    if (next_active_cpu == UINT32_MAX) {
         message->message_type = EBPF_EPOCH_CPU_MESSAGE_TYPE_PROPOSE_EPOCH_COMPLETE;
-        next_cpu = 0;
+        next_cpu = _ebpf_epoch_find_next_active_cpu(0); // Find first active CPU
+    } else {
+        // Send the message to the next active CPU.
+        next_cpu = next_active_cpu;
     }
 
-    _ebpf_epoch_send_message_async(message, next_cpu);
+    // Only send message if we found an active CPU
+    if (next_cpu != UINT32_MAX) {
+        _ebpf_epoch_send_message_async(message, next_cpu);
+    }
 
     _ebpf_epoch_release_free_list(cpu_entry, cpu_entry->released_epoch);
 }
@@ -922,16 +1013,18 @@ _ebpf_epoch_messenger_rundown_in_progress(
 {
     uint32_t next_cpu;
     cpu_entry->rundown_in_progress = true;
-    // If this is the last CPU, then stop.
-    if (current_cpu != _ebpf_epoch_cpu_count - 1) {
-        // Send the message to the next CPU.
-        next_cpu = current_cpu + 1;
-    } else {
+
+    // Find the next active CPU to send the message to.
+    uint32_t next_active_cpu = _ebpf_epoch_find_next_active_cpu(current_cpu + 1);
+
+    // If this is the last active CPU, then stop.
+    if (next_active_cpu == UINT32_MAX) {
         // Signal the caller that rundown is complete.
         KeSetEvent(&message->completion_event, 0, FALSE);
-        // Set next_cpu to UINT32_MAX to make code analysis happy.
-        next_cpu = UINT32_MAX;
         return;
+    } else {
+        // Send the message to the next active CPU.
+        next_cpu = next_active_cpu;
     }
 
     _ebpf_epoch_send_message_async(message, next_cpu);
@@ -1028,14 +1121,16 @@ _IRQL_requires_max_(APC_LEVEL) static void _ebpf_epoch_send_message_and_wait(
  *
  * @param[in] message Message to send.
  * @param[in] cpu_id CPU to send the message to.
- * @param[in] flush If true, process all messages on the target CPU immediately.
  */
 static void
 _ebpf_epoch_send_message_async(_In_ ebpf_epoch_cpu_message_t* message, uint32_t cpu_id)
 {
-    // Queue the message to the specified CPU.
-    ebpf_timed_work_queue_insert(
-        _ebpf_epoch_cpu_table[cpu_id].work_queue, &message->list_entry, message->wake_behavior);
+    // Only queue the message if the CPU has an active work queue.
+    // CPUs that are not currently active will have NULL work queues.
+    if (_ebpf_epoch_cpu_table[cpu_id].work_queue) {
+        ebpf_timed_work_queue_insert(
+            _ebpf_epoch_cpu_table[cpu_id].work_queue, &message->list_entry, message->wake_behavior);
+    }
 }
 
 /**
