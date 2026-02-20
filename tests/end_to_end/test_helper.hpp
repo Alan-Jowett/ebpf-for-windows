@@ -14,6 +14,7 @@ class _test_helper_end_to_end
     bool ec_initialized = false;
     bool api_initialized = false;
     bool service_initialized = false;
+    bool process_attached = false;
 };
 
 class _program_info_provider;
