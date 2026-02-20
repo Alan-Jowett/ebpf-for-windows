@@ -2547,7 +2547,7 @@ has_dominant_frequency(size_t sequence_length, std::function<uint32_t()> random_
 class _raise_irql_to_dpc_helper
 {
   public:
-    _raise_irql_to_dpc_helper() { old_irql = KeRaiseIrqlToDpcLevel(); }
+    _raise_irql_to_dpc_helper() { old_irql = cxplat_raise_irql(DISPATCH_LEVEL); }
     ~_raise_irql_to_dpc_helper() { KeLowerIrql(old_irql); }
 
   private:

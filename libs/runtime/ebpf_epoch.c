@@ -240,6 +240,37 @@ static _IRQL_requires_(DISPATCH_LEVEL) void _ebpf_epoch_arm_timer_if_needed(ebpf
 static void
 _ebpf_epoch_work_item_callback(_In_ cxplat_preemptible_work_item_t* preemptible_work_item, void* context);
 
+/**
+ * @brief Raise the CPU's IRQL to DISPATCH_LEVEL if it is below DISPATCH_LEVEL.
+ * First check if the IRQL is below DISPATCH_LEVEL to avoid the overhead of
+ * calling cxplat_raise_irql(DISPATCH_LEVEL) if it is not needed.
+ *
+ * @return The previous IRQL.
+ */
+_IRQL_requires_max_(DISPATCH_LEVEL) _IRQL_saves_ _IRQL_raises_(DISPATCH_LEVEL) static inline KIRQL
+    _ebpf_epoch_raise_to_dispatch_if_needed()
+{
+    cxplat_irql_t old_irql = cxplat_get_current_irql();
+    if (old_irql < DISPATCH_LEVEL) {
+        old_irql = cxplat_raise_irql(DISPATCH_LEVEL);
+    }
+    return old_irql;
+}
+
+/**
+ * @brief Lower the CPU's IRQL to the previous IRQL if previous level was below DISPATCH_LEVEL.
+ * First check if the IRQL is below DISPATCH_LEVEL to avoid the overhead of
+ * calling KeLowerIrql() if it is not needed.
+ *
+ * @param[in] previous_irql The previous IRQL.
+ */
+_IRQL_requires_(DISPATCH_LEVEL) static inline void _ebpf_epoch_lower_to_previous_irql(
+    _When_(previous_irql < DISPATCH_LEVEL, _IRQL_restores_) KIRQL previous_irql)
+{
+    if (previous_irql < DISPATCH_LEVEL) {
+        cxplat_lower_irql(previous_irql);
+    }
+}
 _Must_inspect_result_ ebpf_result_t
 ebpf_epoch_initiate()
 {

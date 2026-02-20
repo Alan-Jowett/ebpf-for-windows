@@ -557,3 +557,25 @@ EBPF_HELPER(int64_t, bpf_get_current_thread_create_time, ());
 #define bpf_get_current_thread_create_time \
     ((bpf_get_current_thread_create_time_t)BPF_FUNC_get_current_thread_create_time)
 #endif
+
+/**
+ * @brief Return time elapsed since boot in milliseconds including time while suspended.
+ * This function uses a lower resolution clock source than bpf_ktime_get_boot_ns, but is faster.
+ *
+ * @return Time elapsed since boot in milliseconds units.
+ */
+EBPF_HELPER(uint64_t, bpf_ktime_get_boot_ms, ());
+#ifndef __doxygen
+#define bpf_ktime_get_boot_ms ((bpf_ktime_get_boot_ms_t)BPF_FUNC_ktime_get_boot_ms)
+#endif
+
+/**
+ * @brief Return time elapsed since boot in milliseconds excluding time while suspended.
+ * This function uses a lower resolution clock source than bpf_ktime_get_ns, but is faster.
+ *
+ * @return Time elapsed since boot in milliseconds units.
+ */
+EBPF_HELPER(uint64_t, bpf_ktime_get_ms, ());
+#ifndef __doxygen
+#define bpf_ktime_get_ms ((bpf_ktime_get_ms_t)BPF_FUNC_ktime_get_ms)
+#endif

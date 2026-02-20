@@ -634,9 +634,6 @@ SeAccessCheckFromState(
     return true;
 }
 
-KIRQL
-KeGetCurrentIrql() { return PASSIVE_LEVEL; }
-
 HANDLE
 PsGetCurrentProcessId() { return (HANDLE)(uintptr_t)GetCurrentProcessId(); }
 

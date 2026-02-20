@@ -2415,7 +2415,7 @@ _ebpf_program_test_run_work_item(_In_ cxplat_preemptible_work_item_t* work_item,
     uint64_t cumulative_time = 0;
     ebpf_result_t result;
     uint32_t return_value = 0;
-    uint8_t old_irql = 0;
+    cxplat_irql_t old_irql = 0;
     GROUP_AFFINITY old_thread_affinity;
     size_t batch_size = options->batch_size ? options->batch_size : 1024;
     ebpf_execution_context_state_t execution_context_state = {0};
@@ -2434,7 +2434,7 @@ _ebpf_program_test_run_work_item(_In_ cxplat_preemptible_work_item_t* work_item,
 
     ebpf_epoch_synchronize();
 
-    old_irql = ebpf_raise_irql(context->required_irql);
+    old_irql = cxplat_raise_irql(context->required_irql);
     irql_raised = true;
 
     // Convert the input buffer to a program type specific context structure.
@@ -2474,10 +2474,10 @@ _ebpf_program_test_run_work_item(_In_ cxplat_preemptible_work_item_t* work_item,
                 cumulative_time += end_time - start_time;
 
                 // Yield the CPU.
-                ebpf_lower_irql(old_irql);
+                cxplat_lower_irql(old_irql);
 
                 // Reacquire the CPU.
-                old_irql = ebpf_raise_irql(context->required_irql);
+                old_irql = cxplat_raise_irql(context->required_irql);
 
                 // Reset the start time.
                 start_time = cxplat_query_time_since_boot_precise(false);
@@ -2516,7 +2516,7 @@ Done:
     }
 
     if (irql_raised) {
-        ebpf_lower_irql(old_irql);
+        cxplat_lower_irql(old_irql);
     }
 
     if (thread_affinity_set) {

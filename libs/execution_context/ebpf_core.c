@@ -131,7 +131,6 @@ _ebpf_core_get_current_thread_create_time(
     uint64_t dummy_param4,
     uint64_t dummy_param5,
     _In_ const void* ctx);
-
 #define EBPF_CORE_GLOBAL_HELPER_EXTENSION_VERSION 0
 
 static ebpf_program_type_descriptor_t _ebpf_global_helper_program_descriptor = {
