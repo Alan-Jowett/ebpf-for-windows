@@ -731,6 +731,8 @@ _test_helper_end_to_end::initialize()
     api_initialized = true;
     REQUIRE(ebpf_service_initialize() == EBPF_SUCCESS);
     service_initialized = true;
+    REQUIRE(ebpf_core_process_attach() == EBPF_SUCCESS);
+    process_attached = true;
 }
 
 _test_handle_helper::~_test_handle_helper()
@@ -777,6 +779,10 @@ _test_helper_end_to_end::~_test_helper_end_to_end()
         {
             std::unique_lock lock(_overlapped_buffers_mutex);
             _overlapped_buffers.clear();
+        }
+
+        if (process_attached) {
+            ebpf_core_process_detach();
         }
 
         if (api_initialized) {

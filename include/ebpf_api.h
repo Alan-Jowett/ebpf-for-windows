@@ -863,6 +863,17 @@ extern "C"
         _Outptr_result_buffer_maybenull_(*data_size) const uint8_t** data,
         _Out_opt_ uint64_t* data_size) EBPF_NO_EXCEPT;
 
+    /**
+     * @brief Set the namespace for the current process.
+     *
+     * @param[in] namespace_guid The namespace GUID to set for the current process.
+     * @retval EBPF_SUCCESS The operation was successful.
+     * @retval EBPF_INVALID_ARGUMENT The namespace_guid parameter is NULL.
+     * @retval EBPF_NO_MEMORY Unable to allocate resources for this operation.
+     */
+    _Must_inspect_result_ ebpf_result_t
+    ebpf_set_namespace(_In_ const GUID* namespace_guid) EBPF_NO_EXCEPT;
+
 #ifdef __cplusplus
 }
 #endif

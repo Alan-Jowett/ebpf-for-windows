@@ -65,6 +65,8 @@ struct _ebpf_hash_table
     ebpf_hash_table_allocate allocate; // Function to allocate memory.
     ebpf_hash_table_free free;         // Function to free memory.
     ebpf_hash_table_extract_function extract; // Function to extract bytes to hash from key.
+    ebpf_hash_table_hash_function hash;       // Function to compute hash from key.
+    ebpf_hash_table_compare_function compare; // Function to compare keys.
     uint32_t allocation_tag;                  // Pool tag to use for allocations.
 
     void* notification_context; //< Context to pass to notification functions.
@@ -285,7 +287,10 @@ _ebpf_hash_table_compare_extracted_keys(
 static __forceinline int
 _ebpf_hash_table_compare(_In_ const ebpf_hash_table_t* hash_table, _In_ const uint8_t* key_a, _In_ const uint8_t* key_b)
 {
-    if (hash_table->extract) {
+    if (hash_table->compare) {
+        // Use custom comparison function if provided
+        return hash_table->compare(key_a, key_b);
+    } else if (hash_table->extract) {
         // If key is not integer and extract function is provided, use it to compare.
         return _ebpf_hash_table_compare_extracted_keys(hash_table, key_a, key_b);
     } else if ((hash_table->key_size & (hash_table->key_size - 1)) == 0 && hash_table->key_size <= 8) {
@@ -308,22 +313,31 @@ _ebpf_hash_table_compare(_In_ const ebpf_hash_table_t* hash_table, _In_ const ui
 static uint32_t
 _ebpf_hash_table_compute_bucket_index(_In_ const ebpf_hash_table_t* hash_table, _In_ const uint8_t* key)
 {
-    if (!hash_table->extract) {
+    uint32_t hash;
+
+    if (hash_table->hash) {
+        // Use custom hash function if provided
+        hash = hash_table->hash(key, hash_table->seed);
+    } else if (!hash_table->extract) {
+        // Use default hashing on raw key
 #if defined(_M_X64)
         if (ebpf_processor_supports_sse42) {
-            return _ebpf_compute_crc32(key, hash_table->key_size, hash_table->seed) & hash_table->bucket_count_mask;
+            hash = _ebpf_compute_crc32(key, hash_table->key_size, hash_table->seed);
         } else {
-            return _ebpf_murmur3_32(key, hash_table->key_size * 8, hash_table->seed) & hash_table->bucket_count_mask;
+            hash = _ebpf_murmur3_32(key, hash_table->key_size * 8, hash_table->seed);
         }
 #else
-        return _ebpf_murmur3_32(key, hash_table->key_size * 8, hash_table->seed) & hash_table->bucket_count_mask;
+        hash = _ebpf_murmur3_32(key, hash_table->key_size * 8, hash_table->seed);
 #endif
     } else {
+        // Use extract function then default hashing
         uint8_t* data;
         size_t length;
         hash_table->extract(key, &data, &length);
-        return _ebpf_murmur3_32(data, length, hash_table->seed) & hash_table->bucket_count_mask;
+        hash = _ebpf_murmur3_32(data, length, hash_table->seed);
     }
+
+    return hash & hash_table->bucket_count_mask;
 }
 
 /**
@@ -759,6 +773,8 @@ ebpf_hash_table_create(_Out_ ebpf_hash_table_t** hash_table, _In_ const ebpf_has
     table->entry_count = 0;
     table->seed = ebpf_random_uint32();
     table->extract = options->extract_function;
+    table->hash = options->hash_function;
+    table->compare = options->compare_function;
 #if defined(NDEBUG)
     table->max_entry_count = options->max_entries;
 #else
@@ -1124,4 +1140,31 @@ ebpf_hash_table_next_key_and_value_sorted(
     }
 
     return EBPF_SUCCESS;
+}
+
+uint32_t
+ebpf_hash_table_compute_chain_hash(
+    _In_ uint32_t seed,
+    _In_ size_t data_count,
+    _In_reads_(data_count) const uint8_t* const* data_blobs,
+    _In_reads_(data_count) const size_t* data_lengths)
+{
+    uint32_t hash = seed;
+
+    // Chain hash each data blob using the result of the previous as the seed
+    for (size_t i = 0; i < data_count; i++) {
+        if (data_blobs[i] && data_lengths[i] > 0) {
+#if defined(_M_X64)
+            if (ebpf_processor_supports_sse42) {
+                hash = _ebpf_compute_crc32(data_blobs[i], data_lengths[i], hash);
+            } else {
+                hash = _ebpf_murmur3_32(data_blobs[i], data_lengths[i] * 8, hash);
+            }
+#else
+            hash = _ebpf_murmur3_32(data_blobs[i], data_lengths[i] * 8, hash);
+#endif
+        }
+    }
+
+    return hash;
 }

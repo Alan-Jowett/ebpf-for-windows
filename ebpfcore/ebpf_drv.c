@@ -47,6 +47,7 @@ PSECURITY_DESCRIPTOR ebpf_execution_context_privileged_security_descriptor = NUL
 //
 // Pre-Declarations
 //
+static EVT_WDF_DEVICE_FILE_CREATE _ebpf_driver_file_create;
 static EVT_WDF_FILE_CLOSE _ebpf_driver_file_close;
 static EVT_WDF_IO_QUEUE_IO_DEVICE_CONTROL _ebpf_driver_io_device_control;
 static EVT_WDFDEVICE_WDM_IRP_PREPROCESS _ebpf_driver_query_volume_information;
@@ -223,7 +224,8 @@ _ebpf_driver_initialize_device(WDFDRIVER driver_handle, _Out_ WDFDEVICE* device)
 
     WDF_OBJECT_ATTRIBUTES_INIT(&attributes);
     attributes.SynchronizationScope = WdfSynchronizationScopeNone;
-    WDF_FILEOBJECT_CONFIG_INIT(&file_object_config, NULL, _ebpf_driver_file_close, WDF_NO_EVENT_CALLBACK);
+    WDF_FILEOBJECT_CONFIG_INIT(
+        &file_object_config, _ebpf_driver_file_create, _ebpf_driver_file_close, WDF_NO_EVENT_CALLBACK);
     WdfDeviceInitSetFileObjectConfig(device_initialize, &file_object_config, &attributes);
 
     // WDF framework doesn't handle IRP_MJ_QUERY_VOLUME_INFORMATION so register a handler for this IRP.
@@ -344,9 +346,32 @@ Exit:
 }
 
 static void
+_ebpf_driver_file_create(WDFDEVICE device, WDFREQUEST request, WDFFILEOBJECT file_object)
+{
+    UNREFERENCED_PARAMETER(device);
+    UNREFERENCED_PARAMETER(file_object);
+
+    NTSTATUS status = STATUS_SUCCESS;
+
+    // A new device handle is being opened, trigger process attach.
+    ebpf_result_t result = ebpf_core_process_attach();
+    if (result != EBPF_SUCCESS) {
+        status = ebpf_result_to_ntstatus(result);
+    }
+
+    // Complete the request
+    WdfRequestComplete(request, status);
+}
+
+static void
 _ebpf_driver_file_close(WDFFILEOBJECT wdf_file_object)
 {
     FILE_OBJECT* file_object = WdfFileObjectWdmGetFileObject(wdf_file_object);
+
+    // The device handle is being closed, trigger process detach.
+    if (file_object->FsContext2 == NULL) {
+        ebpf_core_process_detach();
+    }
     ebpf_core_close_context(file_object->FsContext2);
 }
 

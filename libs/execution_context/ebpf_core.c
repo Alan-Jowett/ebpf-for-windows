@@ -11,6 +11,7 @@
 #include "ebpf_handle.h"
 #include "ebpf_link.h"
 #include "ebpf_maps.h"
+#include "ebpf_namespace.h"
 #include "ebpf_native.h"
 #include "ebpf_pinning_table.h"
 #include "ebpf_program.h"
@@ -296,6 +297,11 @@ ebpf_core_initiate()
         goto Done;
     }
 
+    return_value = ebpf_namespace_initiate();
+    if (return_value != EBPF_SUCCESS) {
+        goto Done;
+    }
+
     return_value = ebpf_handle_table_initiate();
     if (return_value != EBPF_SUCCESS) {
         goto Done;
@@ -352,6 +358,8 @@ ebpf_core_terminate()
     ebpf_async_terminate();
 
     ebpf_core_terminate_pinning_table();
+
+    ebpf_namespace_terminate();
 
     ebpf_state_terminate();
 
@@ -1161,7 +1169,8 @@ _ebpf_core_protocol_program_test_run(
         goto Done;
     }
 
-    options = (ebpf_program_test_run_options_t*)ebpf_allocate_with_tag(sizeof(ebpf_program_test_run_options_t), EBPF_POOL_TAG_DEFAULT);
+    options = (ebpf_program_test_run_options_t*)ebpf_allocate_with_tag(
+        sizeof(ebpf_program_test_run_options_t), EBPF_POOL_TAG_DEFAULT);
     if (!options) {
         retval = EBPF_NO_MEMORY;
         goto Done;
@@ -2213,6 +2222,17 @@ Done:
     EBPF_RETURN_RESULT(result);
 }
 
+static ebpf_result_t
+_ebpf_core_protocol_set_namespace(_In_ const ebpf_operation_set_namespace_request_t* request)
+{
+    EBPF_LOG_ENTRY();
+    ebpf_result_t result;
+
+    result = ebpf_namespace_set_current(&request->namespace_guid);
+
+    EBPF_RETURN_RESULT(result);
+}
+
 static void*
 _ebpf_core_map_find_element(ebpf_map_t* map, const uint8_t* key)
 {
@@ -2911,6 +2931,7 @@ static ebpf_protocol_handler_t _ebpf_protocol_handlers[] = {
     DECLARE_PROTOCOL_HANDLER_FIXED_REQUEST_NO_REPLY(ring_buffer_map_unmap_buffer, PROTOCOL_ALL_MODES),
     DECLARE_PROTOCOL_HANDLER_FIXED_REQUEST_NO_REPLY_ASYNC(epoch_synchronize, PROTOCOL_ALL_MODES),
     DECLARE_PROTOCOL_HANDLER_FIXED_REQUEST_NO_REPLY(link_set_legacy_mode, PROTOCOL_ALL_MODES),
+    DECLARE_PROTOCOL_HANDLER_FIXED_REQUEST_NO_REPLY(set_namespace, PROTOCOL_ALL_MODES),
 };
 
 _Must_inspect_result_ ebpf_result_t
@@ -3221,4 +3242,16 @@ ebpf_core_update_map_with_handle(
 Done:
     EBPF_OBJECT_RELEASE_REFERENCE((ebpf_core_object_t*)map);
     EBPF_RETURN_RESULT(retval);
+}
+
+_Must_inspect_result_ ebpf_result_t
+ebpf_core_process_attach()
+{
+    return ebpf_namespace_process_attach();
+}
+
+void
+ebpf_core_process_detach()
+{
+    ebpf_namespace_process_detach();
 }

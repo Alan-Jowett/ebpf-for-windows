@@ -9,6 +9,7 @@
 #include "ebpf_bitmap.h"
 #include "ebpf_epoch.h"
 #include "ebpf_hash_table.h"
+#include "ebpf_namespace.h"
 #include "ebpf_nethooks.h"
 #include "ebpf_pinning_table.h"
 #include "ebpf_platform.h"
@@ -207,9 +208,20 @@ class _test_helper
         async_initiated = true;
         REQUIRE(ebpf_state_initiate() == EBPF_SUCCESS);
         state_initiated = true;
+        REQUIRE(ebpf_namespace_initiate() == EBPF_SUCCESS);
+        namespace_initiated = true;
+        REQUIRE(ebpf_namespace_process_attach() == EBPF_SUCCESS);
+        process_attached = true;
     }
     ~_test_helper()
     {
+        if (process_attached) {
+            ebpf_namespace_process_detach();
+        }
+
+        if (namespace_initiated) {
+            ebpf_namespace_terminate();
+        }
         if (state_initiated) {
             ebpf_state_terminate();
         }
@@ -235,6 +247,8 @@ class _test_helper
     bool async_initiated = false;
     bool state_initiated = false;
     bool object_tracking_initiated = false;
+    bool namespace_initiated = false;
+    bool process_attached = false;
 };
 
 struct ebpf_hash_table_destroyer_t
@@ -550,47 +564,47 @@ TEST_CASE("hash_table_stress_test", "[platform]")
     ebpf_hash_table_destroy(table);
 }
 
+typedef struct _some_object
+{
+    ebpf_core_object_t object{};
+    std::string name;
+    bool finalized = true;
+    signal_t signal;
+    ebpf_result_t
+    initialize()
+    {
+        ebpf_result_t return_value = EBPF_OBJECT_INITIALIZE(
+            &object,
+            EBPF_OBJECT_MAP,
+            [](ebpf_core_object_t* object) {
+                auto some_object = reinterpret_cast<_some_object*>(object);
+                some_object->signal.signal();
+            },
+            NULL,
+            NULL,
+            NULL);
+        if (return_value == EBPF_SUCCESS) {
+            finalized = false;
+        }
+        return return_value;
+    }
+
+    void
+    finalize()
+    {
+        if (!finalized) {
+            EBPF_OBJECT_RELEASE_REFERENCE(&object);
+            finalized = true;
+        }
+    }
+
+    ~_some_object() { finalize(); }
+} some_object_t;
+
 TEST_CASE("pinning_test", "[platform]")
 {
     _test_helper test_helper;
     test_helper.initialize();
-
-    typedef struct _some_object
-    {
-        ebpf_core_object_t object{};
-        std::string name;
-        bool finalized = true;
-        signal_t signal;
-        ebpf_result_t
-        initialize()
-        {
-            ebpf_result_t return_value = EBPF_OBJECT_INITIALIZE(
-                &object,
-                EBPF_OBJECT_MAP,
-                [](ebpf_core_object_t* object) {
-                    auto some_object = reinterpret_cast<_some_object*>(object);
-                    some_object->signal.signal();
-                },
-                NULL,
-                NULL,
-                NULL);
-            if (return_value == EBPF_SUCCESS) {
-                finalized = false;
-            }
-            return return_value;
-        }
-
-        void
-        finalize()
-        {
-            if (!finalized) {
-                EBPF_OBJECT_RELEASE_REFERENCE(&object);
-                finalized = true;
-            }
-        }
-
-        ~_some_object() { finalize(); }
-    } some_object_t;
 
     some_object_t an_object;
     some_object_t another_object;
@@ -2713,4 +2727,247 @@ TEST_CASE("hash_of_file", "[platform]")
 
     // Clean up the test file.
     std::remove(file_name);
+}
+
+TEST_CASE("namespace_basic_operations", "[platform][namespace]")
+{
+    _test_helper test_helper;
+    test_helper.initialize();
+
+    // Test initial state
+    GUID initial_namespace = ebpf_namespace_get_current();
+    // Initial namespace should be GUID_NULL or some consistent default
+
+    // Create test namespaces
+    GUID namespace1 = {0x12345678, 0x1234, 0x5678, {0x90, 0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67}};
+    GUID namespace2 = {0x87654321, 0x4321, 0x8765, {0xab, 0x90, 0xef, 0xcd, 0x67, 0x45, 0x23, 0x01}};
+
+    // Set first namespace
+    REQUIRE(ebpf_namespace_set_current(&namespace1) == EBPF_SUCCESS);
+    GUID current = ebpf_namespace_get_current();
+    REQUIRE(IsEqualGUID(current, namespace1));
+
+    // Set second namespace
+    REQUIRE(ebpf_namespace_set_current(&namespace2) == EBPF_SUCCESS);
+    current = ebpf_namespace_get_current();
+    REQUIRE(IsEqualGUID(current, namespace2));
+
+    // Switch back to first namespace
+    REQUIRE(ebpf_namespace_set_current(&namespace1) == EBPF_SUCCESS);
+    current = ebpf_namespace_get_current();
+    REQUIRE(IsEqualGUID(current, namespace1));
+
+    // Test error handling
+    REQUIRE(ebpf_namespace_set_current(nullptr) == EBPF_INVALID_ARGUMENT);
+}
+
+// std::unique_ptr for pining_table with custom deleter
+using pinning_table_unique_ptr = std::unique_ptr<ebpf_pinning_table_t, decltype(&ebpf_pinning_table_free)>;
+
+TEST_CASE("namespace_isolation_pinning", "[platform][namespace]")
+{
+    _test_helper test_helper;
+    test_helper.initialize();
+
+    pinning_table_unique_ptr table(nullptr, &ebpf_pinning_table_free);
+    ebpf_pinning_table_t* raw_table;
+    REQUIRE(ebpf_pinning_table_allocate(&raw_table) == EBPF_SUCCESS);
+    table.reset(raw_table);
+
+    // Create test namespaces
+    GUID namespace1 = {0x11111111, 0x1111, 0x1111, {0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11}};
+    GUID namespace2 = {0x22222222, 0x2222, 0x2222, {0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22}};
+
+    some_object_t object1 = {};
+    some_object_t object2 = {};
+
+    REQUIRE(object1.initialize() == EBPF_SUCCESS);
+    REQUIRE(object2.initialize() == EBPF_SUCCESS);
+
+    object1.object.object_namespace = namespace1;
+    object2.object.object_namespace = namespace2;
+
+    cxplat_utf8_string_t key_string;
+    const char* key = "test_key";
+    key_string.value = (uint8_t*)key;
+    key_string.length = strlen(key);
+
+    // Set first namespace and pin object1
+    REQUIRE(ebpf_namespace_set_current(&namespace1) == EBPF_SUCCESS);
+    REQUIRE(ebpf_pinning_table_insert(table.get(), &key_string, (ebpf_core_object_t*)&object1) == EBPF_SUCCESS);
+
+    // Verify we can find the object in namespace1
+    ebpf_core_object_t* found_object = nullptr;
+    REQUIRE(ebpf_pinning_table_find(table.get(), &key_string, &found_object) == EBPF_SUCCESS);
+    REQUIRE(found_object == (ebpf_core_object_t*)&object1);
+    EBPF_OBJECT_RELEASE_REFERENCE(found_object);
+
+    // Switch to namespace2 - should not find the object
+    REQUIRE(ebpf_namespace_set_current(&namespace2) == EBPF_SUCCESS);
+    REQUIRE(ebpf_pinning_table_find(table.get(), &key_string, &found_object) == EBPF_KEY_NOT_FOUND);
+
+    // Pin object2 with same key in namespace2
+    REQUIRE(ebpf_pinning_table_insert(table.get(), &key_string, (ebpf_core_object_t*)&object2) == EBPF_SUCCESS);
+
+    // Verify we can find object2 in namespace2
+    REQUIRE(ebpf_pinning_table_find(table.get(), &key_string, &found_object) == EBPF_SUCCESS);
+    REQUIRE(found_object == (ebpf_core_object_t*)&object2);
+    EBPF_OBJECT_RELEASE_REFERENCE(found_object);
+
+    // Switch back to namespace1 - should find object1, not object2
+    REQUIRE(ebpf_namespace_set_current(&namespace1) == EBPF_SUCCESS);
+    REQUIRE(ebpf_pinning_table_find(table.get(), &key_string, &found_object) == EBPF_SUCCESS);
+    REQUIRE(found_object == (ebpf_core_object_t*)&object1);
+    EBPF_OBJECT_RELEASE_REFERENCE(found_object);
+
+    // Clean up
+    REQUIRE(ebpf_pinning_table_delete(table.get(), &key_string) == EBPF_SUCCESS);
+
+    REQUIRE(ebpf_namespace_set_current(&namespace2) == EBPF_SUCCESS);
+
+    table.reset();
+}
+
+TEST_CASE("namespace_enumeration_isolation", "[platform][namespace]")
+{
+    _test_helper test_helper;
+    test_helper.initialize();
+
+    ebpf_pinning_table_t* raw_table;
+    pinning_table_unique_ptr table(nullptr, &ebpf_pinning_table_free);
+    REQUIRE(ebpf_pinning_table_allocate(&raw_table) == EBPF_SUCCESS);
+    table.reset(raw_table);
+
+    auto get_pinning_table_entry_count = [](ebpf_pinning_table_t* table) -> size_t {
+        uint16_t entry_count = 0;
+        ebpf_pinning_entry_t* entries = nullptr;
+        if (ebpf_pinning_table_enumerate_entries(table, EBPF_OBJECT_MAP, &entry_count, &entries) == EBPF_SUCCESS) {
+            ebpf_pinning_entries_release(entry_count, entries);
+        }
+        return entry_count;
+    };
+
+    // Create test namespaces
+    GUID namespace1 = {0x33333333, 0x3333, 0x3333, {0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33, 0x33}};
+    GUID namespace2 = {0x44444444, 0x4444, 0x4444, {0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44, 0x44}};
+
+    // Create objects for different namespaces
+    some_object_t objects[4] = {};
+    for (int i = 0; i < 4; i++) {
+        REQUIRE(objects[i].initialize() == EBPF_SUCCESS);
+        objects[i].object.object_namespace = (i < 2) ? namespace1 : namespace2;
+    }
+
+    // Pin objects in namespace1
+    REQUIRE(ebpf_namespace_set_current(&namespace1) == EBPF_SUCCESS);
+    for (int i = 0; i < 2; i++) {
+        std::string key_str = "key_" + std::to_string(i);
+        cxplat_utf8_string_t key;
+        key.value = (uint8_t*)key_str.c_str();
+        key.length = key_str.length();
+        REQUIRE(ebpf_pinning_table_insert(table.get(), &key, (ebpf_core_object_t*)&objects[i]) == EBPF_SUCCESS);
+    }
+
+    // Pin objects in namespace2
+    REQUIRE(ebpf_namespace_set_current(&namespace2) == EBPF_SUCCESS);
+    for (int i = 2; i < 4; i++) {
+        std::string key_str = "key_" + std::to_string(i);
+        cxplat_utf8_string_t key;
+        key.value = (uint8_t*)key_str.c_str();
+        key.length = key_str.length();
+        REQUIRE(ebpf_pinning_table_insert(table.get(), &key, (ebpf_core_object_t*)&objects[i]) == EBPF_SUCCESS);
+    }
+
+    // Test enumeration in namespace1 - should only see objects 0 and 1
+    REQUIRE(ebpf_namespace_set_current(&namespace1) == EBPF_SUCCESS);
+
+    std::vector<cxplat_utf8_string_t*> keys_ns1;
+    std::vector<ebpf_core_object_t*> objects_ns1;
+
+    // Verify that there are 2 entries in namespace1
+    REQUIRE(get_pinning_table_entry_count(table.get()) == 2);
+
+    // Test enumeration in namespace2 - should only see objects 2 and 3
+    REQUIRE(ebpf_namespace_set_current(&namespace2) == EBPF_SUCCESS);
+
+    // Verify that there are 2 entries in namespace2
+    REQUIRE(get_pinning_table_entry_count(table.get()) == 2);
+
+    // Clean up - delete objects from both namespaces
+    REQUIRE(ebpf_namespace_set_current(&namespace1) == EBPF_SUCCESS);
+    for (int i = 0; i < 2; i++) {
+        std::string key_str = "key_" + std::to_string(i);
+        cxplat_utf8_string_t key;
+        key.value = (uint8_t*)key_str.c_str();
+        key.length = key_str.length();
+        REQUIRE(ebpf_pinning_table_delete(table.get(), &key) == EBPF_SUCCESS);
+    }
+
+    REQUIRE(ebpf_namespace_set_current(&namespace2) == EBPF_SUCCESS);
+    for (int i = 2; i < 4; i++) {
+        std::string key_str = "key_" + std::to_string(i);
+        cxplat_utf8_string_t key;
+        key.value = (uint8_t*)key_str.c_str();
+        key.length = key_str.length();
+        REQUIRE(ebpf_pinning_table_delete(table.get(), &key) == EBPF_SUCCESS);
+    }
+
+    table.reset();
+}
+
+TEST_CASE("namespace_concurrent_access", "[platform][namespace]")
+{
+    _test_helper test_helper;
+    test_helper.initialize();
+
+    GUID test_namespace = {0x55555555, 0x5555, 0x5555, {0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55, 0x55}};
+
+    // Set namespace
+    REQUIRE(ebpf_namespace_set_current(&test_namespace) == EBPF_SUCCESS);
+
+    // Verify namespace persists across multiple calls
+    for (int i = 0; i < 10; i++) {
+        GUID current = ebpf_namespace_get_current();
+        REQUIRE(IsEqualGUID(current, test_namespace));
+
+        // Perform some operations that shouldn't affect namespace
+        ebpf_pinning_table_t* temp_table;
+        REQUIRE(ebpf_pinning_table_allocate(&temp_table) == EBPF_SUCCESS);
+        ebpf_pinning_table_free(temp_table);
+
+        // Namespace should still be the same
+        current = ebpf_namespace_get_current();
+        REQUIRE(IsEqualGUID(current, test_namespace));
+    }
+}
+
+TEST_CASE("namespace_stress_test", "[platform][namespace]")
+{
+    _test_helper test_helper;
+    test_helper.initialize();
+
+    // Create many different namespaces and switch between them rapidly
+    std::vector<GUID> namespaces;
+    for (int i = 0; i < 100; i++) {
+        GUID ns = {static_cast<DWORD>(i), 0x1000, 0x2000, {0x30, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01}};
+        namespaces.push_back(ns);
+    }
+
+    // Rapidly switch between namespaces
+    for (int round = 0; round < 10; round++) {
+        for (size_t i = 0; i < namespaces.size(); i++) {
+            REQUIRE(ebpf_namespace_set_current(&namespaces[i]) == EBPF_SUCCESS);
+            GUID current = ebpf_namespace_get_current();
+            REQUIRE(IsEqualGUID(current, namespaces[i]));
+        }
+    }
+
+    // Test reverse order
+    for (int round = 0; round < 10; round++) {
+        for (int i = static_cast<int>(namespaces.size()) - 1; i >= 0; i--) {
+            REQUIRE(ebpf_namespace_set_current(&namespaces[i]) == EBPF_SUCCESS);
+            GUID current = ebpf_namespace_get_current();
+            REQUIRE(IsEqualGUID(current, namespaces[i]));
+        }
+    }
 }

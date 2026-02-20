@@ -728,6 +728,14 @@ extern "C"
     ebpf_platform_thread_id();
 
     /**
+     * @brief Get the current process start key.
+     *
+     * @returns Process start key.
+     */
+    uint64_t
+    ebpf_platform_get_process_start_key();
+
+    /**
      * @brief Allocate memory for process state. Caller needs to call ebpf_free()
      *  to free the memory.
      *

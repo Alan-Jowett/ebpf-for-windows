@@ -46,6 +46,10 @@ extern "C"
         _Outptr_result_buffer_((*length_in_bits + 7) / 8) const uint8_t** data,
         _Out_ size_t* length_in_bits);
 
+    typedef uint32_t (*ebpf_hash_table_hash_function)(_In_ const uint8_t* key, _In_ uint32_t seed);
+
+    typedef int (*ebpf_hash_table_compare_function)(_In_ const uint8_t* key1, _In_ const uint8_t* key2);
+
     /**
      * @brief Options to pass to ebpf_hash_table_create.
      *
@@ -59,6 +63,8 @@ extern "C"
         size_t value_size; //< Size of value in bytes.
         // Optional fields.
         ebpf_hash_table_extract_function extract_function; //< Function to extract key from stored value.
+        ebpf_hash_table_hash_function hash_function; //< Function to compute hash from key - overrides default hashing.
+        ebpf_hash_table_compare_function compare_function; //< Function to compare keys - overrides default comparison.
         ebpf_hash_table_allocate allocate; //< Function to allocate memory - defaults to ebpf_epoch_allocate_with_tag.
         uint32_t allocation_tag;           //< Pool tag to use for allocations - if set to 0 or unspecified, defaults to
                                            // EBPF_POOL_TAG_EPOCH.
@@ -220,6 +226,24 @@ extern "C"
      */
     size_t
     ebpf_hash_table_key_count(_In_ const ebpf_hash_table_t* hash_table);
+
+    /**
+     * @brief Compute a hash value by chaining multiple data blobs together.
+     * This function allows callers to hash multiple pieces of data as if they were concatenated,
+     * without actually concatenating them. Uses the same hashing algorithm as the internal hash table.
+     *
+     * @param[in] seed Initial seed value for hashing.
+     * @param[in] data_count Number of data blobs to hash.
+     * @param[in] data_blobs Array of pointers to data blobs.
+     * @param[in] data_lengths Array of lengths (in bytes) corresponding to each data blob.
+     * @return 32-bit hash value.
+     */
+    uint32_t
+    ebpf_hash_table_compute_chain_hash(
+        _In_ uint32_t seed,
+        _In_ size_t data_count,
+        _In_reads_(data_count) const uint8_t* const* data_blobs,
+        _In_reads_(data_count) const size_t* data_lengths);
 
     /**
      * @brief Returns the next (key, value) pair in the hash table in lexicographical order.
