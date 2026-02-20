@@ -110,9 +110,9 @@ ebpf_random_terminate()
 uint32_t
 ebpf_random_uint32()
 {
-    KIRQL old_irql = KeGetCurrentIrql();
+    KIRQL old_irql = cxplat_get_current_irql();
     if (old_irql < DISPATCH_LEVEL) {
-        old_irql = KeRaiseIrqlToDpcLevel();
+        old_irql = cxplat_raise_irql(DISPATCH_LEVEL);
     }
 
     uint32_t cpu_index = ebpf_get_current_cpu();
