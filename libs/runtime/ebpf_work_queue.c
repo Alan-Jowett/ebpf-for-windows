@@ -54,12 +54,16 @@ ebpf_timed_work_queue_create(
     PROCESSOR_NUMBER processor_number;
     NTSTATUS status = KeGetProcessorNumberFromIndex(cpu_id, &processor_number);
     if (!NT_SUCCESS(status)) {
+        // CPU is not currently active (hot-add scenario). We cannot create a work queue
+        // for an inactive CPU as we cannot guarantee the work will run on the correct CPU.
         return_value = EBPF_INVALID_ARGUMENT;
         goto Done;
     }
 
     status = KeSetTargetProcessorDpcEx(&local_work_queue->dpc, &processor_number);
     if (!NT_SUCCESS(status)) {
+        // Failed to set processor affinity. We cannot proceed as we cannot guarantee
+        // the work will run on the correct CPU, which could cause race conditions.
         return_value = EBPF_INVALID_ARGUMENT;
         goto Done;
     }

@@ -37,6 +37,20 @@ extern "C"
     ebpf_epoch_terminate();
 
     /**
+     * @brief Create a work queue for a specific CPU (used for hot-add scenarios).
+     * This function can be called after ebpf_epoch_initiate() to create work queues
+     * for CPUs that become active after initialization.
+     *
+     * @param[in] cpu_id The CPU ID to create a work queue for.
+     * @retval EBPF_SUCCESS The work queue was created successfully.
+     * @retval EBPF_INVALID_ARGUMENT The CPU ID is invalid or the CPU is not active.
+     * @retval EBPF_NO_MEMORY Insufficient memory to create the work queue.
+     * @retval EBPF_INVALID_OBJECT The epoch system is not initialized.
+     */
+    _Must_inspect_result_ ebpf_result_t
+    ebpf_epoch_create_cpu_work_queue(uint32_t cpu_id);
+
+    /**
      * @brief Called prior to touching memory with lifetime under epoch control.
      * @param[in] epoch_state Pointer to epoch state to be filled in.
      */
