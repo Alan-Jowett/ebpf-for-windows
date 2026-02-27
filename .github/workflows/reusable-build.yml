@@ -246,13 +246,13 @@ jobs:
         run: msbuild /m /p:Configuration=${{env.BUILD_CONFIGURATION}} /p:Platform=${{env.BUILD_PLATFORM}} /p:HostPlatform=${{env.BUILD_PLATFORM}} ${{env.BUILD_OPTIONS}} ${{env.SOLUTION_FILE_PATH}}  /bl:out.binlog
 
       - name: Check DLL dependencies for distributed binaries
-        if: steps.skip_check.outputs.should_skip != 'true' && ((inputs.build_artifact == 'Build-x64' && matrix.configurations == 'Debug') || (inputs.build_artifact == 'Build-x64-native-only' && matrix.configurations == 'NativeOnlyRelease'))
+        if: steps.skip_check.outputs.should_skip != 'true' && ((inputs.build_artifact == 'Build-x64' && matrix.configurations == 'Debug') || (inputs.build_artifact == 'Build-x64-native-only' && matrix.configurations == 'Release'))
         working-directory: ./${{env.BUILD_PLATFORM}}/${{env.BUILD_CONFIGURATION}}
         run: |
           ..\..\scripts\check_binary_dependencies.ps1 -BuildArtifact "${{inputs.build_artifact}}_${{env.BUILD_CONFIGURATION}}" -VsToolsPath "${{env.msvc_tools_path}}"
 
       - name: Test the MSI
-        if: steps.skip_check.outputs.should_skip != 'true' && ((inputs.build_artifact == 'Build-x64' && matrix.configurations == 'Debug') || (inputs.build_artifact == 'Build-x64-native-only' && matrix.configurations == 'NativeOnlyRelease'))
+        if: steps.skip_check.outputs.should_skip != 'true' && ((inputs.build_artifact == 'Build-x64' && matrix.configurations == 'Debug') || (inputs.build_artifact == 'Build-x64-native-only' && matrix.configurations == 'Release'))
         working-directory: ./${{env.BUILD_PLATFORM}}/${{env.BUILD_CONFIGURATION}}
         run: |
           ..\..\scripts\check_msi_installation.ps1 -BuildArtifact "${{inputs.build_artifact}}_${{env.BUILD_CONFIGURATION}}" -MsiPath "ebpf-for-windows.msi"
@@ -265,12 +265,12 @@ jobs:
           copy "${{env.msvc_tools_path}}\bin\Hostx64\x64\clang*" .
 
       - name: Download demo Debug repository
-        if: steps.skip_check.outputs.should_skip != 'true' && inputs.download_demo_repository == true && (matrix.configurations == 'Debug' || matrix.configurations == 'NativeOnlyDebug')
+        if: steps.skip_check.outputs.should_skip != 'true' && inputs.download_demo_repository == true && matrix.configurations == 'Debug'
         working-directory: ${{env.GITHUB_WORKSPACE}}
         run: Invoke-WebRequest https://github.com/microsoft/ebpf-for-windows-demo/releases/download/v0.0.2/${{env.BUILD_PLATFORM}}-Debug-cilium-xdp.zip -OutFile x64-${{env.BUILD_CONFIGURATION}}-cilium-xdp.zip
 
       - name: Download demo Release repository
-        if: steps.skip_check.outputs.should_skip != 'true' && inputs.download_demo_repository == true && (matrix.configurations == 'Release' || matrix.configurations == 'NativeOnlyRelease')
+        if: steps.skip_check.outputs.should_skip != 'true' && inputs.download_demo_repository == true && matrix.configurations == 'Release'
         working-directory: ${{env.GITHUB_WORKSPACE}}
         run: Invoke-WebRequest https://github.com/microsoft/ebpf-for-windows-demo/releases/download/v0.0.2/${{env.BUILD_PLATFORM}}-Release-cilium-xdp.zip -OutFile x64-${{env.BUILD_CONFIGURATION}}-cilium-xdp.zip
 
@@ -325,31 +325,31 @@ jobs:
           path: ${{github.workspace}}/${{env.BUILD_PLATFORM}}/${{env.BUILD_CONFIGURATION}}/ebpf-for-windows.msi
 
       - name: Build the NuGet package
-        if: inputs.build_nuget == true && (matrix.configurations == 'Release' || matrix.configurations == 'NativeOnlyRelease') && steps.skip_check.outputs.should_skip != 'true'
+        if: inputs.build_nuget == true && matrix.configurations == 'Release' && steps.skip_check.outputs.should_skip != 'true'
         working-directory: ${{env.GITHUB_WORKSPACE}}
         run: msbuild /m /p:Configuration=${{env.BUILD_CONFIGURATION}} /p:Platform=${{env.BUILD_PLATFORM}} /p:HostPlatform=${{env.BUILD_PLATFORM}} ${{env.SOLUTION_FILE_PATH}} ${{env.BUILD_OPTIONS}} /t:tools\nuget /bl:out.binlog
 
       - name: Upload the NuGet package
-        if: inputs.build_nuget == true && (matrix.configurations == 'Release' || matrix.configurations == 'NativeOnlyRelease') && steps.skip_check.outputs.should_skip != 'true'
+        if: inputs.build_nuget == true && matrix.configurations == 'Release' && steps.skip_check.outputs.should_skip != 'true'
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
         with:
           name: ebpf-for-windows - NuGet package (${{inputs.build_artifact}}_${{env.BUILD_CONFIGURATION}})
           path: ${{github.workspace}}/${{env.BUILD_PLATFORM}}/${{env.BUILD_CONFIGURATION}}/eBPF-for-Windows.*.nupkg
 
       - name: Build the NuGet Redist package
-        if: inputs.build_nuget == true && (matrix.configurations == 'Release' || matrix.configurations == 'NativeOnlyRelease') && steps.skip_check.outputs.should_skip != 'true'
+        if: inputs.build_nuget == true && matrix.configurations == 'Release' && steps.skip_check.outputs.should_skip != 'true'
         working-directory: ${{env.GITHUB_WORKSPACE}}
         run: msbuild /m /p:Configuration=${{env.BUILD_CONFIGURATION}} /p:Platform=${{env.BUILD_PLATFORM}} /p:HostPlatform=${{env.BUILD_PLATFORM}} ${{env.SOLUTION_FILE_PATH}} ${{env.BUILD_OPTIONS}} /t:tools\redist-package /bl:out.binlog
 
       - name: Valdiate NuGet Redist package
-        if: inputs.build_nuget == true && (matrix.configurations == 'Release' || matrix.configurations == 'NativeOnlyRelease') && steps.skip_check.outputs.should_skip != 'true'
+        if: inputs.build_nuget == true && matrix.configurations == 'Release' && steps.skip_check.outputs.should_skip != 'true'
         working-directory: ${{env.GITHUB_WORKSPACE}}
         run: |
            $nugetFile = Get-ChildItem -Path .\${{env.BUILD_PLATFORM}}\${{env.BUILD_CONFIGURATION}} -Filter "*eBPF-for-Windows-Redist*.nupkg" | Select-Object -ExpandProperty FullName
            .\scripts\validate_redist_nuget_architecture.ps1 -NugetPackagePath $nugetFile -ExpectedArchitecture ${{env.BUILD_PLATFORM}}
 
       - name: Upload the NuGet Redist package
-        if: inputs.build_nuget == true && (matrix.configurations == 'Release' || matrix.configurations == 'NativeOnlyRelease') && steps.skip_check.outputs.should_skip != 'true'
+        if: inputs.build_nuget == true && matrix.configurations == 'Release' && steps.skip_check.outputs.should_skip != 'true'
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
         with:
           name: ebpf-for-windows - NuGet Redist package (${{inputs.build_artifact}}_${{env.BUILD_CONFIGURATION}})

@@ -71,17 +71,17 @@ jobs:
       generate_release_package: true
       build_msi: true
       build_nuget: true
-      configurations: '["NativeOnlyDebug", "NativeOnlyRelease"]'
+      configurations: '["Debug", "Release"]'
       build_options: /p:BuildOneBranch='True' /t:tools\onebranch /t:installer\ebpf-for-windows
       solution_file: "ebpf-for-windows.sln"
       architecture: ${{ matrix.Architecture }}
       download_demo_repository: false
 
-  # Perform the native-only build.
+  # Build ARM64 artifacts for tests that are not covered by the regular x64 build.
   regular_native-only:
     strategy:
       matrix:
-        Architecture: ['x64', 'ARM64']
+        Architecture: ['ARM64']
     # Always run this job.
     if: github.event_name == 'schedule' || github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch'
     uses: ./.github/workflows/reusable-build.yml
@@ -93,7 +93,7 @@ jobs:
       build_nuget: true
       download_demo_repository: false
       architecture: ${{ matrix.Architecture }}
-      configurations: '["NativeOnlyDebug", "NativeOnlyRelease"]'
+      configurations: '["Debug", "Release"]'
 
   # Run the unit tests in GitHub.
   unit_tests_appverif:
@@ -131,25 +131,7 @@ jobs:
       capture_etw: true
       leak_detection: true
 
-  # Run the unit tests for NativeOnly build in GitHub.
-  unit_tests_native_only:
-    # Always run this job.
-    needs: regular_native-only
-    uses: ./.github/workflows/reusable-test.yml
-    with:
-      name: unit_tests
-      pre_test: appverif -enable Exceptions Handles Locks Memory SRWLock Threadpool TLS DangerousAPIs DirtyStacks TimeRollOver -for unit_tests.exe
-      # Exclude [processes] test that CodeCoverage can't work with.
-      test_command: .\unit_tests.exe -d yes ~[processes]
-      build_artifact: Build-x64-native-only
-      environment: '["windows-2022"]'
-      code_coverage: true
-      gather_dumps: true
-      capture_etw: true
-      leak_detection: true
-      configurations: '["NativeOnlyDebug", "NativeOnlyRelease"]'
-
-  # Run the unit tests for NativeOnly build in GitHub.
+  # Run the unit tests for ARM64 artifacts in GitHub.
   unit_tests_native_only_arm64:
     # Always run this job.
     needs: regular_native-only
@@ -165,7 +147,7 @@ jobs:
       gather_dumps: true
       capture_etw: true
       leak_detection: true
-      configurations: '["NativeOnlyDebug", "NativeOnlyRelease"]'
+      configurations: '["Debug", "Release"]'
 
   # Run the netebpfext unit tests in GitHub.
   netebpf_ext_unit_tests:
@@ -254,7 +236,7 @@ jobs:
       capture_etw: false
 
   driver_native_only_tests:
-    needs: regular_native-only
+    needs: regular
     if: github.repository == 'microsoft/ebpf-for-windows' && (github.event_name == 'schedule' || github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch')
     uses: ./.github/workflows/reusable-test.yml
     strategy:
@@ -269,13 +251,13 @@ jobs:
       test_command: .\execute_ebpf_cicd_tests.ps1 -TestMode "CI/CD" -GranularTracing
       post_test: .\cleanup_ebpf_cicd_tests.ps1
       name: driver_${{ matrix.image }}
-      build_artifact: Build-x64-native-only
+      build_artifact: Build-x64
       environment: '["self-hosted", "1ES.Pool=ebpf-cicd-runner-pool-server-2019", "1ES.ImageOverride=${{ matrix.image }}"]'
       # Driver test copies dumps to testlog folder.
       gather_dumps: false
       # Driver tests manually gather code coverage.
       code_coverage: false
-      configurations: '["NativeOnlyDebug", "NativeOnlyRelease"]'
+      configurations: '["Debug", "Release"]'
       # Skip ETW tracing as the individual testcases will capture their own traces.
       capture_etw: false
 
@@ -295,7 +277,7 @@ jobs:
       gather_dumps: false
       # Driver tests manually gather code coverage.
       code_coverage: false
-      configurations: '["NativeOnlyDebug", "NativeOnlyRelease"]'
+      configurations: '["Debug", "Release"]'
       # Skip ETW tracing as the individual testcases will capture their own traces.
       capture_etw: false
 

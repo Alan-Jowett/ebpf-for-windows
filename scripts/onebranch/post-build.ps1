@@ -86,7 +86,7 @@ function CopyPackages {
     xcopy /y "include\*" $IncludeDir
 }
 
-if ($OneBranchConfig -eq "NativeOnlyDebug" -or $OneBranchConfig -eq "NativeOnlyRelease")
+if ($OneBranchConfig -eq "Debug" -or $OneBranchConfig -eq "Release")
 {
     if ($OneBranchArch -eq "x64" -or $OneBranchArch -eq "arm64")
     {
@@ -112,7 +112,7 @@ msbuild /p:SolutionDir=$SolutionDir\ /p:Configuration=$OneBranchConfig /p:Platfo
 
 # After building the packages
 # Copy the nupkg and msi to the output directory
-if ($OneBranchConfig -eq "NativeOnlyDebug" -or $OneBranchConfig -eq "NativeOnlyRelease")
+if ($OneBranchConfig -eq "Debug" -or $OneBranchConfig -eq "Release")
 {
     if ($OneBranchArch -eq "x64" -or $OneBranchArch -eq "arm64")
     {

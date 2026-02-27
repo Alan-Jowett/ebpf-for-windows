@@ -17,7 +17,7 @@ $buildArtifactParams = @{
         "InstallComponents" = "ADDLOCAL=eBPF_Runtime_Components"
         "ExpectedFileList" = "..\..\scripts\check_msi_installation_files_regular_debug.txt"
     }
-    "Build-x64-native-only_NativeOnlyRelease" = @{
+    "Build-x64-native-only_Release" = @{
         "InstallComponents" = "ADDLOCAL=eBPF_Runtime_Components"
         "ExpectedFileList" = "..\..\scripts\check_msi_installation_files_nativeonly_release.txt"
     }

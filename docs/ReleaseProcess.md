@@ -53,10 +53,8 @@ until the workflow completes successfully.
 The release manager must download the relevant artifacts from the build pipeline of the internal mirror repo including the binaries and MSI installers for x64 and ARM64 platforms.
 1. Upload these files, by dropping them in the "`Attach binaries by dropping them here or selecting them.`" area.
     For example, the file list for the release version `v0.21.1` are:
-    - `Build-native-only.NativeOnlyDebug.arm64.zip`
-    - `Build-native-only.NativeOnlyDebug.x64.zip`
-    - `Build-native-only.NativeOnlyRelease.arm64.zip`
-    - `Build-native-only.NativeOnlyRelease.x64.zip`
+    - `Build-native-only.Debug.arm64.zip`
+    - `Build-native-only.Release.arm64.zip`
     - `Build.Debug.x64.zip`
     - `Build.Release.x64.zip`
     - `ebpf-for-windows.arm64.0.21.1.msi`

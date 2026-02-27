@@ -96,14 +96,13 @@ The following steps need to be executed *once* before the first build on a new c
 
 ##### Setting compile time options when building from Developer Command Prompt
 
-`Debug` and `Release` configurations now compile with both JIT compiler and interpreter disabled by default
-(the same behavior as `NativeOnlyDebug` and `NativeOnlyRelease`).
+`Debug` and `Release` configurations now compile with both JIT compiler and interpreter disabled by default.
 The following properties are still available for explicit configuration:
 
 1. `DisableJIT` - Compile eBPF's *execution context* without support for eBPF JIT compiler.
 1. `DisableInterpreter` - Compile eBPF's *execution context* without support for eBPF interpreter.
 
-Both options are enabled by default in `Debug`, `Release`, `NativeOnlyDebug`, and `NativeOnlyRelease`.
+Both options are enabled by default in `Debug` and `Release`.
 
 #### Building using Visual Studio IDE
 
